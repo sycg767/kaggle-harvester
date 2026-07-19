@@ -136,6 +136,35 @@ def _extract_public_score(view: dict[str, Any]) -> float | None:
     return None
 
 
+def _extract_current_public_score(
+    view: dict[str, Any],
+) -> tuple[float | None, int | None, int | None]:
+    """返回榜单最佳分数、分数来源版本和当前版本。"""
+    try:
+        current_version = int(view.get("currentVersionNumber") or 0) or None
+    except (TypeError, ValueError):
+        current_version = None
+
+    best_submission = view.get("bestSubmissionScore") or {}
+    try:
+        best_version = int(best_submission.get("kernelVersionNumber") or 0) or None
+    except (TypeError, ValueError):
+        best_version = None
+    best_score = _parse_public_score(best_submission.get("scoreFormatted"))
+
+    if current_version and best_version and best_version != current_version:
+        # 当前版本可能仍在等待公开分数，只有 submission 已有新分数时才使用它。
+        submission_score = _parse_public_score(
+            (view.get("submission") or {}).get("scoreFormatted")
+        )
+        if submission_score is not None:
+            return submission_score, current_version, current_version
+        return best_score, best_version, current_version
+
+    score = _extract_public_score(view)
+    return score, best_version or current_version, current_version
+
+
 def _infer_score_direction_from_metric(metric: str | None) -> bool | None:
     """根据常见评估指标名称推断是否为越低越好。"""
     normalized = re.sub(r"[^a-z0-9]+", " ", (metric or "").lower()).strip()
@@ -860,9 +889,15 @@ class KaggleClient:
 
             def fetch_current_score(
                 ref: str,
-            ) -> tuple[str, Optional[float], bool]:
+            ) -> tuple[
+                str,
+                Optional[float],
+                bool,
+                Optional[int],
+                Optional[int],
+            ]:
                 if "/" not in ref:
-                    return ref, None, False
+                    return ref, None, False, None, None
                 owner, slug = ref.split("/", 1)
                 try:
                     view = ws.post(VIEW_MODEL, {
@@ -870,9 +905,12 @@ class KaggleClient:
                         "kernelSlug": slug,
                         "tab": "output",
                     })
-                    return ref, _extract_public_score(view), True
+                    score, score_version, current_version = (
+                        _extract_current_public_score(view)
+                    )
+                    return ref, score, True, score_version, current_version
                 except Exception:
-                    return ref, None, False
+                    return ref, None, False, None, None
 
             worker_count = min(4, len(refs_to_enrich))
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -881,7 +919,13 @@ class KaggleClient:
                     for ref in refs_to_enrich
                 }
                 for future in as_completed(futures):
-                    ref, current_score, fetch_succeeded = future.result()
+                    (
+                        ref,
+                        current_score,
+                        fetch_succeeded,
+                        score_version,
+                        current_version,
+                    ) = future.result()
                     if current_score is not None:
                         base[ref].public_score = current_score
                         base[ref].public_score_display = f"{current_score:.4f}"
@@ -896,6 +940,8 @@ class KaggleClient:
                                 if current_score is not None
                                 else None
                             ),
+                            score_version_number=score_version,
+                            current_version_number=current_version,
                         )
         except Exception:
             pass

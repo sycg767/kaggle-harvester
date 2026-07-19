@@ -66,7 +66,14 @@ class PersistentCacheTests(unittest.TestCase):
     def test_current_score_changes_only_when_last_run_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             cache = PersistentKernelScoreCache(temp_dir)
-            cache.set_current("owner/kernel", "run-1", 7.1, "7.1000")
+            cache.set_current(
+                "owner/kernel",
+                "run-1",
+                7.1,
+                "7.1000",
+                score_version_number=1,
+                current_version_number=1,
+            )
 
             self.assertEqual(
                 cache.get_current("owner/kernel", "run-1").public_score,  # type: ignore[union-attr]
@@ -82,6 +89,50 @@ class PersistentCacheTests(unittest.TestCase):
             self.assertIsNotNone(cache.get_current("owner/kernel", "run-1"))
             cache.NEGATIVE_SCORE_TTL_SECONDS = 0
             self.assertIsNone(cache.get_current("owner/kernel", "run-1"))
+
+    def test_score_from_previous_version_expires_for_recheck(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = PersistentKernelScoreCache(temp_dir)
+            cache.set_current(
+                "owner/kernel",
+                "run-2",
+                7.004,
+                "7.0040",
+                score_version_number=58,
+                current_version_number=59,
+            )
+            self.assertEqual(
+                cache.get_current("owner/kernel", "run-2").public_score,  # type: ignore[union-attr]
+                7.004,
+            )
+            cache.NEGATIVE_SCORE_TTL_SECONDS = 0
+            self.assertIsNone(cache.get_current("owner/kernel", "run-2"))
+
+    def test_score_without_resolved_versions_expires_for_recheck(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = PersistentKernelScoreCache(temp_dir)
+            cache.set_current("owner/kernel", "run-2", 7.004, "7.0040")
+
+            self.assertEqual(
+                cache.get_current("owner/kernel", "run-2").public_score,  # type: ignore[union-attr]
+                7.004,
+            )
+            cache.NEGATIVE_SCORE_TTL_SECONDS = 0
+            self.assertIsNone(cache.get_current("owner/kernel", "run-2"))
+
+    def test_legacy_current_score_without_version_is_refreshed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = PersistentKernelScoreCache(temp_dir)
+            path = Path(temp_dir) / "_cache" / "kernel_scores.json"
+            path.write_text(
+                '{"schema_version": 1, "kernels": {"owner/kernel": {'
+                '"current": {"last_run_time": "run-1", '
+                '"public_score": 7.1, "public_score_display": "7.1000", '
+                '"checked_at": "2026-07-20T00:00:00+00:00"}}}}',
+                encoding="utf-8",
+            )
+            restored = PersistentKernelScoreCache(temp_dir)
+            self.assertIsNone(restored.get_current("owner/kernel", "run-1"))
 
     def test_completed_versions_are_append_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

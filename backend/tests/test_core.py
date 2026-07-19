@@ -13,6 +13,7 @@ from harvester.auto_archive import AutoArchiveManager
 from harvester.cache import PersistentKernelMetadataCache
 from harvester.kaggle_client import (
     _extract_public_score,
+    _extract_current_public_score,
     _infer_score_direction_from_metric,
     _locate_utf8_wrapper,
     _parse_public_score,
@@ -218,6 +219,30 @@ class ScoreParserTests(unittest.TestCase):
             _extract_public_score({"submission": {"scoreFormatted": "7.100"}}),
             7.1,
         )
+
+    def test_current_score_rejects_old_best_score_after_new_version(self) -> None:
+        score, score_version, current_version = _extract_current_public_score({
+            "currentVersionNumber": 59,
+            "bestSubmissionScore": {
+                "kernelVersionNumber": 58,
+                "scoreFormatted": "7.004",
+            },
+            "submission": {"scoreFormatted": None},
+        })
+        self.assertEqual(score, 7.004)
+        self.assertEqual(score_version, 58)
+        self.assertEqual(current_version, 59)
+
+        score, score_version, current_version = _extract_current_public_score({
+            "currentVersionNumber": 59,
+            "bestSubmissionScore": {
+                "kernelVersionNumber": 59,
+                "scoreFormatted": "6.979",
+            },
+        })
+        self.assertEqual(score, 6.979)
+        self.assertEqual(score_version, 59)
+        self.assertEqual(current_version, 59)
 
 
 class KernelScoreSortTests(unittest.TestCase):

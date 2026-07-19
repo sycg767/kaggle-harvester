@@ -295,7 +295,20 @@ class PersistentKernelScoreCache:
             )
             if not current or current.get("last_run_time") != last_run_time:
                 return None
-            if current.get("public_score") is None:
+            # 旧版本缓存没有记录当前版本与分数来源版本，首次升级时强制刷新。
+            if (
+                "score_version_number" not in current
+                or "current_version_number" not in current
+            ):
+                return None
+            score_pending = (
+                current.get("public_score") is None
+                or current.get("current_version_number") is None
+                or current.get("score_version_number") is None
+                or current.get("current_version_number")
+                != current.get("score_version_number")
+            )
+            if score_pending:
                 try:
                     checked_at = datetime.fromisoformat(
                         str(current.get("checked_at") or "")
@@ -320,6 +333,8 @@ class PersistentKernelScoreCache:
         last_run_time: Optional[str],
         public_score: Optional[float],
         public_score_display: Optional[str],
+        score_version_number: Optional[int] = None,
+        current_version_number: Optional[int] = None,
     ) -> None:
         with self._lock:
             kernel = self._data.setdefault("kernels", {}).setdefault(
@@ -329,6 +344,8 @@ class PersistentKernelScoreCache:
                 "last_run_time": last_run_time,
                 "public_score": public_score,
                 "public_score_display": public_score_display,
+                "score_version_number": score_version_number,
+                "current_version_number": current_version_number,
                 "checked_at": datetime.now(timezone.utc).isoformat(),
             }
             self._save()
