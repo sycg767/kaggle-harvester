@@ -108,6 +108,29 @@ const normalizeEnumLabel = (value: unknown, kind: 'language' | 'kernel') => {
   return (kind === 'language' ? languageLabels : kernelLabels)[normalized] || readable;
 };
 
+const metadataValue = (
+  metadata: Record<string, unknown> | undefined,
+  ...keys: string[]
+) => keys.map((key) => metadata?.[key]).find((value) => value !== undefined && value !== null);
+
+const normalizeBoolean = (value: unknown): boolean | undefined => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (['true', '1', 'yes', 'enabled'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'disabled'].includes(normalized)) return false;
+  return undefined;
+};
+
+const normalizeMachineShape = (value: unknown) => {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return '';
+  if (normalized.toLowerCase() === 'gpu') return 'GPU';
+  if (normalized.toLowerCase() === 'cpu') return 'CPU';
+  if (normalized.toLowerCase() === 'tpu') return 'TPU';
+  return normalized;
+};
+
 const sourceLink = (kind: 'dataset' | 'kernel' | 'competition', source: string) => {
   const normalized = source
     .replace(/^datasets\//, '')
@@ -393,6 +416,15 @@ const ArchiveManager: React.FC = () => {
 
   const metadata = detailMetadata?.metadata;
   const inputs = detailMetadata?.input_sources;
+  const gpuEnabled = normalizeBoolean(metadataValue(
+    metadata, 'enableGpu', 'enable_gpu', 'isGpuEnabled',
+  ));
+  const internetEnabled = normalizeBoolean(metadataValue(
+    metadata, 'enableInternet', 'enable_internet', 'isInternetEnabled',
+  ));
+  const machineShape = normalizeMachineShape(metadataValue(
+    metadata, 'machineShape', 'machine_shape', 'acceleratorType',
+  ));
 
   return (
     <div className="page-shell">
@@ -619,8 +651,8 @@ const ArchiveManager: React.FC = () => {
                 <div className="archive-detail-grid is-compact">
                   <DetailField label="语言">{normalizeEnumLabel(metadata.language, 'language')}</DetailField>
                   <DetailField label="类型">{normalizeEnumLabel(metadata.kernelType, 'kernel')}</DetailField>
-                  <DetailField label="GPU">{metadata.enableGpu === true ? <Tag color="success">已启用</Tag> : metadata.enableGpu === false ? <Tag>未启用</Tag> : <Tag>未记录</Tag>}</DetailField>
-                  <DetailField label="Internet">{metadata.enableInternet === true ? <Tag color="success">已启用</Tag> : metadata.enableInternet === false ? <Tag>未启用</Tag> : <Tag>未记录</Tag>}</DetailField>
+                  <DetailField label="GPU">{gpuEnabled === true ? <Tag color="success">已启用{machineShape ? ` · ${machineShape}` : ''}</Tag> : gpuEnabled === false ? <Tag>未启用{machineShape ? ` · ${machineShape}` : ''}</Tag> : <Tag>未记录</Tag>}</DetailField>
+                  <DetailField label="Internet">{internetEnabled === true ? <Tag color="success">已启用</Tag> : internetEnabled === false ? <Tag>未启用</Tag> : <Tag>未记录</Tag>}</DetailField>
                 </div>
               </section>
             )}

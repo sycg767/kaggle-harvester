@@ -302,6 +302,70 @@ class Archiver:
                 return source_path
         return self._find_source_file(archive_path)
 
+    def get_archive_metadata(self, archive_id: str) -> dict:
+        """读取归档元数据，并为旧归档按平台版本补全运行配置。"""
+        entry = self._index.get(archive_id)
+        if entry is None:
+            raise KeyError(archive_id)
+        archive_path = self.get_archive_path(archive_id)
+        if not archive_path.exists():
+            raise FileNotFoundError(archive_path)
+
+        metadata_path = archive_path / "kernel-metadata.json"
+        metadata: dict = {}
+        if metadata_path.exists():
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+        aliases = {
+            "enableGpu": ("enableGpu", "enable_gpu", "isGpuEnabled"),
+            "enableInternet": (
+                "enableInternet",
+                "enable_internet",
+                "isInternetEnabled",
+            ),
+            "machineShape": ("machineShape", "machine_shape"),
+        }
+        changed = False
+        for target, source_names in aliases.items():
+            if target in metadata:
+                continue
+            for source_name in source_names:
+                if source_name in metadata and metadata[source_name] is not None:
+                    metadata[target] = metadata[source_name]
+                    changed = True
+                    break
+
+        if "enableGpu" not in metadata or "enableInternet" not in metadata:
+            try:
+                runtime_metadata = self._kaggle.get_kernel_runtime_metadata(
+                    entry.ref, entry.version_number
+                )
+            except Exception:
+                runtime_metadata = {}
+            for key, value in runtime_metadata.items():
+                if value is not None and metadata.get(key) != value:
+                    metadata[key] = value
+                    changed = True
+
+        if changed:
+            with self._lock:
+                temp_path = metadata_path.with_suffix(".tmp")
+                temp_path.write_text(
+                    json.dumps(metadata, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                temp_path.replace(metadata_path)
+                entry.file_count, entry.size_bytes = self._directory_stats(archive_path)
+                self._save_index()
+
+        result: dict = {"metadata": metadata} if metadata else {}
+        inputs_path = archive_path / "input_sources.json"
+        if inputs_path.exists():
+            result["input_sources"] = json.loads(
+                inputs_path.read_text(encoding="utf-8")
+            )
+        return result
+
     def update_public_score(self, archive_id: str, score: Optional[float]) -> None:
         with self._lock:
             entry = self._index.get(archive_id)

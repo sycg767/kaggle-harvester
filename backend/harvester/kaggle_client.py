@@ -238,6 +238,47 @@ class KaggleClient:
             or ""
         ).strip().lower()
 
+    def get_kernel_runtime_metadata(
+        self, kernel_ref: str, version_number: int
+    ) -> dict[str, Any]:
+        """读取指定平台版本的 GPU、Internet 和机器规格。"""
+        if "/" not in kernel_ref or version_number <= 0:
+            return {}
+        owner, slug = kernel_ref.split("/", 1)
+        from kagglesdk.kaggle_http_client import KaggleHttpClient
+        from kagglesdk.kernels.services.kernels_api_service import (
+            KernelsApiClient,
+        )
+        from kagglesdk.kernels.types.kernels_api_service import (
+            ApiGetKernelRequest,
+        )
+
+        request = ApiGetKernelRequest()
+        request.user_name = owner
+        request.kernel_slug = slug
+        request.version_label = f"v{version_number}"
+        response = KernelsApiClient(KaggleHttpClient()).get_kernel(request)
+        metadata = response.to_dict().get("metadata") or {}
+        aliases = {
+            "enableGpu": ("enableGpu", "enable_gpu", "isGpuEnabled"),
+            "enableInternet": (
+                "enableInternet",
+                "enable_internet",
+                "isInternetEnabled",
+            ),
+            "machineShape": ("machineShape", "machine_shape"),
+        }
+        result: dict[str, Any] = {}
+        for target, source_names in aliases.items():
+            for source_name in source_names:
+                if source_name in metadata and metadata[source_name] is not None:
+                    result[target] = metadata[source_name]
+                    break
+        if result:
+            result["runtimeMetadataSource"] = "kaggle_sdk_version"
+            result["runtimeMetadataVersion"] = version_number
+        return result
+
     def enrich_kernel_metadata(
         self,
         kernels: list[KernelSummary] | list[ScoredKernel],
@@ -1119,6 +1160,24 @@ class KaggleClient:
                 "datasetSources": dataset_sources,
                 "competitionSources": competition_sources,
             }
+            try:
+                runtime_metadata = self.get_kernel_runtime_metadata(
+                    kernel_ref, version_number
+                )
+            except Exception:
+                runtime_metadata = {}
+            if "enableGpu" not in runtime_metadata:
+                gpu_enabled = kernel_run.get("isGpuEnabled")
+                if gpu_enabled is not None:
+                    runtime_metadata["enableGpu"] = gpu_enabled
+            if "machineShape" not in runtime_metadata:
+                accelerator_type = kernel_run.get("acceleratorType")
+                if accelerator_type:
+                    runtime_metadata["machineShape"] = accelerator_type
+            if runtime_metadata and "runtimeMetadataSource" not in runtime_metadata:
+                runtime_metadata["runtimeMetadataSource"] = "kernel_run"
+                runtime_metadata["runtimeMetadataVersion"] = version_number
+            metadata.update(runtime_metadata)
             (output_path / "kernel-metadata.json").write_text(
                 json.dumps(metadata, ensure_ascii=False, indent=2),
                 encoding="utf-8",

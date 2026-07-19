@@ -57,7 +57,20 @@ class FakeKaggleClient:
     def __init__(self, scored: bool = True) -> None:
         self.calls = 0
         self.version_calls = 0
+        self.runtime_metadata_calls = 0
         self.scored = scored
+
+    def get_kernel_runtime_metadata(
+        self, kernel_ref: str, version_number: int
+    ) -> dict:
+        self.runtime_metadata_calls += 1
+        return {
+            "enableGpu": True,
+            "enableInternet": False,
+            "machineShape": "Gpu",
+            "runtimeMetadataSource": "kaggle_sdk_version",
+            "runtimeMetadataVersion": version_number,
+        }
 
     def get_kernel_versions(
         self, kernel_ref: str, refresh: bool = False
@@ -329,6 +342,15 @@ class KernelLocalDownloadTests(unittest.TestCase):
                     pass
 
             from unittest.mock import patch
+            client.get_kernel_runtime_metadata = (  # type: ignore[method-assign]
+                lambda kernel_ref, version_number: {
+                    "enableGpu": True,
+                    "enableInternet": False,
+                    "machineShape": "Gpu",
+                    "runtimeMetadataSource": "kaggle_sdk_version",
+                    "runtimeMetadataVersion": version_number,
+                }
+            )
             with patch(
                 "harvester.kaggle_client.KaggleWebServiceClient",
                 FakeWebService,
@@ -345,6 +367,12 @@ class KernelLocalDownloadTests(unittest.TestCase):
             self.assertTrue(Path(temp_dir, "kernel-metadata.json").exists())
             self.assertTrue(Path(temp_dir, "outputs", "result.csv").exists())
             self.assertEqual(result["selected_version"], 1)
+            metadata = json.loads(
+                Path(temp_dir, "kernel-metadata.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(metadata["enableGpu"])
+            self.assertFalse(metadata["enableInternet"])
+            self.assertEqual(metadata["machineShape"], "Gpu")
 
 
 class ArchiverTests(unittest.TestCase):
@@ -368,6 +396,16 @@ class ArchiverTests(unittest.TestCase):
             self.assertEqual(entries[0].file_count, 4)
             self.assertGreater(entries[0].size_bytes, 0)
             self.assertEqual(entries[0].competition, "example-competition")
+
+            detail = archiver.get_archive_metadata(entries[0].id)
+            self.assertTrue(detail["metadata"]["enableGpu"])
+            self.assertFalse(detail["metadata"]["enableInternet"])
+            self.assertEqual(detail["metadata"]["machineShape"], "Gpu")
+            self.assertEqual(client.runtime_metadata_calls, 1)
+
+            cached_detail = archiver.get_archive_metadata(entries[0].id)
+            self.assertFalse(cached_detail["metadata"]["enableInternet"])
+            self.assertEqual(client.runtime_metadata_calls, 1)
 
             duplicate = archiver.archive_kernel(
                 "owner/kernel", score_direction="minimize"

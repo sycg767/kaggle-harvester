@@ -629,16 +629,7 @@ async def get_archive_metadata(archive_id: str):
         if not archive_path.exists():
             raise HTTPException(status_code=404, detail="Archive files not found on disk")
 
-        result = {}
-        meta_file = archive_path / "kernel-metadata.json"
-        if meta_file.exists():
-            result["metadata"] = json.loads(meta_file.read_text(encoding="utf-8"))
-
-        inputs_file = archive_path / "input_sources.json"
-        if inputs_file.exists():
-            result["input_sources"] = json.loads(inputs_file.read_text(encoding="utf-8"))
-
-        return result
+        return await run_in_threadpool(archiver.get_archive_metadata, archive_id)
     except HTTPException:
         raise
     except Exception as exc:
