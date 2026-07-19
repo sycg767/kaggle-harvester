@@ -10,7 +10,7 @@ import re
 import smtplib
 import ssl
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Optional
@@ -33,6 +33,22 @@ from .models import (
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+BEIJING_TIMEZONE = timezone(timedelta(hours=8), name="北京时间")
+
+
+def _format_beijing_time(value: str) -> str:
+    """把内部保存的 ISO 时间转换为通知中使用的北京时间。"""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(BEIJING_TIMEZONE).strftime(
+            "%Y-%m-%d %H:%M:%S（北京时间）"
+        )
+    except (TypeError, ValueError):
+        return value
 
 
 class _DataBlob(ctypes.Structure):
@@ -430,7 +446,7 @@ class NotificationManager:
         )
         lines = [
             f"竞赛：{competition}",
-            f"完成时间：{log.finished_at}",
+            f"完成时间：{_format_beijing_time(log.finished_at)}",
             (
                 "结果："
                 f"检查 {log.checked_count}，命中 {log.matched_count}，"
@@ -613,13 +629,17 @@ class NotificationManager:
         channels = self._enabled_channels(config)
         if not channels:
             raise ValueError("请先启用至少一个通知通道。")
+        created_at = _utc_now_iso()
         event = {
             "id": "test",
             "event": "notification_test",
             "title": "Kaggle Harvester：测试通知",
-            "text": "通知通道配置成功。后续仅在有新增归档或检查失败时发送。",
+            "text": (
+                "通知通道配置成功。后续仅在有新增归档或检查失败时发送。\n"
+                f"完成时间：{_format_beijing_time(created_at)}"
+            ),
             "competition": "test",
-            "created_at": _utc_now_iso(),
+            "created_at": created_at,
             "summary": {},
         }
         results: list[NotificationChannelResult] = []

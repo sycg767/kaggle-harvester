@@ -31,6 +31,7 @@ from harvester.models import (
     VersionScoreList,
 )
 from harvester.notifications import NotificationManager
+from harvester.notifications import _format_beijing_time
 
 
 class FakeSecretStore:
@@ -503,6 +504,39 @@ class AutoArchiveTests(unittest.IsolatedAsyncioTestCase):
 
 
 class NotificationTests(unittest.IsolatedAsyncioTestCase):
+    def test_notification_time_is_formatted_as_beijing_time(self) -> None:
+        self.assertEqual(
+            _format_beijing_time("2026-01-01T00:00:01Z"),
+            "2026-01-01 08:00:01（北京时间）",
+        )
+
+        self.assertEqual(
+            _format_beijing_time("2026-01-01T08:00:01+08:00"),
+            "2026-01-01 08:00:01（北京时间）",
+        )
+
+    async def test_test_notification_includes_beijing_completion_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            manager = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            events: list[dict] = []
+            manager._send_channel = (  # type: ignore[method-assign]
+                lambda channel, event: events.append(event)
+            )
+            await manager.update_config(NotificationConfigUpdate(
+                webhook_enabled=True,
+                webhook_url="https://example.com/hook",
+            ))
+
+            result = await manager.send_test()
+
+            self.assertTrue(result.success)
+            self.assertEqual(len(events), 1)
+            self.assertIn("完成时间：", events[0]["text"])
+            self.assertIn("北京时间", events[0]["text"])
+
     async def test_archive_event_is_queued_delivered_and_deduplicated(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             secrets = FakeSecretStore()
