@@ -32,6 +32,18 @@ from .models import (
 KAGGLE_WEB_BASE = "https://www.kaggle.com/api/i"
 VIEW_MODEL = "kernels.LegacyKernelsService/GetKernelViewModel"
 LIST_VERSIONS = "kernels.KernelsService/ListKernelVersions"
+UTF8_WRAPPER_NAME = "Invoke-KaggleUtf8.ps1"
+
+
+def _locate_utf8_wrapper(module_file: str | Path) -> Path:
+    """逐级查找 Windows Kaggle UTF-8 包装脚本，兼容浅层容器路径。"""
+    module_path = Path(module_file).resolve()
+    for parent in module_path.parents:
+        candidate = parent / "scripts" / UTF8_WRAPPER_NAME
+        if candidate.exists():
+            return candidate
+    # Linux 不使用该脚本；返回稳定的缺失路径供 readiness 展示即可。
+    return module_path.parent / UTF8_WRAPPER_NAME
 
 
 class KaggleWebServiceClient:
@@ -186,11 +198,7 @@ class KaggleClient:
         self._score_cache = score_cache
         self._metadata_cache = metadata_cache
         self._competition_info_memory: dict[str, CompetitionInfo] = {}
-        self._utf8_wrapper = (
-            Path(__file__).resolve().parents[4]
-            / "scripts"
-            / "Invoke-KaggleUtf8.ps1"
-        )
+        self._utf8_wrapper = _locate_utf8_wrapper(__file__)
         if self._token:
             os.environ["KAGGLE_API_TOKEN"] = self._token
 

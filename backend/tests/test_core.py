@@ -14,6 +14,7 @@ from harvester.cache import PersistentKernelMetadataCache
 from harvester.kaggle_client import (
     _extract_public_score,
     _infer_score_direction_from_metric,
+    _locate_utf8_wrapper,
     _parse_public_score,
 )
 from harvester.kaggle_client import KaggleClient
@@ -206,6 +207,19 @@ class ScoreParserTests(unittest.TestCase):
 
 
 class KernelScoreSortTests(unittest.TestCase):
+    def test_utf8_wrapper_lookup_accepts_shallow_container_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            module_file = Path(temp_dir) / "app" / "harvester" / "kaggle_client.py"
+            module_file.parent.mkdir(parents=True)
+            module_file.touch()
+
+            wrapper = _locate_utf8_wrapper(module_file)
+
+            self.assertEqual(
+                wrapper,
+                module_file.parent / "Invoke-KaggleUtf8.ps1",
+            )
+
     def test_score_sort_uses_sdk_path_instead_of_vote_list(self) -> None:
         client = KaggleClient()
         expected = [
