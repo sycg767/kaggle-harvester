@@ -63,11 +63,11 @@ docker compose version
 
 ## 三、服务器目录
 
-源码和运行数据分开管理：
+先创建空的源码目录并把权限交给部署用户。此时不要提前创建子目录，否则 Git 无法克隆到非空目录：
 
 ```bash
-sudo mkdir -p /opt/kaggle-harvester/harvested_kernels
-sudo chown -R "$USER":"$USER" /opt/kaggle-harvester
+sudo mkdir -p /opt/kaggle-harvester
+sudo chown "$USER":"$USER" /opt/kaggle-harvester
 cd /opt/kaggle-harvester
 ```
 
@@ -88,8 +88,7 @@ cd /opt/kaggle-harvester
 推荐使用服务器上的 SSH Deploy Key，避免在命令行里输入 Git 密码：
 
 ```bash
-cd /opt
-git clone <你的私有仓库地址> kaggle-harvester
+git clone <你的私有仓库地址> /opt/kaggle-harvester
 cd /opt/kaggle-harvester
 mkdir -p harvested_kernels
 ```
