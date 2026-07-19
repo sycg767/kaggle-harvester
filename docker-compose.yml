@@ -1,0 +1,39 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      HARVEST_ROOT: /data/harvested_kernels
+      KAGGLE_API_TOKEN: ${KAGGLE_API_TOKEN:-}
+      KAGGLE_COMPETITION: ${KAGGLE_COMPETITION:-rogii-wellbore-geology-prediction}
+      HARVESTER_NOTIFICATION_WEBHOOK_URL: ${HARVESTER_NOTIFICATION_WEBHOOK_URL:-}
+      HARVESTER_NOTIFICATION_SMTP_PASSWORD: ${HARVESTER_NOTIFICATION_SMTP_PASSWORD:-}
+    volumes:
+      - ./harvested_kernels:/data/harvested_kernels
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:80"

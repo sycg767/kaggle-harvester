@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.deploy.example
+!backend/.env.example
+backend/.env
+backend/*.log
+frontend/*.log
+*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+backend/__pycache__/
+backend/harvester/__pycache__/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+harvested_kernels/
