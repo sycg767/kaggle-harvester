@@ -113,14 +113,17 @@ class NotificationSecretStore:
     def storage_mode(self) -> str:
         if any(os.environ.get(name) for name in self.ENVIRONMENT_KEYS.values()):
             return "environment"
-        return "windows_dpapi" if os.name == "nt" else "session"
+        return "windows_dpapi" if os.name == "nt" else "file"
 
     def _load(self) -> None:
-        if os.name != "nt" or not self._path.exists():
+        if not self._path.exists():
             return
         try:
-            encrypted = base64.b64decode(self._path.read_bytes(), validate=True)
-            payload = json.loads(_dpapi_transform(encrypted, False))
+            raw = base64.b64decode(self._path.read_bytes(), validate=True)
+            if os.name == "nt":
+                payload = json.loads(_dpapi_transform(raw, False))
+            else:
+                payload = json.loads(raw.decode("utf-8"))
             if isinstance(payload, dict):
                 self._values = {
                     str(key): str(value)
@@ -144,15 +147,20 @@ class NotificationSecretStore:
                     self._values[key] = value
                 else:
                     self._values.pop(key, None)
-            if os.name != "nt":
-                return
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            encrypted = _dpapi_transform(
-                json.dumps(self._values, ensure_ascii=False).encode("utf-8"),
-                True,
-            )
+            payload = json.dumps(self._values, ensure_ascii=False).encode("utf-8")
+            if os.name == "nt":
+                blob = base64.b64encode(_dpapi_transform(payload, True))
+            else:
+                # Linux/容器无法使用 DPAPI；至少落盘，避免容器重启丢凭据。
+                # 生产环境仍推荐用环境变量注入。
+                blob = base64.b64encode(payload)
             temp_path = self._path.with_suffix(".tmp")
-            temp_path.write_bytes(base64.b64encode(encrypted))
+            temp_path.write_bytes(blob)
+            try:
+                os.chmod(temp_path, 0o600)
+            except OSError:
+                pass
             temp_path.replace(self._path)
 
 
@@ -301,6 +309,7 @@ class NotificationManager:
     ) -> NotificationSnapshot:
         current_webhook = self._secret_store.get("webhook_url")
         current_password = self._secret_store.get("smtp_password")
+        provided = request.model_dump(exclude_unset=True)
         webhook_url = (
             ""
             if request.clear_webhook_url
@@ -311,27 +320,39 @@ class NotificationManager:
             if request.clear_smtp_password
             else request.smtp_password or current_password
         )
-        recipients = list(
-            dict.fromkeys(item.strip().lower() for item in request.smtp_to if item.strip())
-        )
-        config = NotificationConfig(
-            **request.model_dump(
-                exclude={
-                    "webhook_url",
-                    "smtp_password",
-                    "clear_webhook_url",
-                    "clear_smtp_password",
-                    "smtp_to",
-                    "smtp_host",
-                    "smtp_username",
-                    "smtp_from",
-                }
-            ),
-            smtp_host=request.smtp_host.strip(),
-            smtp_username=request.smtp_username.strip(),
-            smtp_from=request.smtp_from.strip(),
-            smtp_to=recipients,
-        )
+
+        with self._lock:
+            current = self._config.model_dump()
+
+        # 只覆盖请求里明确出现的字段，避免“改阈值顺带保存”把缺省值写成关闭。
+        for key in (
+            "notify_on_archive",
+            "notify_on_failure",
+            "webhook_enabled",
+            "webhook_format",
+            "email_enabled",
+            "smtp_port",
+            "smtp_security",
+        ):
+            if key in provided and provided[key] is not None:
+                current[key] = provided[key]
+
+        if "smtp_host" in provided and provided["smtp_host"] is not None:
+            current["smtp_host"] = str(provided["smtp_host"]).strip()
+        if "smtp_username" in provided and provided["smtp_username"] is not None:
+            current["smtp_username"] = str(provided["smtp_username"]).strip()
+        if "smtp_from" in provided and provided["smtp_from"] is not None:
+            current["smtp_from"] = str(provided["smtp_from"]).strip()
+        if "smtp_to" in provided and provided["smtp_to"] is not None:
+            current["smtp_to"] = list(
+                dict.fromkeys(
+                    item.strip().lower()
+                    for item in provided["smtp_to"]
+                    if item and item.strip()
+                )
+            )
+
+        config = NotificationConfig(**current)
         self._validate_config(config, webhook_url, smtp_password)
         secret_updates: dict[str, Optional[str]] = {}
         if request.clear_webhook_url or (request.webhook_url or "").strip():

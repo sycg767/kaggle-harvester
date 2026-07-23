@@ -190,9 +190,25 @@ class NotificationConfig(BaseModel):
     smtp_to: list[str] = Field(default_factory=list, max_length=20)
 
 
-class NotificationConfigUpdate(NotificationConfig):
-    """通知配置更新请求；敏感字段只在用户主动填写时传输。"""
+class NotificationConfigUpdate(BaseModel):
+    """通知配置更新请求；未提供的字段保持服务端现值。
 
+    敏感字段只在用户主动填写时传输；未填写时保留已保存凭据。
+    """
+
+    notify_on_archive: Optional[bool] = None
+    notify_on_failure: Optional[bool] = None
+    webhook_enabled: Optional[bool] = None
+    webhook_format: Optional[
+        Literal["generic", "slack", "feishu", "dingtalk", "wecom", "ntfy"]
+    ] = None
+    email_enabled: Optional[bool] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    smtp_security: Optional[Literal["starttls", "ssl", "none"]] = None
+    smtp_username: Optional[str] = None
+    smtp_from: Optional[str] = None
+    smtp_to: Optional[list[str]] = Field(default=None, max_length=20)
     webhook_url: Optional[str] = Field(default=None, max_length=2000)
     smtp_password: Optional[str] = Field(default=None, max_length=1000)
     clear_webhook_url: bool = False
@@ -204,7 +220,7 @@ class NotificationConfigView(NotificationConfig):
 
     webhook_configured: bool = False
     smtp_password_configured: bool = False
-    secret_storage: Literal["windows_dpapi", "environment", "session"] = "session"
+    secret_storage: Literal["windows_dpapi", "environment", "file", "session"] = "session"
 
 
 class NotificationStatus(BaseModel):

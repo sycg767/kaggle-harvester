@@ -838,8 +838,13 @@ class KaggleClient:
         summaries: list[KernelSummary],
         competition: Optional[str] = None,
         score_limit: Optional[int] = None,
+        force_refresh: bool = False,
     ) -> list[ScoredKernel]:
-        """为列表补充当前 Kernel 版本的公开分数。"""
+        """为列表补充当前 Kernel 版本的公开分数。
+
+        force_refresh=True 时忽略按 last_run_time 命中的当前分数缓存，
+        重新请求 Kaggle Web 接口。这样“刷新分数榜”才能拿到重算后的新分。
+        """
         comp = competition or self.competition_slug
 
         # Build base entries from summaries
@@ -868,6 +873,9 @@ class KaggleClient:
         refs_to_fetch: list[str] = []
         for ref in refs_to_enrich:
             summary = summary_by_ref[ref]
+            if force_refresh:
+                refs_to_fetch.append(ref)
+                continue
             cached = (
                 self._score_cache.get_current(ref, summary.last_run_time)
                 if self._score_cache is not None

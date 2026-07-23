@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import sys
@@ -119,6 +119,69 @@ class PersistentCacheTests(unittest.TestCase):
             )
             cache.NEGATIVE_SCORE_TTL_SECONDS = 0
             self.assertIsNone(cache.get_current("owner/kernel", "run-2"))
+
+
+    def test_force_refresh_bypasses_current_score_cache(self) -> None:
+        from harvester.kaggle_client import KaggleClient
+        from harvester.models import KernelSummary
+
+        class FakeScoreCache:
+            def __init__(self) -> None:
+                self.get_calls = 0
+                self.set_calls = 0
+
+            def get_current(self, kernel_ref, last_run_time):
+                self.get_calls += 1
+                from harvester.cache import CurrentScoreCacheHit
+                return CurrentScoreCacheHit(public_score=9.999, public_score_display="9.9990")
+
+            def set_current(self, *args, **kwargs):
+                self.set_calls += 1
+
+        class FakeWeb:
+            def post(self, _model, _payload):
+                return {
+                    "currentVersionNumber": 2,
+                    "bestSubmissionScore": {
+                        "scoreFormatted": "6.3900",
+                        "kernelVersionNumber": 2,
+                    },
+                    "submission": {"scoreFormatted": "6.3900"},
+                }
+
+            def close(self):
+                return None
+
+        cache = FakeScoreCache()
+        client = KaggleClient(kaggle_token="dummy", score_cache=cache)
+        client._token = "dummy"
+        summary = KernelSummary(
+            ref="owner/kernel",
+            title="Kernel",
+            author="owner",
+            last_run_time="run-1",
+        )
+
+        # 默认路径应直接命中分数缓存，不发起网络请求。
+        cached = client.enrich_kernel_summaries([summary], score_limit=1)
+        self.assertEqual(cached[0].public_score, 9.999)
+        self.assertEqual(cache.get_calls, 1)
+        self.assertEqual(cache.set_calls, 0)
+
+        # 强制刷新应绕过缓存并回写最新分数。
+        original = client.enrich_kernel_summaries
+        import harvester.kaggle_client as kc
+        original_ws = kc.KaggleWebServiceClient
+        kc.KaggleWebServiceClient = lambda token: FakeWeb()
+        try:
+            forced = client.enrich_kernel_summaries(
+                [summary], score_limit=1, force_refresh=True
+            )
+        finally:
+            kc.KaggleWebServiceClient = original_ws
+        self.assertEqual(forced[0].public_score, 6.39)
+        self.assertEqual(cache.get_calls, 1)
+        self.assertEqual(cache.set_calls, 1)
 
     def test_legacy_current_score_without_version_is_refreshed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -251,3 +314,5 @@ class StaleWhileRevalidateTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

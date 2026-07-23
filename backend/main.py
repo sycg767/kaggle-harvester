@@ -65,6 +65,7 @@ async def _build_kernel_snapshot(
     max_pages: int,
     include_scores: bool,
     score_limit: int,
+    force_score_refresh: bool = False,
 ) -> list[ScoredKernel]:
     """读取最新榜单并原子替换查询快照。"""
     kernels = await run_in_threadpool(
@@ -79,6 +80,7 @@ async def _build_kernel_snapshot(
         kernels,
         competition=competition_slug,
         score_limit=score_limit if include_scores else 0,
+        force_refresh=force_score_refresh,
     )
     await run_in_threadpool(query_cache.set, cache_params, scored)
     return scored
@@ -107,6 +109,7 @@ async def _refresh_kernel_snapshot_in_background(
             max_pages=max_pages,
             include_scores=include_scores,
             score_limit=score_limit,
+            force_score_refresh=False,
         )
     except asyncio.CancelledError:
         raise
@@ -358,6 +361,8 @@ async def list_kernels(
             max_pages=max_pages,
             include_scores=include_scores,
             score_limit=score_limit,
+            # 用户点击“刷新分数榜”时，除了重建榜单索引，还要强制重拉公开分。
+            force_score_refresh=refresh,
         )
         response.headers["X-Kernel-Cache"] = (
             "REFRESH"

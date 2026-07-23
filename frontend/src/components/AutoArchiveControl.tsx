@@ -366,32 +366,41 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
     setLoading(false);
   };
 
-  const buildNotificationPayload = (values: NotificationFormValues): NotificationConfigUpdate => ({
-    notify_on_archive: values.notify_on_archive,
-    notify_on_failure: values.notify_on_failure,
-    webhook_enabled: values.webhook_enabled,
-    webhook_format: values.webhook_format,
-    email_enabled: values.email_enabled,
-    smtp_host: values.smtp_host,
-    smtp_port: values.smtp_port,
-    smtp_security: values.smtp_security,
-    smtp_username: values.smtp_username?.trim() || values.smtp_from?.trim() || '',
-    smtp_from: values.smtp_from,
-    smtp_to: (values.smtp_to_text || '')
-      .split(/[;,\n]/)
-      .map((value) => value.trim())
-      .filter(Boolean),
-    webhook_url: values.webhook_url?.trim() || undefined,
-    smtp_password: values.smtp_password || undefined,
-    clear_webhook_url: values.clear_webhook_url,
-    clear_smtp_password: values.clear_smtp_password,
-  });
+  const buildNotificationPayload = (values: NotificationFormValues): NotificationConfigUpdate => {
+    // 表单未挂载/未赋值字段不要覆盖服务端现值（改阈值时最容易踩中）。
+    const base = notificationSnapshot?.config;
+    const smtpFrom = values.smtp_from ?? base?.smtp_from ?? '';
+    const smtpUsernameRaw = values.smtp_username ?? base?.smtp_username ?? '';
+    const smtpToText = values.smtp_to_text;
+    const smtpTo = smtpToText !== undefined
+      ? smtpToText.split(/[;,\n]/).map((value) => value.trim()).filter(Boolean)
+      : base?.smtp_to;
+    return {
+      notify_on_archive: values.notify_on_archive ?? base?.notify_on_archive,
+      notify_on_failure: values.notify_on_failure ?? base?.notify_on_failure,
+      webhook_enabled: values.webhook_enabled ?? base?.webhook_enabled,
+      webhook_format: values.webhook_format ?? base?.webhook_format,
+      email_enabled: values.email_enabled ?? base?.email_enabled,
+      smtp_host: values.smtp_host ?? base?.smtp_host,
+      smtp_port: values.smtp_port ?? base?.smtp_port,
+      smtp_security: values.smtp_security ?? base?.smtp_security,
+      smtp_username: (smtpUsernameRaw || smtpFrom || '').trim() || undefined,
+      smtp_from: smtpFrom || undefined,
+      smtp_to: smtpTo,
+      webhook_url: values.webhook_url?.trim() || undefined,
+      smtp_password: values.smtp_password || undefined,
+      clear_webhook_url: values.clear_webhook_url,
+      clear_smtp_password: values.clear_smtp_password,
+    };
+  };
 
   const saveConfig = async () => {
-    const [values, notificationValues] = await Promise.all([
-      form.validateFields(),
-      notificationForm.validateFields(),
-    ]);
+    const values = await form.validateFields();
+    // 通知区可能有条件字段未挂载；先校验已挂载项，再与全部字段合并。
+    const notificationValues = {
+      ...notificationForm.getFieldsValue(true),
+      ...(await notificationForm.validateFields()),
+    } as NotificationFormValues;
     setSaving(true);
     try {
       const notifications = await api.updateNotifications(
@@ -438,10 +447,11 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
     let values: AutoArchiveConfig;
     let notificationValues: NotificationFormValues;
     try {
-      [values, notificationValues] = await Promise.all([
-        form.validateFields(),
-        notificationForm.validateFields(),
-      ]);
+      values = await form.validateFields();
+      notificationValues = {
+        ...notificationForm.getFieldsValue(true),
+        ...(await notificationForm.validateFields()),
+      } as NotificationFormValues;
     } catch {
       return;
     }
@@ -537,6 +547,8 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
           </DialogTitle>
         )}
         open={open}
+        forceRender
+        destroyOnClose={false}
         closable={false}
         width={900}
         confirmLoading={saving}

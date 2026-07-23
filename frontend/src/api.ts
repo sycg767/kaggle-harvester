@@ -207,13 +207,21 @@ export interface NotificationConfig {
   smtp_to: string[];
   webhook_configured: boolean;
   smtp_password_configured: boolean;
-  secret_storage: 'windows_dpapi' | 'environment' | 'session';
+  secret_storage: 'windows_dpapi' | 'environment' | 'file' | 'session';
 }
 
-export interface NotificationConfigUpdate extends Omit<
-  NotificationConfig,
-  'webhook_configured' | 'smtp_password_configured' | 'secret_storage'
-> {
+export interface NotificationConfigUpdate {
+  notify_on_archive?: boolean;
+  notify_on_failure?: boolean;
+  webhook_enabled?: boolean;
+  webhook_format?: WebhookFormat;
+  email_enabled?: boolean;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_security?: SmtpSecurity;
+  smtp_username?: string;
+  smtp_from?: string;
+  smtp_to?: string[];
   webhook_url?: string;
   smtp_password?: string;
   clear_webhook_url?: boolean;

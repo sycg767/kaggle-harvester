@@ -672,6 +672,33 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(manager.enqueue_run(log, [], "example"))
             self.assertEqual(manager.snapshot().status.pending_count, 0)
 
+    async def test_partial_update_does_not_reset_notification_switches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            manager = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            await manager.update_config(NotificationConfigUpdate(
+                webhook_enabled=True,
+                webhook_url="https://example.com/hook",
+                notify_on_archive=True,
+                notify_on_failure=True,
+                webhook_format="feishu",
+            ))
+
+            # 模拟前端只提交部分字段（例如改阈值时通知表单缺字段）
+            snapshot = await manager.update_config(NotificationConfigUpdate())
+            self.assertTrue(snapshot.config.webhook_enabled)
+            self.assertEqual(snapshot.config.webhook_format, "feishu")
+            self.assertTrue(snapshot.config.notify_on_archive)
+
+            # 显式关闭仍然生效
+            disabled = await manager.update_config(NotificationConfigUpdate(
+                webhook_enabled=False,
+            ))
+            self.assertFalse(disabled.config.webhook_enabled)
+            self.assertEqual(disabled.config.webhook_format, "feishu")
+
     async def test_secrets_are_not_returned_or_saved_in_plain_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             secrets = FakeSecretStore()
