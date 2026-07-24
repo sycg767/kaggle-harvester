@@ -139,7 +139,11 @@ def _extract_public_score(view: dict[str, Any]) -> float | None:
 def _extract_current_public_score(
     view: dict[str, Any],
 ) -> tuple[float | None, int | None, int | None]:
-    """返回榜单最佳分数、分数来源版本和当前版本。"""
+    """返回榜单最佳分数、分数来源版本和当前版本。
+
+    列表列对齐 Kaggle Code 列表的 Score / Best Score，而不是 notebook 详情里
+    当前版本的 Public Score。当最新版更差或尚未出分时，仍展示历史最佳。
+    """
     try:
         current_version = int(view.get("currentVersionNumber") or 0) or None
     except (TypeError, ValueError):
@@ -151,16 +155,10 @@ def _extract_current_public_score(
     except (TypeError, ValueError):
         best_version = None
     best_score = _parse_public_score(best_submission.get("scoreFormatted"))
+    if best_score is not None:
+        return best_score, best_version or current_version, current_version
 
-    if current_version and best_version and best_version != current_version:
-        # 当前版本可能仍在等待公开分数，只有 submission 已有新分数时才使用它。
-        submission_score = _parse_public_score(
-            (view.get("submission") or {}).get("scoreFormatted")
-        )
-        if submission_score is not None:
-            return submission_score, current_version, current_version
-        return best_score, best_version, current_version
-
+    # 兼容旧响应：无 bestSubmissionScore 时再回退 kernel / submission 字段。
     score = _extract_public_score(view)
     return score, best_version or current_version, current_version
 
@@ -840,10 +838,11 @@ class KaggleClient:
         score_limit: Optional[int] = None,
         force_refresh: bool = False,
     ) -> list[ScoredKernel]:
-        """为列表补充当前 Kernel 版本的公开分数。
+        """为列表补充 Kernel 的最佳公开分数。
 
         force_refresh=True 时忽略按 last_run_time 命中的当前分数缓存，
         重新请求 Kaggle Web 接口。这样“刷新分数榜”才能拿到重算后的新分。
+        返回值对齐 Kaggle 列表 Score（Best Score），不是详情页当前版本 Public Score。
         """
         comp = competition or self.competition_slug
 
@@ -962,24 +961,23 @@ class KaggleClient:
     def get_kernel_versions(
         self, kernel_ref: str, refresh: bool = False
     ) -> VersionScoreList:
-        """Get all versions with scores for a kernel via Kaggle web API."""
+        """读取完整版本历史；已出分版本复用缓存，缺分版本重新请求。
+
+        不能只靠本地 versions 缓存短路：历史上可能只缓存了部分版本，
+        或把“完成但当时未读到分”的版本永久记成 null。
+        """
         cached_versions = (
             self._score_cache.get_versions(kernel_ref)
             if self._score_cache is not None
             else []
         )
-        if cached_versions and not refresh:
-            owner, slug = kernel_ref.split("/", 1)
-            return VersionScoreList(
-                owner_slug=owner,
-                kernel_slug=slug,
-                versions=cached_versions,
-            )
         try:
             result = self._get_versions_via_web_api(
                 kernel_ref,
                 cached_versions={
-                    item.version_number: item for item in cached_versions
+                    item.version_number: item
+                    for item in cached_versions
+                    if item.public_lb_numeric is not None
                 },
             )
             if self._score_cache is not None:
@@ -1036,7 +1034,13 @@ class KaggleClient:
                 run = item.get("run") or {}
                 blob = item.get("blob") or {}
                 version_number = int(version.get("versionNumber") or 0)
-                if cached_versions and version_number in cached_versions:
+                cached_hit = (
+                    cached_versions.get(version_number)
+                    if cached_versions
+                    else None
+                )
+                # 只有已出分的版本才可复用缓存，避免把 null 永久短路。
+                if cached_hit is not None and cached_hit.public_lb_numeric is not None:
                     return cached_versions[version_number]
                 score_numeric: Optional[float] = None
                 if version_number > 0:

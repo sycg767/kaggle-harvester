@@ -105,8 +105,12 @@ class PersistentCacheTests(unittest.TestCase):
                 cache.get_current("owner/kernel", "run-2").public_score,  # type: ignore[union-attr]
                 7.004,
             )
+            # Best Score 可来自历史版本；score_version != current_version 不再强制过期。
             cache.NEGATIVE_SCORE_TTL_SECONDS = 0
-            self.assertIsNone(cache.get_current("owner/kernel", "run-2"))
+            self.assertEqual(
+                cache.get_current("owner/kernel", "run-2").public_score,  # type: ignore[union-attr]
+                7.004,
+            )
 
     def test_score_without_resolved_versions_expires_for_recheck(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -231,6 +235,49 @@ class PersistentCacheTests(unittest.TestCase):
                 {item.version_number for item in persisted}, {1, 2}
             )
 
+    def test_complete_version_without_score_is_not_permanently_cached(self) -> None:
+        """完成但当时未读到分的版本，不得永久缓存成 null 后短路。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = PersistentKernelScoreCache(temp_dir)
+            unscored_v2 = VersionInfo(
+                version_number=2,
+                title="Version 2",
+                status="complete",
+                date_created="2026-07-22",
+                public_lb_numeric=None,
+            )
+            scored_v1 = VersionInfo(
+                version_number=1,
+                title="Version 1",
+                status="complete",
+                date_created="2026-07-22",
+                public_lb_numeric=6.39,
+            )
+            merged = cache.merge_versions(
+                "owner/kernel", [unscored_v2, scored_v1]
+            )
+            by_version = {
+                item.version_number: item.public_lb_numeric for item in merged
+            }
+            self.assertEqual(by_version[1], 6.39)
+            self.assertIsNone(by_version[2])
+
+            # 磁盘只保留已出分版本；get_versions 不再返回 complete+null。
+            persisted = cache.get_versions("owner/kernel")
+            self.assertEqual(
+                [(item.version_number, item.public_lb_numeric) for item in persisted],
+                [(1, 6.39)],
+            )
+
+            # 后续读到 v2 分数时应能补写。
+            scored_v2 = unscored_v2.model_copy(update={"public_lb_numeric": 6.465})
+            filled = cache.merge_versions("owner/kernel", [scored_v2])
+            scores = {
+                item.version_number: item.public_lb_numeric for item in filled
+            }
+            self.assertEqual(scores[1], 6.39)
+            self.assertEqual(scores[2], 6.465)
+
     def test_competition_snapshot_survives_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             info = CompetitionInfo(
@@ -314,5 +361,3 @@ class StaleWhileRevalidateTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

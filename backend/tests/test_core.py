@@ -220,7 +220,7 @@ class ScoreParserTests(unittest.TestCase):
             7.1,
         )
 
-    def test_current_score_rejects_old_best_score_after_new_version(self) -> None:
+    def test_current_score_prefers_best_score_not_latest_submission(self) -> None:
         score, score_version, current_version = _extract_current_public_score({
             "currentVersionNumber": 59,
             "bestSubmissionScore": {
@@ -232,6 +232,20 @@ class ScoreParserTests(unittest.TestCase):
         self.assertEqual(score, 7.004)
         self.assertEqual(score_version, 58)
         self.assertEqual(current_version, 59)
+
+        # 最新版已有公开分但更差时，列表仍应展示 Best Score。
+        score, score_version, current_version = _extract_current_public_score({
+            "currentVersionNumber": 2,
+            "bestSubmissionScore": {
+                "kernelVersionNumber": 1,
+                "scoreFormatted": "6.390",
+            },
+            "submission": {"scoreFormatted": "6.465"},
+            "kernel": {"bestPublicScore": 6.39},
+        })
+        self.assertEqual(score, 6.39)
+        self.assertEqual(score_version, 1)
+        self.assertEqual(current_version, 2)
 
         score, score_version, current_version = _extract_current_public_score({
             "currentVersionNumber": 59,

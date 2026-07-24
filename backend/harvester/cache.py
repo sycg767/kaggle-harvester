@@ -301,12 +301,12 @@ class PersistentKernelScoreCache:
                 or "current_version_number" not in current
             ):
                 return None
+            # 列表分数是 Best Score，允许 score_version != current_version。
+            # 仅无分，或未解析到版本号时，才按 TTL 重新检查。
             score_pending = (
                 current.get("public_score") is None
-                or current.get("current_version_number") is None
                 or current.get("score_version_number") is None
-                or current.get("current_version_number")
-                != current.get("score_version_number")
+                or current.get("current_version_number") is None
             )
             if score_pending:
                 try:
@@ -357,7 +357,17 @@ class PersistentKernelScoreCache:
                 .get(kernel_ref, {})
                 .get("versions", {})
             )
-            versions = [VersionInfo(**item) for item in raw.values()]
+            versions = []
+            for item in raw.values():
+                if not isinstance(item, dict):
+                    continue
+                # 历史脏数据：complete 但无分，不再当作可靠缓存返回。
+                if (
+                    str(item.get("status") or "").lower() == "complete"
+                    and item.get("public_lb_numeric") is None
+                ):
+                    continue
+                versions.append(VersionInfo(**item))
         versions.sort(key=lambda item: item.version_number, reverse=True)
         return versions
 
@@ -370,6 +380,15 @@ class PersistentKernelScoreCache:
             )
             stored = kernel.setdefault("versions", {})
             changed = False
+            # 清理历史写入的“完成但无分”脏缓存。
+            for key, existing in list(stored.items()):
+                if (
+                    isinstance(existing, dict)
+                    and str(existing.get("status") or "").lower() == "complete"
+                    and existing.get("public_lb_numeric") is None
+                ):
+                    del stored[key]
+                    changed = True
             transient: list[VersionInfo] = []
             for version in versions:
                 if version.status.lower() != "complete":
@@ -377,6 +396,14 @@ class PersistentKernelScoreCache:
                     continue
                 key = str(version.version_number)
                 existing = stored.get(key)
+                # 只永久保存已出分的完成版本；无分数项可能只是暂时读失败，
+                # 不能写进缓存后短路后续补分。
+                if version.public_lb_numeric is None:
+                    if existing is not None and existing.get("public_lb_numeric") is not None:
+                        # 保留已有分数，避免被空结果覆盖。
+                        continue
+                    transient.append(version)
+                    continue
                 if existing is None:
                     stored[key] = version.model_dump(mode="json")
                     changed = True
@@ -386,6 +413,7 @@ class PersistentKernelScoreCache:
                 ):
                     stored[key] = version.model_dump(mode="json")
                     changed = True
+                # 已有公开分的版本视为不可变，避免后续空读或错误分覆盖。
             if changed:
                 self._save()
             merged = [VersionInfo(**item) for item in stored.values()]
