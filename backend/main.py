@@ -43,9 +43,16 @@ from harvester.models import (
     ScoredKernel,
     ScoreDirection,
     SortBy,
+    SubmissionMonitorConfig,
+    SubmissionMonitorRunDetail,
+    SubmissionMonitorSnapshot,
     VersionScoreList,
 )
 from harvester.notifications import NotificationManager
+from harvester.submission_monitor import (
+    SubmissionMonitorBusyError,
+    SubmissionMonitorManager,
+)
 
 
 SCORE_INDEX_REFRESH_SECONDS = int(
@@ -189,8 +196,15 @@ async def lifespan(app: FastAPI):
         default_competition=competition_slug,
         notification_manager=app.state.notifications,
     )
+    app.state.submission_monitor = SubmissionMonitorManager(
+        app.state.kaggle_client,
+        harvest_root=harvest_root,
+        default_competition=competition_slug,
+        notification_manager=app.state.notifications,
+    )
     await app.state.notifications.start()
     await app.state.auto_archive.start()
+    await app.state.submission_monitor.start()
     try:
         yield
     finally:
@@ -199,6 +213,7 @@ async def lifespan(app: FastAPI):
             task.cancel()
         if refresh_tasks:
             await asyncio.gather(*refresh_tasks, return_exceptions=True)
+        await app.state.submission_monitor.stop()
         await app.state.auto_archive.stop()
         await app.state.notifications.stop()
 
@@ -232,6 +247,7 @@ async def health():
     metadata_cache: PersistentKernelMetadataCache = app.state.kernel_metadata_cache
     competition_cache: PersistentCompetitionCache = app.state.competition_cache
     auto_archive: AutoArchiveManager = app.state.auto_archive
+    submission_monitor: SubmissionMonitorManager = app.state.submission_monitor
     notifications: NotificationManager = app.state.notifications
     readiness = client.readiness()
     ready = bool(
@@ -252,6 +268,7 @@ async def health():
             **competition_cache.stats(),
         },
         "auto_archive": auto_archive.snapshot().status.model_dump(),
+        "submission_monitor": submission_monitor.snapshot().status.model_dump(),
         "notifications": notifications.snapshot().status.model_dump(),
     }
 
@@ -496,6 +513,51 @@ async def test_notifications():
         return await manager.send_test()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/api/submission-monitor", response_model=SubmissionMonitorSnapshot)
+async def get_submission_monitor():
+    """读取提交出分监控配置与最近状态。"""
+    manager: SubmissionMonitorManager = app.state.submission_monitor
+    return manager.snapshot()
+
+
+@app.put("/api/submission-monitor", response_model=SubmissionMonitorSnapshot)
+async def update_submission_monitor(request: SubmissionMonitorConfig):
+    """保存提交出分监控配置，并重新计算下次运行时间。"""
+    manager: SubmissionMonitorManager = app.state.submission_monitor
+    try:
+        return await manager.update_config(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/submission-monitor/run", response_model=SubmissionMonitorSnapshot)
+async def run_submission_monitor_now():
+    """立即检查一次本人竞赛提交出分。"""
+    manager: SubmissionMonitorManager = app.state.submission_monitor
+    try:
+        return await manager.run_now(trigger="manual")
+    except SubmissionMonitorBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get(
+    "/api/submission-monitor/logs/{log_id}",
+    response_model=SubmissionMonitorRunDetail,
+)
+async def get_submission_monitor_log(log_id: str):
+    """读取一次提交出分检查的明细。"""
+    manager: SubmissionMonitorManager = app.state.submission_monitor
+    try:
+        detail = await run_in_threadpool(manager.get_run_detail, log_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if detail is None:
+        raise HTTPException(status_code=404, detail="运行日志不存在。")
+    return detail
 
 
 @app.post("/api/archive", response_model=dict)

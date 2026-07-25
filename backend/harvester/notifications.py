@@ -165,9 +165,9 @@ class NotificationSecretStore:
 
 
 class NotificationManager:
-    """持久化通知配置，并在后台可靠发送自动归档事件。"""
+    """持久化全局通知配置，并在后台可靠发送事件。"""
 
-    STATE_VERSION = 1
+    STATE_VERSION = 2
     MAX_DELIVERED_EVENTS = 200
     MAX_ATTEMPTS = 3
 
@@ -192,14 +192,52 @@ class NotificationManager:
         self._task: asyncio.Task[None] | None = None
         self._load_state()
 
+    @staticmethod
+    def detect_webhook_format(url: str) -> Optional[str]:
+        """根据 Webhook URL 推断机器人服务类型；无法识别时返回 None。"""
+        raw = (url or "").strip()
+        if not raw:
+            return None
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return None
+        if host.endswith("feishu.cn") or host.endswith("larksuite.com"):
+            return "feishu"
+        if host.endswith("dingtalk.com"):
+            return "dingtalk"
+        if host.endswith("qyapi.weixin.qq.com") or (
+            host.endswith("weixin.qq.com") and "webhook" in (parsed.path or "").lower()
+        ):
+            return "wecom"
+        if host.endswith("hooks.slack.com") or host == "hooks.slack.com":
+            return "slack"
+        if host == "ntfy.sh" or host.endswith(".ntfy.sh"):
+            return "ntfy"
+        return None
+
+    def _maybe_fix_webhook_format(
+        self, format_name: str, webhook_url: str
+    ) -> str:
+        """generic 且 URL 能识别时自动升级为具体服务，避免飞书仍按通用 JSON 发送。"""
+        if format_name != "generic":
+            return format_name
+        detected = self.detect_webhook_format(webhook_url)
+        return detected or format_name
+
     def _load_state(self) -> None:
         if not self._state_path.exists():
             return
+        migrated_format = False
         try:
             data = json.loads(self._state_path.read_text(encoding="utf-8"))
-            if data.get("version") != self.STATE_VERSION:
+            version = data.get("version")
+            if version not in {1, self.STATE_VERSION}:
                 return
-            self._config = NotificationConfig(**data.get("config", {}))
+            config_data = dict(data.get("config", {}))
+            # v1 → v2：补齐出分事件开关，默认开启。
+            config_data.setdefault("notify_on_score", True)
+            self._config = NotificationConfig(**config_data)
             self._status = NotificationStatus(**data.get("status", {}))
             pending = data.get("pending", {})
             delivered = data.get("delivered", {})
@@ -215,6 +253,14 @@ class NotificationManager:
                     for key, value in delivered.items()
                     if isinstance(value, list)
                 }
+            # 历史配置可能在默认 generic 下保存了飞书等地址，启动时纠正。
+            webhook_url = self._secret_store.get("webhook_url")
+            fixed = self._maybe_fix_webhook_format(
+                self._config.webhook_format, webhook_url
+            )
+            if fixed != self._config.webhook_format:
+                self._config.webhook_format = fixed  # type: ignore[assignment]
+                migrated_format = True
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             self._config = NotificationConfig()
             self._status = NotificationStatus(
@@ -222,8 +268,14 @@ class NotificationManager:
             )
             self._pending = {}
             self._delivered = {}
+            migrated_format = False
         self._status.worker_alive = False
         self._status.pending_count = len(self._pending)
+        if migrated_format:
+            try:
+                self._save_state()
+            except OSError:
+                pass
 
     def _save_state(self) -> None:
         with self._lock:
@@ -282,7 +334,9 @@ class NotificationManager:
         smtp_password: str,
     ) -> None:
         if (config.webhook_enabled or config.email_enabled) and not (
-            config.notify_on_archive or config.notify_on_failure
+            config.notify_on_archive
+            or config.notify_on_failure
+            or config.notify_on_score
         ):
             raise ValueError("至少选择一种通知事件。")
         if config.webhook_enabled:
@@ -328,6 +382,7 @@ class NotificationManager:
         for key in (
             "notify_on_archive",
             "notify_on_failure",
+            "notify_on_score",
             "webhook_enabled",
             "webhook_format",
             "email_enabled",
@@ -351,6 +406,13 @@ class NotificationManager:
                     if item and item.strip()
                 )
             )
+
+        # 粘贴了可识别的机器人 URL 时，不要继续停留在「通用 JSON」。
+        # 用户显式选择非 generic 时以用户为准；generic 则按 URL 纠正。
+        current["webhook_format"] = self._maybe_fix_webhook_format(
+            str(current.get("webhook_format") or "feishu"),
+            webhook_url,
+        )
 
         config = NotificationConfig(**current)
         self._validate_config(config, webhook_url, smtp_password)
@@ -444,6 +506,93 @@ class NotificationManager:
             self._save_state()
         self._queue_event(log.id)
         return True
+
+    def enqueue_event(
+        self,
+        event_id: str,
+        *,
+        event_type: str,
+        title: str,
+        text: str,
+        competition: str = "",
+        created_at: Optional[str] = None,
+        summary: Optional[dict[str, Any]] = None,
+        require_score_switch: bool = False,
+    ) -> bool:
+        """投递通用通知事件；event_id 用于去重。"""
+        with self._lock:
+            channels = self._enabled_channels(self._config)
+            if not channels:
+                return False
+            if require_score_switch and not self._config.notify_on_score:
+                return False
+            if event_id in self._pending or event_id in self._delivered:
+                return False
+            event = {
+                "id": event_id,
+                "event": event_type,
+                "title": title,
+                "text": text,
+                "competition": competition,
+                "created_at": created_at or _utc_now_iso(),
+                "channels": channels,
+                "summary": summary or {},
+            }
+            self._pending[event_id] = event
+            self._save_state()
+        self._queue_event(event_id)
+        return True
+
+    def enqueue_submission_scores(
+        self,
+        *,
+        competition: str,
+        events: list[dict[str, Any]],
+        checked_at: Optional[str] = None,
+    ) -> int:
+        """批量投递新出分事件；每个 submission ref 只通知一次。"""
+        if not events:
+            return 0
+        queued = 0
+        finished = checked_at or _utc_now_iso()
+        for item in events:
+            ref = str(item.get("ref") or "").strip()
+            if not ref:
+                continue
+            score = item.get("public_score")
+            score_display = str(
+                item.get("public_score_display")
+                or (f"{score:.6g}" if isinstance(score, (int, float)) else "")
+            )
+            description = str(item.get("description") or "").strip() or "（无描述）"
+            title = f"Kaggle Harvester：提交已出分 {score_display}"
+            lines = [
+                f"竞赛：{competition}",
+                f"提交 ref：{ref}",
+                f"Public LB：{score_display}",
+                f"描述：{description}",
+                f"完成时间：{_format_beijing_time(finished)}",
+            ]
+            if item.get("status"):
+                lines.insert(3, f"状态：{item['status']}")
+            if item.get("date"):
+                lines.append(f"提交时间：{_format_beijing_time(str(item['date']))}")
+            if self.enqueue_event(
+                f"score::{competition}::{ref}",
+                event_type="submission_score",
+                title=title,
+                text="\n".join(lines),
+                competition=competition,
+                created_at=finished,
+                summary={
+                    "ref": ref,
+                    "public_score": score,
+                    "description": description,
+                },
+                require_score_switch=True,
+            ):
+                queued += 1
+        return queued
 
     @staticmethod
     def _enabled_channels(config: NotificationConfig) -> list[str]:
@@ -576,7 +725,9 @@ class NotificationManager:
         self._validate_webhook_url(url)
         title = str(event.get("title") or "Kaggle Harvester")
         text = str(event.get("text") or "")
-        format_name = self._config.webhook_format
+        format_name = self._maybe_fix_webhook_format(
+            self._config.webhook_format, url
+        )
         headers: dict[str, str] = {}
         content: bytes | None = None
         if format_name == "slack":
@@ -656,7 +807,7 @@ class NotificationManager:
             "event": "notification_test",
             "title": "Kaggle Harvester：测试通知",
             "text": (
-                "通知通道配置成功。后续仅在有新增归档或检查失败时发送。\n"
+                "通知通道配置成功。后续可在自动归档、提交出分等事件触发时发送。\n"
                 f"完成时间：{_format_beijing_time(created_at)}"
             ),
             "competition": "test",

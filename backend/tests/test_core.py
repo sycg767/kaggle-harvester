@@ -25,14 +25,18 @@ from harvester.models import (
     AutoArchiveConfig,
     AutoArchiveRunLog,
     CompetitionInfo,
+    CompetitionSubmission,
     KernelSummary,
     NotificationConfigUpdate,
     ScoredKernel,
+    SubmissionMonitorConfig,
+    SubmissionMonitorRunLog,
     VersionInfo,
     VersionScoreList,
 )
 from harvester.notifications import NotificationManager
 from harvester.notifications import _format_beijing_time
+from harvester.submission_monitor import SubmissionMonitorManager
 
 
 class FakeSecretStore:
@@ -737,6 +741,431 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertNotIn("secret-token", serialized)
             self.assertNotIn("secret-password", serialized)
+
+    async def test_submission_score_event_is_deduplicated_and_respects_switch(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            manager = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            sent: list[str] = []
+            manager._send_channel = (  # type: ignore[method-assign]
+                lambda channel, event: sent.append(event["id"])
+            )
+            await manager.start()
+            try:
+                await manager.update_config(NotificationConfigUpdate(
+                    webhook_enabled=True,
+                    webhook_url="https://example.com/hook",
+                    notify_on_score=True,
+                ))
+                payload = [{
+                    "ref": "54939125",
+                    "description": "dexp001",
+                    "public_score": 6.368,
+                    "public_score_display": "6.368",
+                    "status": "Finished",
+                }]
+                self.assertEqual(
+                    manager.enqueue_submission_scores(
+                        competition="example-comp",
+                        events=payload,
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    manager.enqueue_submission_scores(
+                        competition="example-comp",
+                        events=payload,
+                    ),
+                    0,
+                )
+                await manager.wait_until_idle()
+                self.assertEqual(sent, ["score::example-comp::54939125"])
+
+                await manager.update_config(NotificationConfigUpdate(
+                    notify_on_score=False,
+                ))
+                self.assertEqual(
+                    manager.enqueue_submission_scores(
+                        competition="example-comp",
+                        events=[{
+                            "ref": "54939126",
+                            "description": "dexp002",
+                            "public_score": 6.2,
+                            "public_score_display": "6.2",
+                        }],
+                    ),
+                    0,
+                )
+            finally:
+                await manager.stop()
+
+    async def test_partial_update_preserves_notify_on_score(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            manager = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            await manager.update_config(NotificationConfigUpdate(
+                webhook_enabled=True,
+                webhook_url="https://example.com/hook",
+                notify_on_score=False,
+            ))
+            snapshot = await manager.update_config(NotificationConfigUpdate(
+                webhook_format="feishu",
+            ))
+            self.assertFalse(snapshot.config.notify_on_score)
+            self.assertEqual(snapshot.config.webhook_format, "feishu")
+
+    def test_detect_webhook_format_from_url(self) -> None:
+        self.assertEqual(
+            NotificationManager.detect_webhook_format(
+                "https://open.feishu.cn/open-apis/bot/v2/hook/abc"
+            ),
+            "feishu",
+        )
+        self.assertEqual(
+            NotificationManager.detect_webhook_format(
+                "https://oapi.dingtalk.com/robot/send?access_token=x"
+            ),
+            "dingtalk",
+        )
+        self.assertEqual(
+            NotificationManager.detect_webhook_format(
+                "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x"
+            ),
+            "wecom",
+        )
+        self.assertEqual(
+            NotificationManager.detect_webhook_format(
+                "https://hooks.slack.com/services/T/B/X"
+            ),
+            "slack",
+        )
+        self.assertEqual(
+            NotificationManager.detect_webhook_format("https://ntfy.sh/topic"),
+            "ntfy",
+        )
+        self.assertIsNone(
+            NotificationManager.detect_webhook_format("https://example.com/hook")
+        )
+
+    async def test_feishu_url_upgrades_generic_format(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            manager = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            snapshot = await manager.update_config(NotificationConfigUpdate(
+                webhook_enabled=True,
+                webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/token",
+                webhook_format="generic",
+            ))
+            self.assertEqual(snapshot.config.webhook_format, "feishu")
+
+            # 显式选择钉钉时即使 URL 是飞书也不覆盖（用户意图优先）
+            kept = await manager.update_config(NotificationConfigUpdate(
+                webhook_format="dingtalk",
+            ))
+            self.assertEqual(kept.config.webhook_format, "dingtalk")
+
+    async def test_load_state_migrates_generic_feishu_url(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            secrets.update({
+                "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/x",
+            })
+            cache = Path(temp_dir) / "_cache"
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "notifications.json").write_text(
+                json.dumps({
+                    "version": 2,
+                    "config": {
+                        "notify_on_archive": True,
+                        "notify_on_failure": True,
+                        "notify_on_score": True,
+                        "webhook_enabled": True,
+                        "webhook_format": "generic",
+                        "email_enabled": False,
+                        "smtp_host": "",
+                        "smtp_port": 587,
+                        "smtp_security": "starttls",
+                        "smtp_username": "",
+                        "smtp_from": "",
+                        "smtp_to": [],
+                    },
+                    "status": {},
+                    "pending": {},
+                    "delivered": {},
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            manager = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            self.assertEqual(manager.snapshot().config.webhook_format, "feishu")
+            saved = json.loads(
+                (cache / "notifications.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(saved["config"]["webhook_format"], "feishu")
+
+
+class FakeSubmissionClient:
+    def __init__(self, batches: list[list[CompetitionSubmission]]) -> None:
+        self._batches = list(batches)
+        self.calls = 0
+
+    def list_competition_submissions(
+        self,
+        competition: str = "",
+        page_size: int = 10,
+    ) -> list[CompetitionSubmission]:
+        self.calls += 1
+        if not self._batches:
+            return []
+        return self._batches.pop(0)
+
+
+class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_run_detail_file_flag_is_true_after_save(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = FakeSubmissionClient([
+                [
+                    CompetitionSubmission(
+                        ref="200",
+                        description="pending-only",
+                        status="Pending",
+                        public_score=None,
+                    ),
+                ],
+            ])
+            monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                client,
+                temp_dir,
+                "example-comp",
+            )
+            await monitor.update_config(SubmissionMonitorConfig(
+                enabled=False,
+                competition="example-comp",
+                interval_minutes=5,
+                page_size=10,
+            ))
+            snapshot = await monitor.run_now(trigger="manual")
+            log = snapshot.logs[0]
+            self.assertTrue(log.details_available)
+            path = Path(temp_dir) / "_cache" / "submission_monitor_runs" / f"{log.id}.json"
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            self.assertTrue(saved["log"]["details_available"])
+            self.assertEqual(len(saved["items"]), 1)
+            detail = monitor.get_run_detail(log.id)
+            self.assertIsNotNone(detail)
+            assert detail is not None
+            self.assertTrue(detail.log.details_available)
+            self.assertEqual(len(detail.items), 1)
+
+    async def test_get_run_detail_recovers_stale_false_flag_in_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = FakeSubmissionClient([[]])
+            monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                client,
+                temp_dir,
+                "example-comp",
+            )
+            log = SubmissionMonitorRunLog(
+                id="a" * 32,
+                trigger="manual",
+                outcome="success",
+                started_at="2026-01-01T00:00:00+00:00",
+                finished_at="2026-01-01T00:00:01+00:00",
+                duration_seconds=1.0,
+                checked_count=1,
+                pending_count=1,
+                scored_count=0,
+                newly_scored_count=0,
+                details_available=True,
+            )
+            monitor._logs = [log]
+            runs = Path(temp_dir) / "_cache" / "submission_monitor_runs"
+            runs.mkdir(parents=True, exist_ok=True)
+            # 模拟旧 bug：明细文件里 details_available 仍为 False，但 items 已写入。
+            (runs / f"{log.id}.json").write_text(
+                json.dumps({
+                    "log": {
+                        **log.model_dump(),
+                        "details_available": False,
+                    },
+                    "items": [{
+                        "ref": "54970637",
+                        "description": "dexp",
+                        "status": "PENDING",
+                        "public_score": None,
+                        "watched": True,
+                        "newly_scored": False,
+                    }],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            detail = monitor.get_run_detail(log.id)
+            self.assertIsNotNone(detail)
+            assert detail is not None
+            self.assertTrue(detail.log.details_available)
+            self.assertEqual(len(detail.items), 1)
+            self.assertEqual(detail.items[0].ref, "54970637")
+
+    async def test_baseline_seed_then_none_to_score_notifies_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            notifications = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            sent: list[str] = []
+            notifications._send_channel = (  # type: ignore[method-assign]
+                lambda channel, event: sent.append(event["id"])
+            )
+            await notifications.start()
+            try:
+                await notifications.update_config(NotificationConfigUpdate(
+                    webhook_enabled=True,
+                    webhook_url="https://example.com/hook",
+                    notify_on_score=True,
+                ))
+                client = FakeSubmissionClient([
+                    [
+                        CompetitionSubmission(
+                            ref="100",
+                            description="dexp001",
+                            status="Pending",
+                            public_score=None,
+                        ),
+                        CompetitionSubmission(
+                            ref="101",
+                            description="old-scored",
+                            status="Finished",
+                            public_score=6.9,
+                            public_score_display="6.9",
+                        ),
+                    ],
+                    [
+                        CompetitionSubmission(
+                            ref="100",
+                            description="dexp001",
+                            status="Finished",
+                            public_score=6.368,
+                            public_score_display="6.368",
+                        ),
+                        CompetitionSubmission(
+                            ref="101",
+                            description="old-scored",
+                            status="Finished",
+                            public_score=6.9,
+                            public_score_display="6.9",
+                        ),
+                    ],
+                    [
+                        CompetitionSubmission(
+                            ref="100",
+                            description="dexp001",
+                            status="Finished",
+                            public_score=6.368,
+                            public_score_display="6.368",
+                        ),
+                    ],
+                ])
+                monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                    client,
+                    temp_dir,
+                    "example-comp",
+                    notification_manager=notifications,
+                )
+                await monitor.update_config(SubmissionMonitorConfig(
+                    enabled=False,
+                    competition="example-comp",
+                    interval_minutes=5,
+                    page_size=10,
+                ))
+
+                baseline = await monitor.run_now(trigger="manual")
+                self.assertEqual(baseline.status.newly_scored_count, 0)
+                self.assertEqual(baseline.status.scored_count, 1)
+                self.assertEqual(baseline.status.pending_count, 1)
+                self.assertTrue(baseline.logs[0].details_available)
+                detail = monitor.get_run_detail(baseline.logs[0].id)
+                self.assertIsNotNone(detail)
+                assert detail is not None
+                self.assertEqual(len(detail.items), 2)
+                await notifications.wait_until_idle()
+                self.assertEqual(sent, [])
+
+                first = await monitor.run_now(trigger="manual")
+                self.assertEqual(first.status.newly_scored_count, 1)
+                self.assertEqual(first.status.recent_events[0].ref, "100")
+                first_detail = monitor.get_run_detail(first.logs[0].id)
+                self.assertIsNotNone(first_detail)
+                assert first_detail is not None
+                newly = [item for item in first_detail.items if item.newly_scored]
+                self.assertEqual([item.ref for item in newly], ["100"])
+                await notifications.wait_until_idle()
+                self.assertEqual(sent, ["score::example-comp::100"])
+
+                second = await monitor.run_now(trigger="manual")
+                self.assertEqual(second.status.newly_scored_count, 0)
+                await notifications.wait_until_idle()
+                self.assertEqual(sent, ["score::example-comp::100"])
+            finally:
+                await notifications.stop()
+
+    async def test_description_prefix_filters_submissions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = FakeSubmissionClient([
+                [
+                    CompetitionSubmission(
+                        ref="1",
+                        description="dexp001-run",
+                        status="Finished",
+                        public_score=None,
+                    ),
+                    CompetitionSubmission(
+                        ref="2",
+                        description="other",
+                        status="Finished",
+                        public_score=None,
+                    ),
+                ],
+                [
+                    CompetitionSubmission(
+                        ref="1",
+                        description="dexp001-run",
+                        status="Finished",
+                        public_score=1.0,
+                        public_score_display="1.0",
+                    ),
+                    CompetitionSubmission(
+                        ref="2",
+                        description="other",
+                        status="Finished",
+                        public_score=2.0,
+                        public_score_display="2.0",
+                    ),
+                ],
+            ])
+            monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                client,
+                temp_dir,
+                "example-comp",
+            )
+            await monitor.update_config(SubmissionMonitorConfig(
+                enabled=False,
+                competition="example-comp",
+                description_prefix="dexp",
+            ))
+            await monitor.run_now(trigger="manual")
+            scored = await monitor.run_now(trigger="manual")
+            self.assertEqual(scored.status.checked_count, 1)
+            self.assertEqual(scored.status.newly_scored_count, 1)
+            self.assertEqual(scored.status.recent_events[0].ref, "1")
 
 
 if __name__ == "__main__":

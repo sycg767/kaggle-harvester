@@ -94,6 +94,7 @@ export interface HealthStatus {
   archive: ArchiveStats;
   cache: Record<string, string | number>;
   auto_archive: AutoArchiveStatus;
+  submission_monitor?: SubmissionMonitorStatus;
   notifications?: NotificationStatus;
 }
 
@@ -196,6 +197,7 @@ export type SmtpSecurity = 'starttls' | 'ssl' | 'none';
 export interface NotificationConfig {
   notify_on_archive: boolean;
   notify_on_failure: boolean;
+  notify_on_score: boolean;
   webhook_enabled: boolean;
   webhook_format: WebhookFormat;
   email_enabled: boolean;
@@ -213,6 +215,7 @@ export interface NotificationConfig {
 export interface NotificationConfigUpdate {
   notify_on_archive?: boolean;
   notify_on_failure?: boolean;
+  notify_on_score?: boolean;
   webhook_enabled?: boolean;
   webhook_format?: WebhookFormat;
   email_enabled?: boolean;
@@ -226,6 +229,77 @@ export interface NotificationConfigUpdate {
   smtp_password?: string;
   clear_webhook_url?: boolean;
   clear_smtp_password?: boolean;
+}
+
+export interface SubmissionMonitorConfig {
+  enabled: boolean;
+  competition: string;
+  interval_minutes: number;
+  page_size: number;
+  description_prefix: string;
+}
+
+export interface SubmissionScoreEvent {
+  ref: string;
+  description: string;
+  public_score: number;
+  public_score_display: string;
+  status: string;
+  date?: string;
+  previous_public_score?: number;
+}
+
+export interface SubmissionMonitorItem {
+  ref: string;
+  description: string;
+  status: string;
+  public_score?: number;
+  public_score_display?: string;
+  date?: string;
+  watched: boolean;
+  newly_scored: boolean;
+}
+
+export interface SubmissionMonitorStatus {
+  running: boolean;
+  scheduler_alive: boolean;
+  service_started_at?: string;
+  scheduler_heartbeat_at?: string;
+  last_checked_at?: string;
+  next_run_at?: string;
+  last_error?: string;
+  checked_count: number;
+  pending_count: number;
+  scored_count: number;
+  newly_scored_count: number;
+  recent_events: SubmissionScoreEvent[];
+  recent_items: SubmissionMonitorItem[];
+}
+
+export interface SubmissionMonitorRunLog {
+  id: string;
+  trigger: 'scheduled' | 'manual';
+  outcome: 'success' | 'partial' | 'failed';
+  started_at: string;
+  finished_at: string;
+  duration_seconds: number;
+  checked_count: number;
+  pending_count: number;
+  scored_count: number;
+  newly_scored_count: number;
+  error?: string;
+  details_available?: boolean;
+}
+
+export interface SubmissionMonitorRunDetail {
+  log: SubmissionMonitorRunLog;
+  items: SubmissionMonitorItem[];
+}
+
+export interface SubmissionMonitorSnapshot {
+  config: SubmissionMonitorConfig;
+  status: SubmissionMonitorStatus;
+  logs: SubmissionMonitorRunLog[];
 }
 
 export interface NotificationStatus {
@@ -430,6 +504,25 @@ export const api = {
 
   testNotifications(): Promise<NotificationTestResult> {
     return request('/notifications/test', { method: 'POST' });
+  },
+
+  getSubmissionMonitor(): Promise<SubmissionMonitorSnapshot> {
+    return request('/submission-monitor');
+  },
+
+  updateSubmissionMonitor(config: SubmissionMonitorConfig): Promise<SubmissionMonitorSnapshot> {
+    return request('/submission-monitor', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  runSubmissionMonitor(): Promise<SubmissionMonitorSnapshot> {
+    return request('/submission-monitor/run', { method: 'POST' });
+  },
+
+  getSubmissionMonitorLog(logId: string): Promise<SubmissionMonitorRunDetail> {
+    return request(`/submission-monitor/logs/${encodeURIComponent(logId)}`);
   },
 
   health(): Promise<HealthStatus> {

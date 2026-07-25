@@ -63,6 +63,8 @@ import {
 } from '../kaggleUrls';
 import AutoArchiveControl from './AutoArchiveControl';
 import DialogTitle from './DialogTitle';
+import NotificationCenter from './NotificationCenter';
+import SubmissionMonitorControl from './SubmissionMonitorControl';
 import {
   dispatchArchivesChanged,
   dispatchCompetitionChanged,
@@ -73,9 +75,51 @@ const { Text } = Typography;
 const DEFAULT_COMPETITION = 'rogii-wellbore-geology-prediction';
 const RECENT_COMPETITIONS_KEY = 'harvester.recentCompetitions';
 const MOBILE_PAGE_SIZE = 10;
-const SORT_OPTIONS = [
-  { value: 'scoreAscending', label: '公开分数 · 最佳优先' },
-  { value: 'scoreDescending', label: '公开分数 · 倒序' },
+/** UI 里 scoreAscending = 最佳优先，scoreDescending = 倒序；真正 API 方向按竞赛 metric 映射。 */
+const SCORE_SORT_BEST = 'scoreAscending';
+const SCORE_SORT_REVERSE = 'scoreDescending';
+
+const isScoreSort = (value: string) =>
+  value === SCORE_SORT_BEST || value === SCORE_SORT_REVERSE;
+
+/** 把「最佳优先 / 倒序」映射为 Kaggle 数值升序或降序。 */
+const resolveApiScoreSort = (sortBy: string, isLowerBetter: boolean): string => {
+  if (!isScoreSort(sortBy)) return sortBy;
+  const bestFirst = sortBy === SCORE_SORT_BEST;
+  if (isLowerBetter) {
+    return bestFirst ? 'scoreAscending' : 'scoreDescending';
+  }
+  return bestFirst ? 'scoreDescending' : 'scoreAscending';
+};
+
+/** 本地按公开分重排：最佳优先始终把更好的分数排在前面。 */
+const comparePublicScores = (
+  leftScore: number | null | undefined,
+  rightScore: number | null | undefined,
+  sortBy: string,
+  isLowerBetter: boolean,
+): number => {
+  if (leftScore === undefined || leftScore === null) return 1;
+  if (rightScore === undefined || rightScore === null) return -1;
+  const bestFirst = sortBy === SCORE_SORT_BEST;
+  const numericAscending = isLowerBetter ? bestFirst : !bestFirst;
+  const delta = leftScore - rightScore;
+  return numericAscending ? delta : -delta;
+};
+
+const buildSortOptions = (isLowerBetter: boolean) => [
+  {
+    value: SCORE_SORT_BEST,
+    label: isLowerBetter
+      ? '公开分数 · 最佳优先（低→高）'
+      : '公开分数 · 最佳优先（高→低）',
+  },
+  {
+    value: SCORE_SORT_REVERSE,
+    label: isLowerBetter
+      ? '公开分数 · 倒序（高→低）'
+      : '公开分数 · 倒序（低→高）',
+  },
   { value: 'hotness', label: '热度' },
   { value: 'dateRun', label: '运行时间' },
   { value: 'dateCreated', label: '创建时间' },
@@ -157,7 +201,7 @@ const KernelList: React.FC = () => {
     const current = localStorage.getItem('harvester.competition') || DEFAULT_COMPETITION;
     return [...new Set([current, DEFAULT_COMPETITION, ...readRecentCompetitions()])].slice(0, 8);
   });
-  const [sortBy, setSortBy] = useState('scoreAscending');
+  const [sortBy, setSortBy] = useState(SCORE_SORT_BEST);
   const [pageSize, setPageSize] = useState(50);
   const [maxPages, setMaxPages] = useState(1);
   const [scoreLimit, setScoreLimit] = useState(50);
@@ -217,10 +261,18 @@ const KernelList: React.FC = () => {
     );
 
     try {
-      const scoreSorted = sortBy === 'scoreAscending' || sortBy === 'scoreDescending';
+      const scoreSorted = isScoreSort(sortBy);
+      // 分数榜必须先知道「越高/越低越好」，才能把「最佳优先」映射到正确的 API 排序。
+      const comp = await api
+        .getCompetition(nextCompetition, { signal: controller.signal })
+        .catch(() => null);
+      if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
+      setCompetitionInfo(comp);
+      const isLowerBetter = comp?.is_lower_better ?? true;
+      const apiSortBy = resolveApiScoreSort(sortBy, isLowerBetter);
       const queryParams = {
         competition: nextCompetition,
-        sort_by: sortBy,
+        sort_by: apiSortBy,
         page_size: scoreSorted ? 50 : pageSize,
         max_pages: scoreSorted ? 1 : maxPages,
         include_scores: true,
@@ -245,12 +297,10 @@ const KernelList: React.FC = () => {
         return next;
       });
 
-      const [comp, archiveData] = await Promise.all([
-        api.getCompetition(nextCompetition, { signal: controller.signal }).catch(() => null),
-        api.listArchives(nextCompetition, controller.signal).catch(() => []),
-      ]);
+      const archiveData = await api
+        .listArchives(nextCompetition, controller.signal)
+        .catch(() => []);
       if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
-      setCompetitionInfo(comp);
       setArchives(archiveData);
       dispatchCompetitionChanged(nextCompetition);
 
@@ -333,17 +383,16 @@ const KernelList: React.FC = () => {
         .some((value) => value.toLowerCase().includes(query));
     });
 
-    if (sortBy !== 'scoreAscending' && sortBy !== 'scoreDescending') return filtered;
+    if (!isScoreSort(sortBy)) return filtered;
 
-    const direction = sortBy === 'scoreAscending' ? 1 : -1;
-    return [...filtered].sort((left, right) => {
-      const leftScore = left.public_score;
-      const rightScore = right.public_score;
-      if (leftScore === undefined || leftScore === null) return 1;
-      if (rightScore === undefined || rightScore === null) return -1;
-      return (leftScore - rightScore) * direction;
-    });
-  }, [kernels, scoreFilter, searchText, sortBy]);
+    const isLowerBetter = competitionInfo?.is_lower_better ?? true;
+    return [...filtered].sort((left, right) => comparePublicScores(
+      left.public_score,
+      right.public_score,
+      sortBy,
+      isLowerBetter,
+    ));
+  }, [competitionInfo?.is_lower_better, kernels, scoreFilter, searchText, sortBy]);
 
   useEffect(() => {
     setMobilePage(1);
@@ -523,7 +572,16 @@ const KernelList: React.FC = () => {
       title: '分数',
       dataIndex: 'public_score',
       width: 110,
-      sorter: (a, b) => (a.public_score ?? Number.POSITIVE_INFINITY) - (b.public_score ?? Number.POSITIVE_INFINITY),
+      sorter: (a, b) => {
+        const isLowerBetter = competitionInfo?.is_lower_better ?? true;
+        // 表头点击：第一次按「最佳优先」，再点则倒序。
+        return comparePublicScores(
+          a.public_score,
+          b.public_score,
+          SCORE_SORT_BEST,
+          isLowerBetter,
+        );
+      },
       render: (score?: number) => (
         <Space>
           <TrophyOutlined style={{ color: getScoreColor(score) }} />
@@ -628,6 +686,8 @@ const KernelList: React.FC = () => {
           <span className="page-subtitle">浏览公开分数榜并保存可复现的本地版本</span>
         </div>
         <div className="page-actions">
+          <NotificationCenter />
+          <SubmissionMonitorControl currentCompetition={competition} />
           <AutoArchiveControl
             currentCompetition={competition}
             onArchiveComplete={() => {
@@ -637,11 +697,11 @@ const KernelList: React.FC = () => {
           />
           <Button
             icon={<ReloadOutlined />}
-            aria-label={sortBy === 'scoreAscending' || sortBy === 'scoreDescending' ? '刷新分数榜' : '强制刷新'}
+            aria-label={isScoreSort(sortBy) ? '刷新分数榜' : '强制刷新'}
             loading={loading}
             onClick={() => loadKernels(true)}
           >
-            {sortBy === 'scoreAscending' || sortBy === 'scoreDescending' ? '刷新分数榜' : '强制刷新'}
+            {isScoreSort(sortBy) ? '刷新分数榜' : '强制刷新'}
           </Button>
         </div>
       </header>
@@ -686,7 +746,7 @@ const KernelList: React.FC = () => {
               value={sortBy}
               onChange={setSortBy}
               style={{ width: '100%' }}
-              options={SORT_OPTIONS}
+              options={buildSortOptions(competitionInfo?.is_lower_better ?? true)}
             />
           </Col>
           <Col xs={12} md={4} lg={4} className="toolbar-query-control">
@@ -749,7 +809,13 @@ const KernelList: React.FC = () => {
           <div className="toolbar-divider" />
           <Row gutter={[8, 8]} align="middle">
             <Col xs={24} className="mobile-sort-control">
-              <Select aria-label="Kernel 排序方式" value={sortBy} onChange={setSortBy} style={{ width: '100%' }} options={SORT_OPTIONS} />
+              <Select
+                aria-label="Kernel 排序方式"
+                value={sortBy}
+                onChange={setSortBy}
+                style={{ width: '100%' }}
+                options={buildSortOptions(competitionInfo?.is_lower_better ?? true)}
+              />
             </Col>
             <Col xs={24} md={12}>
               <Input aria-label="筛选 Kernel" allowClear value={searchText} onChange={(event) => setSearchText(event.target.value)} prefix={<SearchOutlined />} placeholder="标题、作者或 ref" />
@@ -761,7 +827,7 @@ const KernelList: React.FC = () => {
                 { value: 'unscored', label: '暂无分数' },
               ]} />
             </Col>
-            {sortBy !== 'scoreAscending' && sortBy !== 'scoreDescending' && (
+            {!isScoreSort(sortBy) && (
               <>
                 <Col xs={12} md={4}>
                   <InputNumber aria-label="每页 Kernel 数量" min={10} max={200} step={10} value={pageSize} onChange={(value) => setPageSize(value || 50)} style={{ width: '100%' }} addonBefore="每页" />
@@ -784,7 +850,7 @@ const KernelList: React.FC = () => {
             <Space direction="vertical">
               <Spin size="large" />
               <Text>
-                {sortBy === 'scoreAscending' || sortBy === 'scoreDescending'
+                {isScoreSort(sortBy)
                   ? '正在读取 Kaggle 公开分数榜，已缓存版本不会重复拉取分数...'
                   : `正在读取 Kernel，并补充前 ${scoreLimit} 条的公开分数...`}
               </Text>

@@ -173,14 +173,15 @@ class AutoArchiveConfig(BaseModel):
 
 
 class NotificationConfig(BaseModel):
-    """自动归档通知的非敏感配置。"""
+    """全局通知中心的非敏感配置（与自动归档解耦）。"""
 
     notify_on_archive: bool = True
     notify_on_failure: bool = True
+    notify_on_score: bool = True
     webhook_enabled: bool = False
     webhook_format: Literal[
         "generic", "slack", "feishu", "dingtalk", "wecom", "ntfy"
-    ] = "generic"
+    ] = "feishu"
     email_enabled: bool = False
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1, le=65535)
@@ -198,6 +199,7 @@ class NotificationConfigUpdate(BaseModel):
 
     notify_on_archive: Optional[bool] = None
     notify_on_failure: Optional[bool] = None
+    notify_on_score: Optional[bool] = None
     webhook_enabled: Optional[bool] = None
     webhook_format: Optional[
         Literal["generic", "slack", "feishu", "dingtalk", "wecom", "ntfy"]
@@ -332,3 +334,108 @@ class AutoArchiveSnapshot(BaseModel):
     config: AutoArchiveConfig
     status: AutoArchiveStatus
     logs: list[AutoArchiveRunLog] = Field(default_factory=list)
+
+
+class CompetitionSubmission(BaseModel):
+    """竞赛提交记录（用于出分监控）。"""
+
+    ref: str
+    file_name: str = ""
+    date: Optional[str] = None
+    description: str = ""
+    status: str = ""
+    public_score: Optional[float] = None
+    public_score_display: Optional[str] = None
+    private_score: Optional[float] = None
+    private_score_display: Optional[str] = None
+
+
+class SubmissionMonitorConfig(BaseModel):
+    """定时检查本人竞赛提交出分的配置。"""
+
+    enabled: bool = False
+    competition: str = Field(
+        default="rogii-wellbore-geology-prediction",
+        min_length=3,
+        max_length=120,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9-]*$",
+    )
+    interval_minutes: int = Field(default=5, ge=1, le=1440)
+    # 本人每日提交很少；默认只拉最近少量记录即可覆盖待出分窗口。
+    page_size: int = Field(default=10, ge=1, le=50)
+    description_prefix: str = Field(default="", max_length=200)
+
+
+class SubmissionScoreEvent(BaseModel):
+    """一次新出分事件。"""
+
+    ref: str
+    description: str = ""
+    public_score: float
+    public_score_display: str = ""
+    status: str = ""
+    date: Optional[str] = None
+    previous_public_score: Optional[float] = None
+
+
+class SubmissionMonitorItem(BaseModel):
+    """最近一次检查中看到的提交摘要。"""
+
+    ref: str
+    description: str = ""
+    status: str = ""
+    public_score: Optional[float] = None
+    public_score_display: Optional[str] = None
+    date: Optional[str] = None
+    watched: bool = True
+    newly_scored: bool = False
+
+
+class SubmissionMonitorStatus(BaseModel):
+    """提交出分监控的运行状态。"""
+
+    running: bool = False
+    scheduler_alive: bool = False
+    service_started_at: Optional[str] = None
+    scheduler_heartbeat_at: Optional[str] = None
+    last_checked_at: Optional[str] = None
+    next_run_at: Optional[str] = None
+    last_error: Optional[str] = None
+    checked_count: int = 0
+    pending_count: int = 0
+    scored_count: int = 0
+    newly_scored_count: int = 0
+    recent_events: list[SubmissionScoreEvent] = Field(default_factory=list)
+    recent_items: list[SubmissionMonitorItem] = Field(default_factory=list)
+
+
+class SubmissionMonitorRunLog(BaseModel):
+    """一次提交出分检查的汇总。"""
+
+    id: str
+    trigger: Literal["scheduled", "manual"]
+    outcome: Literal["success", "partial", "failed"]
+    started_at: str
+    finished_at: str
+    duration_seconds: float = Field(ge=0)
+    checked_count: int = 0
+    pending_count: int = 0
+    scored_count: int = 0
+    newly_scored_count: int = 0
+    error: Optional[str] = None
+    details_available: bool = False
+
+
+class SubmissionMonitorRunDetail(BaseModel):
+    """一次提交出分检查的明细。"""
+
+    log: SubmissionMonitorRunLog
+    items: list[SubmissionMonitorItem] = Field(default_factory=list)
+
+
+class SubmissionMonitorSnapshot(BaseModel):
+    """提交出分监控配置与状态。"""
+
+    config: SubmissionMonitorConfig
+    status: SubmissionMonitorStatus
+    logs: list[SubmissionMonitorRunLog] = Field(default_factory=list)

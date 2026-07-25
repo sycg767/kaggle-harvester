@@ -18,6 +18,7 @@ import httpx
 from .cache import PersistentKernelMetadataCache, PersistentKernelScoreCache
 from .models import (
     CompetitionInfo,
+    CompetitionSubmission,
     KernelSummary,
     ScoredKernel,
     VersionInfo,
@@ -1278,6 +1279,73 @@ class KaggleClient:
     # ------------------------------------------------------------------
     #  Competition data info
     # ------------------------------------------------------------------
+
+    def list_competition_submissions(
+        self,
+        competition: Optional[str] = None,
+        page_size: int = 10,
+    ) -> list[CompetitionSubmission]:
+        """列出当前账号在竞赛中的提交记录（含 Public Score）。"""
+        comp = (competition or self.competition_slug).strip()
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,119}", comp):
+            raise ValueError(f"竞赛标识无效：{comp}")
+        size = max(1, min(int(page_size), 50))
+        rows = self._run_kaggle_json(
+            [
+                "competitions",
+                "submissions",
+                comp,
+                "--format",
+                "json",
+                "--page-size",
+                str(size),
+            ],
+            timeout=90,
+        )
+        results: list[CompetitionSubmission] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            public_display = row.get("publicScore")
+            private_display = row.get("privateScore")
+            if public_display is None:
+                public_display = row.get("public_score")
+            if private_display is None:
+                private_display = row.get("private_score")
+            public_score = _parse_public_score(public_display)
+            private_score = _parse_public_score(private_display)
+            ref_value = row.get("ref")
+            if ref_value is None:
+                continue
+            status_raw = str(row.get("status") or "").strip()
+            if status_raw.startswith("SubmissionStatus."):
+                status_raw = status_raw.split(".", 1)[1]
+            results.append(
+                CompetitionSubmission(
+                    ref=str(ref_value),
+                    file_name=str(row.get("fileName") or row.get("file_name") or ""),
+                    date=(
+                        str(row.get("date"))
+                        if row.get("date") not in (None, "")
+                        else None
+                    ),
+                    description=str(row.get("description") or ""),
+                    status=status_raw,
+                    public_score=public_score,
+                    public_score_display=(
+                        str(public_display).strip()
+                        if public_display not in (None, "")
+                        else None
+                    ),
+                    private_score=private_score,
+                    private_score_display=(
+                        str(private_display).strip()
+                        if private_display not in (None, "")
+                        else None
+                    ),
+                )
+            )
+        return results
 
     def list_datasets(self) -> list[dict]:
         """List competition datasets."""
