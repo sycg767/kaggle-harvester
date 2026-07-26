@@ -41,7 +41,10 @@ import {
   type AutoArchiveRunDetail,
   type AutoArchiveRunLog,
   type AutoArchiveSnapshot,
+  type EnteredCompetition,
 } from '../api';
+import { buildEnteredCompetitionOptions, competitionDisplayName } from '../competitionOptions';
+import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import {
   kaggleAuthorUrl,
   kaggleKernelUrl,
@@ -116,6 +119,13 @@ const renderCheckedAction = (item: AutoArchiveCheckedItem) => {
 
 const detailColumns: TableColumnsType<AutoArchiveCheckedItem> = [
   {
+    title: '竞赛',
+    dataIndex: 'competition',
+    width: 150,
+    ellipsis: true,
+    render: (value?: string) => value || '—',
+  },
+  {
     title: '分数',
     dataIndex: 'public_score',
     width: 92,
@@ -186,6 +196,9 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   const [narrowViewport, setNarrowViewport] = useState(
     () => window.matchMedia('(max-width: 768px)').matches,
   );
+  const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
+  const [enteredLoading, setEnteredLoading] = useState(false);
+  const [enteredError, setEnteredError] = useState<string | null>(null);
   const latestLogIdRef = useRef<string | null>(null);
   const onArchiveCompleteRef = useRef(onArchiveComplete);
 
@@ -213,11 +226,16 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
         if (latestLog.archived_count > 0) onArchiveCompleteRef.current();
       }
       if (fillForm) {
+        const competitions = data.config.enabled
+          ? data.config.competitions
+          : Array.from(new Set([
+            ...(data.config.competitions || []),
+            currentCompetition,
+          ].filter(Boolean)));
         form.setFieldsValue({
           ...data.config,
-          competition: data.config.enabled
-            ? data.config.competition
-            : currentCompetition,
+          competitions,
+          score_thresholds: data.config.score_thresholds || {},
         });
       }
       return data;
@@ -226,6 +244,35 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
       return null;
     }
   }, [currentCompetition, form]);
+
+  const loadEnteredCompetitions = useCallback(async (refresh = false) => {
+    setEnteredLoading(true);
+    setEnteredError(null);
+    try {
+      const items = await getEnteredCompetitions({ refresh });
+      setEnteredCompetitions(items);
+    } catch (error) {
+      setEnteredError(error instanceof Error ? error.message : '已参加竞赛列表读取失败。');
+    } finally {
+      setEnteredLoading(false);
+    }
+  }, []);
+
+  const competitionSelectOptions = useMemo(
+    () => buildEnteredCompetitionOptions(enteredCompetitions, [
+      ...(snapshot?.config.competitions || []),
+      currentCompetition,
+    ]),
+    [currentCompetition, enteredCompetitions, snapshot?.config.competitions],
+  );
+
+  const competitionTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of enteredCompetitions) {
+      map.set(item.id, competitionDisplayName(item));
+    }
+    return map;
+  }, [enteredCompetitions]);
 
   useEffect(() => {
     void loadStatus(false);
@@ -239,7 +286,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   const showSettings = async () => {
     setOpen(true);
     setLoading(true);
-    await loadStatus(true);
+    await Promise.all([loadStatus(true), loadEnteredCompetitions(false)]);
     setLoading(false);
   };
 
@@ -411,34 +458,58 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
           disabled={loading || running}
           initialValues={{
             enabled: false,
-            competition: currentCompetition,
+            competitions: currentCompetition ? [currentCompetition] : [],
+            score_thresholds: {},
             interval_minutes: 30,
             include_outputs: true,
             score_direction: 'auto',
           }}
         >
           <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="competition" label="监控竞赛" rules={[
-                { required: true, message: '请输入竞赛标识' },
-                { pattern: /^[a-z0-9][a-z0-9-]{2,119}$/i, message: '竞赛标识格式无效' },
-              ]}>
-                <Input aria-label="监控竞赛标识" />
-              </Form.Item>
-            </Col>
-            <Col xs={12} sm={6}>
+            <Col xs={24} sm={16}>
               <Form.Item
-                name="score_threshold"
-                label="分数阈值"
-                tooltip="根据竞赛评分方向自动判断高于或低于阈值的版本"
-                rules={[
-                  { required: true, message: '请设置分数阈值' },
-                ]}
+                name="competitions"
+                label="监控竞赛"
+                rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个竞赛' }]}
+                extra={
+                  enteredError
+                    ? `已参加列表读取失败：${enteredError}。仍可选择当前页竞赛或已保存项。`
+                    : (
+                      <span>
+                        已参加竞赛 · 可多选
+                        {' · '}
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, height: 'auto' }}
+                          loading={enteredLoading}
+                          onClick={() => void loadEnteredCompetitions(true)}
+                        >
+                          刷新
+                        </Button>
+                      </span>
+                    )
+                }
               >
-                <InputNumber aria-label="自动归档分数阈值" precision={6} style={{ width: '100%' }} placeholder="例如 7.0" />
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  loading={enteredLoading}
+                  optionFilterProp="label"
+                  placeholder="选择竞赛"
+                  aria-label="自动归档监控竞赛"
+                  options={competitionSelectOptions}
+                  maxTagCount="responsive"
+                  maxTagTextLength={28}
+                  listHeight={280}
+                  popupMatchSelectWidth={false}
+                  dropdownStyle={{ minWidth: 320 }}
+                  style={{ width: '100%' }}
+                />
               </Form.Item>
             </Col>
-            <Col xs={12} sm={6}>
+            <Col xs={24} sm={8}>
               <Form.Item name="interval_minutes" label="刷新间隔" rules={[{ required: true }]}>
                 <Select aria-label="自动归档刷新间隔" options={[
                   { value: 1, label: '1 分钟' },
@@ -453,6 +524,39 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
               </Form.Item>
             </Col>
           </Row>
+          <Form.Item noStyle shouldUpdate={(prev, next) => prev.competitions !== next.competitions}>
+            {() => {
+              const competitions = (form.getFieldValue('competitions') as string[] | undefined) || [];
+              if (!competitions.length) return null;
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                    各竞赛分数阈值（启用时必填）
+                  </Text>
+                  <Row gutter={[16, 12]}>
+                    {competitions.map((slug) => (
+                      <Col xs={24} sm={12} key={slug}>
+                        <Form.Item
+                          name={['score_thresholds', slug]}
+                          label={competitionTitleById.get(slug) || slug}
+                          rules={[{ required: true, message: `请设置阈值` }]}
+                          style={{ marginBottom: 4 }}
+                          extra={<Text type="secondary" style={{ fontSize: 12 }}>{slug}</Text>}
+                        >
+                          <InputNumber
+                            aria-label={`${slug} 分数阈值`}
+                            precision={6}
+                            style={{ width: '100%' }}
+                            placeholder="例如 7.0"
+                          />
+                        </Form.Item>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              );
+            }}
+          </Form.Item>
           <Space size="large" wrap>
             <Form.Item name="enabled" valuePropName="checked" label="定时任务" style={{ marginBottom: 16 }}>
               <Switch checkedChildren="已启用" unCheckedChildren="已关闭" />
@@ -472,6 +576,11 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
               : enabled
                 ? <Tag color="success">等待下次检查</Tag>
                 : <Tag>已关闭</Tag>}
+          </SummaryItem>
+          <SummaryItem label="监控竞赛" tabular>
+            {snapshot?.config.competitions?.length
+              ? `${snapshot.config.competitions.length} 个`
+              : '—'}
           </SummaryItem>
           <SummaryItem label="最近检查" tabular>{formatDate(status?.last_checked_at)}</SummaryItem>
           <SummaryItem label="下次检查" tabular>{formatDate(status?.next_run_at)}</SummaryItem>

@@ -19,6 +19,7 @@ from .cache import PersistentKernelMetadataCache, PersistentKernelScoreCache
 from .models import (
     CompetitionInfo,
     CompetitionSubmission,
+    EnteredCompetition,
     KernelSummary,
     ScoredKernel,
     VersionInfo,
@@ -45,6 +46,26 @@ def _locate_utf8_wrapper(module_file: str | Path) -> Path:
             return candidate
     # Linux 不使用该脚本；返回稳定的缺失路径供 readiness 展示即可。
     return module_path.parent / UTF8_WRAPPER_NAME
+
+
+def _competition_slug_from_ref(raw: object) -> str:
+    """从 Kaggle competitions list 的 ref/id 字段提取竞赛 slug。
+
+    新版 CLI 可能返回完整 URL：
+    ``https://www.kaggle.com/competitions/rogii-wellbore-geology-prediction``
+    """
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    if "://" in value or value.startswith("www."):
+        path = value.split("?", 1)[0].rstrip("/")
+        marker = "/competitions/"
+        if marker in path:
+            value = path.split(marker, 1)[1]
+        else:
+            value = path.rsplit("/", 1)[-1]
+        value = value.split("/", 1)[0]
+    return value.strip()
 
 
 class KaggleWebServiceClient:
@@ -435,6 +456,65 @@ class KaggleClient:
     # ------------------------------------------------------------------
     #  Competition info
     # ------------------------------------------------------------------
+
+    def list_entered_competitions(
+        self, page_size: int = 100
+    ) -> list[EnteredCompetition]:
+        """列出当前账号已参加的竞赛（Kaggle group=entered）。"""
+        size = max(1, min(int(page_size), 200))
+        rows = self._run_kaggle_json(
+            [
+                "competitions",
+                "list",
+                "--group",
+                "entered",
+                "--format",
+                "json",
+                "--page-size",
+                str(size),
+            ],
+            timeout=90,
+        )
+        results: list[EnteredCompetition] = []
+        seen: set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            slug = _competition_slug_from_ref(
+                row.get("ref") or row.get("id") or row.get("competitionId")
+            )
+            if not slug or slug in seen:
+                continue
+            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,119}", slug):
+                continue
+            seen.add(slug)
+            team_count = row.get("teamCount")
+            if team_count is None:
+                team_count = row.get("team_count")
+            try:
+                team_count_int = int(team_count) if team_count is not None else None
+            except (TypeError, ValueError):
+                team_count_int = None
+            raw_title = str(row.get("title") or "").strip()
+            results.append(
+                EnteredCompetition(
+                    id=slug,
+                    title=raw_title or slug,
+                    category=str(row.get("category") or ""),
+                    deadline=(
+                        str(row.get("deadline"))
+                        if row.get("deadline") not in (None, "")
+                        else None
+                    ),
+                    reward=(
+                        str(row.get("reward"))
+                        if row.get("reward") not in (None, "")
+                        else None
+                    ),
+                    team_count=team_count_int,
+                )
+            )
+        return results
 
     def fetch_competition_info(
         self, competition: Optional[str] = None, refresh: bool = False

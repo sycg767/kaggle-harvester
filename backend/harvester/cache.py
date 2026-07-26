@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from .models import CompetitionInfo, ScoredKernel, VersionInfo
+from .models import CompetitionInfo, EnteredCompetition, ScoredKernel, VersionInfo
 
 
 @dataclass(frozen=True)
@@ -155,6 +155,61 @@ class PersistentCompetitionCache:
         return {
             "competition_snapshots": len(files),
             "competition_bytes": sum(path.stat().st_size for path in files),
+        }
+
+
+class PersistentEnteredCompetitionsCache:
+    """已参加竞赛列表缓存；默认命中磁盘，仅 refresh 时重拉 Kaggle。"""
+
+    SCHEMA_VERSION = 1
+
+    def __init__(self, harvest_root: str | Path) -> None:
+        self._path = (
+            Path(harvest_root).resolve() / "_cache" / "entered_competitions.json"
+        )
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+
+    def get(self) -> Optional[list[EnteredCompetition]]:
+        if not self._path.exists():
+            return None
+        try:
+            with self._lock:
+                payload = json.loads(self._path.read_text(encoding="utf-8"))
+            if payload.get("schema_version") != self.SCHEMA_VERSION:
+                return None
+            items = payload.get("items")
+            if not isinstance(items, list):
+                return None
+            return [EnteredCompetition(**item) for item in items]
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            return None
+
+    def set(self, items: list[EnteredCompetition]) -> None:
+        payload = {
+            "schema_version": self.SCHEMA_VERSION,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "items": [item.model_dump(mode="json") for item in items],
+        }
+        temp_path = self._path.with_suffix(".tmp")
+        with self._lock:
+            temp_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temp_path.replace(self._path)
+
+    def stats(self) -> dict[str, Any]:
+        if not self._path.exists():
+            return {"entered_competitions_cached": 0, "entered_competitions_bytes": 0}
+        try:
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            count = len(payload.get("items") or [])
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            count = 0
+        return {
+            "entered_competitions_cached": count,
+            "entered_competitions_bytes": self._path.stat().st_size,
         }
 
 

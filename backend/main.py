@@ -22,6 +22,7 @@ from harvester.archiver import Archiver
 from harvester.auto_archive import AutoArchiveBusyError, AutoArchiveManager
 from harvester.cache import (
     PersistentCompetitionCache,
+    PersistentEnteredCompetitionsCache,
     PersistentKernelMetadataCache,
     PersistentKernelQueryCache,
     PersistentKernelScoreCache,
@@ -34,6 +35,7 @@ from harvester.models import (
     AutoArchiveRunDetail,
     AutoArchiveSnapshot,
     CompetitionInfo,
+    EnteredCompetition,
     EnrichRequest,
     KernelListRequest,
     KernelSummary,
@@ -179,6 +181,9 @@ async def lifespan(app: FastAPI):
     app.state.kernel_score_cache = PersistentKernelScoreCache(harvest_root)
     app.state.kernel_metadata_cache = PersistentKernelMetadataCache(harvest_root)
     app.state.competition_cache = PersistentCompetitionCache(harvest_root)
+    app.state.entered_competitions_cache = PersistentEnteredCompetitionsCache(
+        harvest_root
+    )
     app.state.kernel_refresh_tasks = {}
     app.state.kaggle_client = KaggleClient(
         kaggle_token=kaggle_token,
@@ -246,6 +251,9 @@ async def health():
     score_cache: PersistentKernelScoreCache = app.state.kernel_score_cache
     metadata_cache: PersistentKernelMetadataCache = app.state.kernel_metadata_cache
     competition_cache: PersistentCompetitionCache = app.state.competition_cache
+    entered_cache: PersistentEnteredCompetitionsCache = (
+        app.state.entered_competitions_cache
+    )
     auto_archive: AutoArchiveManager = app.state.auto_archive
     submission_monitor: SubmissionMonitorManager = app.state.submission_monitor
     notifications: NotificationManager = app.state.notifications
@@ -266,6 +274,7 @@ async def health():
             **score_cache.stats(),
             **metadata_cache.stats(),
             **competition_cache.stats(),
+            **entered_cache.stats(),
         },
         "auto_archive": auto_archive.snapshot().status.model_dump(),
         "submission_monitor": submission_monitor.snapshot().status.model_dump(),
@@ -297,6 +306,37 @@ async def get_competition_info(
         )
         return info
     except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.get("/api/competitions/entered", response_model=list[EnteredCompetition])
+async def list_entered_competitions(
+    page_size: int = Query(100, ge=1, le=200),
+    refresh: bool = Query(False, description="Force refresh entered competitions cache"),
+):
+    """列出当前账号已参加的竞赛，供自动归档/出分监控下拉选择。
+
+    默认读本地缓存；仅 refresh=true 时重新请求 Kaggle。
+    空缓存视为未命中，避免历史解析失败留下的空列表一直挡住刷新。
+    """
+    client: KaggleClient = app.state.kaggle_client
+    entered_cache: PersistentEnteredCompetitionsCache = (
+        app.state.entered_competitions_cache
+    )
+    if not refresh:
+        cached = await run_in_threadpool(entered_cache.get)
+        if cached:
+            return cached[:page_size]
+    try:
+        items = await run_in_threadpool(client.list_entered_competitions, page_size)
+        if items:
+            await run_in_threadpool(entered_cache.set, items)
+        return items
+    except Exception as exc:
+        # 刷新失败时尽量回退到旧缓存，避免下拉空白。
+        cached = await run_in_threadpool(entered_cache.get)
+        if cached:
+            return cached[:page_size]
         raise HTTPException(status_code=502, detail=str(exc))
 
 

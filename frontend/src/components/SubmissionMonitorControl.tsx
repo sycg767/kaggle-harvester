@@ -35,6 +35,7 @@ import {
 import { Activity } from 'lucide-react';
 import {
   api,
+  type EnteredCompetition,
   type SubmissionMonitorConfig,
   type SubmissionMonitorItem,
   type SubmissionMonitorRunDetail,
@@ -42,6 +43,8 @@ import {
   type SubmissionMonitorSnapshot,
   type SubmissionScoreEvent,
 } from '../api';
+import { buildEnteredCompetitionOptions } from '../competitionOptions';
+import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import DialogTitle from './DialogTitle';
 
 const { Text } = Typography;
@@ -65,8 +68,26 @@ const SummaryItem: React.FC<SummaryItemProps> = ({ label, children, tabular = fa
 
 const formatDate = (value?: string) => {
   if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
+  // 无时区标记时按 UTC 解析（Kaggle/后端常见），固定显示为北京时间。
+  let normalized = value.trim();
+  if (
+    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(normalized)
+    && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)
+  ) {
+    normalized = `${normalized.replace(' ', 'T')}Z`;
+  }
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 };
 
 const formatDuration = (seconds: number) => {
@@ -127,6 +148,9 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   const [narrowViewport, setNarrowViewport] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
   );
+  const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
+  const [enteredLoading, setEnteredLoading] = useState(false);
+  const [enteredError, setEnteredError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async (fillForm = false) => {
     try {
@@ -134,11 +158,15 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       setSnapshot(data);
       setLoadError(null);
       if (fillForm) {
+        const competitions = data.config.enabled
+          ? data.config.competitions
+          : Array.from(new Set([
+            ...(data.config.competitions || []),
+            currentCompetition,
+          ].filter(Boolean)));
         form.setFieldsValue({
           ...data.config,
-          competition: data.config.enabled
-            ? data.config.competition
-            : currentCompetition,
+          competitions,
         });
       }
       return data;
@@ -147,6 +175,27 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       return null;
     }
   }, [currentCompetition, form]);
+
+  const loadEnteredCompetitions = useCallback(async (refresh = false) => {
+    setEnteredLoading(true);
+    setEnteredError(null);
+    try {
+      const items = await getEnteredCompetitions({ refresh });
+      setEnteredCompetitions(items);
+    } catch (error) {
+      setEnteredError(error instanceof Error ? error.message : '已参加竞赛列表读取失败。');
+    } finally {
+      setEnteredLoading(false);
+    }
+  }, []);
+
+  const competitionSelectOptions = useMemo(
+    () => buildEnteredCompetitionOptions(enteredCompetitions, [
+      ...(snapshot?.config.competitions || []),
+      currentCompetition,
+    ]),
+    [currentCompetition, enteredCompetitions, snapshot?.config.competitions],
+  );
 
   useEffect(() => {
     void loadStatus(false);
@@ -169,7 +218,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   const showSettings = async () => {
     setOpen(true);
     setLoading(true);
-    await loadStatus(true);
+    await Promise.all([loadStatus(true), loadEnteredCompetitions(false)]);
     setLoading(false);
   };
 
@@ -239,13 +288,21 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       if (detailState === 'scored' && (item.public_score == null || item.newly_scored)) return false;
       if (detailState === 'newly_scored' && !item.newly_scored) return false;
       if (!query) return true;
-      return [item.ref, item.description, item.status]
+      return [item.ref, item.description, item.status, item.competition]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query));
     });
   }, [detailSearch, detailState, runDetail?.items]);
 
   const detailColumns: TableColumnsType<SubmissionMonitorItem> = [
+    {
+      title: '竞赛',
+      dataIndex: 'competition',
+      key: 'competition',
+      width: 150,
+      ellipsis: true,
+      render: (value?: string) => value || '—',
+    },
     {
       title: 'Public LB',
       key: 'score',
@@ -391,7 +448,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
           disabled={loading || running}
           initialValues={{
             enabled: false,
-            competition: currentCompetition,
+            competitions: currentCompetition ? [currentCompetition] : [],
             interval_minutes: 5,
             page_size: 10,
             description_prefix: '',
@@ -400,14 +457,45 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item
-                name="competition"
+                name="competitions"
                 label="监控竞赛"
-                rules={[
-                  { required: true, message: '请输入竞赛标识' },
-                  { pattern: /^[a-z0-9][a-z0-9-]{2,119}$/i, message: '竞赛标识格式无效' },
-                ]}
+                rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个竞赛' }]}
+                extra={
+                  enteredError
+                    ? `已参加列表读取失败：${enteredError}。仍可选择当前页竞赛或已保存项。`
+                    : (
+                      <span>
+                        已参加竞赛 · 可多选
+                        {' · '}
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, height: 'auto' }}
+                          loading={enteredLoading}
+                          onClick={() => void loadEnteredCompetitions(true)}
+                        >
+                          刷新
+                        </Button>
+                      </span>
+                    )
+                }
               >
-                <Input aria-label="出分监控竞赛标识" />
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  loading={enteredLoading}
+                  optionFilterProp="label"
+                  placeholder="选择竞赛"
+                  aria-label="出分监控竞赛"
+                  options={competitionSelectOptions}
+                  maxTagCount="responsive"
+                  maxTagTextLength={28}
+                  listHeight={280}
+                  popupMatchSelectWidth={false}
+                  dropdownStyle={{ minWidth: 320 }}
+                  style={{ width: '100%' }}
+                />
               </Form.Item>
             </Col>
             <Col xs={12} sm={6}>
@@ -471,6 +559,11 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
                 : enabled
                   ? <Tag color="success">等待下次检查</Tag>
                   : <Tag>已关闭</Tag>}
+          </SummaryItem>
+          <SummaryItem label="监控竞赛" tabular>
+            {snapshot?.config.competitions?.length
+              ? `${snapshot.config.competitions.length} 个`
+              : '—'}
           </SummaryItem>
           <SummaryItem label="最近检查" tabular>{formatDate(status?.last_checked_at)}</SummaryItem>
           <SummaryItem label="下次检查" tabular>{formatDate(status?.next_run_at)}</SummaryItem>

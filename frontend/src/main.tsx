@@ -71,7 +71,15 @@ ReactDOM.createRoot(rootElement).render(
           colorBgElevated: '#ffffff',
         },
         Input: { activeShadow: '0 0 0 3px rgba(0, 0, 0, 0.08)' },
-        Select: { activeOutlineColor: 'rgba(0, 0, 0, 0.08)' },
+        Select: {
+          activeOutlineColor: 'rgba(0, 0, 0, 0.08)',
+          optionSelectedBg: '#e5e5e5',
+          optionSelectedColor: '#0a0a0a',
+          optionActiveBg: '#f0f0f0',
+          multipleItemBg: '#f0f0f0',
+          multipleItemBorderColor: '#e5e5e5',
+          multipleItemColor: '#0a0a0a',
+        },
         Switch: { colorPrimary: '#0a0a0a', colorPrimaryHover: '#2a2a2a' },
       },
     }}

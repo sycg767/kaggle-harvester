@@ -51,10 +51,13 @@ import {
   api,
   type ArchiveEntry,
   type CompetitionInfo,
+  type EnteredCompetition,
   type KernelCacheInfo,
   type ScoredKernel,
   type VersionInfo,
 } from '../api';
+import { buildEnteredCompetitionOptions } from '../competitionOptions';
+import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import {
   kaggleAuthorUrl,
   kaggleKernelUrl,
@@ -201,6 +204,9 @@ const KernelList: React.FC = () => {
     const current = localStorage.getItem('harvester.competition') || DEFAULT_COMPETITION;
     return [...new Set([current, DEFAULT_COMPETITION, ...readRecentCompetitions()])].slice(0, 8);
   });
+  const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
+  const [enteredLoading, setEnteredLoading] = useState(false);
+  const [enteredError, setEnteredError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState(SCORE_SORT_BEST);
   const [pageSize, setPageSize] = useState(50);
   const [maxPages, setMaxPages] = useState(1);
@@ -346,6 +352,26 @@ const KernelList: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadEnteredCompetitions = async (refresh = false) => {
+    setEnteredLoading(true);
+    setEnteredError(null);
+    try {
+      const items = await getEnteredCompetitions({ refresh });
+      setEnteredCompetitions(items);
+      if (!items.length) {
+        setEnteredError('未获取到已参加竞赛，可手输 slug 或点刷新。');
+      }
+    } catch (error) {
+      setEnteredError(error instanceof Error ? error.message : '已参加竞赛列表读取失败。');
+    } finally {
+      setEnteredLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadEnteredCompetitions(false);
+  }, []);
+
   useEffect(() => () => requestControllerRef.current?.abort(), []);
 
   useEffect(() => {
@@ -367,9 +393,31 @@ const KernelList: React.FC = () => {
   }, [archives]);
 
   const competitionOptions = useMemo(
-    () => recentCompetitions.map((value) => ({ value, label: value })),
-    [recentCompetitions],
+    () => buildEnteredCompetitionOptions(enteredCompetitions, [
+      competition,
+      ...recentCompetitions,
+      DEFAULT_COMPETITION,
+    ]),
+    [competition, enteredCompetitions, recentCompetitions],
   );
+
+  const competitionOptionValues = useMemo(
+    () => new Set(competitionOptions.map((item) => item.value.toLowerCase())),
+    [competitionOptions],
+  );
+
+  /** 输入为空或已是完整 slug 时展示全部选项，便于切换竞赛。 */
+  const filterCompetitionOption = (
+    inputValue: string,
+    option?: { value?: string | number; label?: React.ReactNode },
+  ) => {
+    const q = inputValue.trim().toLowerCase();
+    if (!q || competitionOptionValues.has(q)) return true;
+    return (
+      String(option?.value || '').toLowerCase().includes(q)
+      || String(option?.label || '').toLowerCase().includes(q)
+    );
+  };
 
   const displayKernels = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -722,23 +770,48 @@ const KernelList: React.FC = () => {
       <Card size="small" className="data-toolbar">
         <Row gutter={[8, 8]} align="middle" className="toolbar-primary-row">
           <Col xs={24} md={10} lg={10} className="toolbar-competition-control">
-            <AutoComplete
-              className="overview-competition-select"
-              value={competitionInput}
-              options={competitionOptions}
-              onChange={setCompetitionInput}
-              filterOption={(inputValue, option) =>
-                String(option?.value || '').toLowerCase().includes(inputValue.toLowerCase())
-              }
-            >
-              <Input
-                ref={competitionInputRef}
-                aria-label="选择或输入 Kaggle 竞赛标识"
-                prefix={<TrophyOutlined />}
-                placeholder="选择或输入竞赛"
-                onPressEnter={() => loadKernels(false)}
-              />
-            </AutoComplete>
+            <Space.Compact style={{ width: '100%' }}>
+              <AutoComplete
+                className="overview-competition-select"
+                style={{ width: '100%' }}
+                value={competitionInput}
+                options={competitionOptions}
+                onChange={setCompetitionInput}
+                onSelect={(value) => {
+                  const next = String(value);
+                  setCompetitionInput(next);
+                  void loadKernels(false, next);
+                }}
+                filterOption={filterCompetitionOption}
+                defaultActiveFirstOption={false}
+                notFoundContent={
+                  enteredLoading
+                    ? '加载已参加竞赛…'
+                    : enteredError || '无匹配竞赛，可直接输入 slug'
+                }
+              >
+                <Input
+                  ref={competitionInputRef}
+                  aria-label="选择或输入 Kaggle 竞赛标识"
+                  prefix={<TrophyOutlined />}
+                  suffix={enteredLoading ? <LoadingOutlined spin /> : undefined}
+                  placeholder={
+                    enteredCompetitions.length
+                      ? `已参加 ${enteredCompetitions.length} 个 · 点选或输入`
+                      : '加载已参加竞赛 / 输入 slug'
+                  }
+                  onPressEnter={() => loadKernels(false)}
+                />
+              </AutoComplete>
+              <Tooltip title="刷新已参加竞赛列表">
+                <Button
+                  icon={<ReloadOutlined />}
+                  loading={enteredLoading}
+                  aria-label="刷新已参加竞赛"
+                  onClick={() => void loadEnteredCompetitions(true)}
+                />
+              </Tooltip>
+            </Space.Compact>
           </Col>
           <Col md={5} lg={5} className="desktop-sort-control">
             <Select

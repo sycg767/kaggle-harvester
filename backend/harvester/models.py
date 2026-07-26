@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SortBy(str, Enum):
@@ -156,20 +157,107 @@ class CompetitionInfo(BaseModel):
     ] = "fallback"
 
 
+COMPETITION_SLUG_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9-]{2,119}$"
+
+
+def _normalize_competition_slugs(values: list[Any]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        slug = str(raw or "").strip()
+        if not slug or slug in seen:
+            continue
+        if not re.fullmatch(COMPETITION_SLUG_PATTERN, slug):
+            raise ValueError(f"竞赛标识无效：{slug}")
+        seen.add(slug)
+        cleaned.append(slug)
+    return cleaned
+
+
+class EnteredCompetition(BaseModel):
+    """当前账号已参加的竞赛摘要。"""
+
+    id: str
+    title: str = ""
+    category: str = ""
+    deadline: Optional[str] = None
+    reward: Optional[str] = None
+    team_count: Optional[int] = None
+
+
 class AutoArchiveConfig(BaseModel):
-    """定时检查并归档低分 Kernel 的持久化配置。"""
+    """定时检查并归档低分 Kernel 的持久化配置（共享设置 + 多竞赛）。"""
 
     enabled: bool = False
-    competition: str = Field(
-        default="rogii-wellbore-geology-prediction",
-        min_length=3,
-        max_length=120,
-        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9-]*$",
+    competitions: list[str] = Field(
+        default_factory=lambda: ["rogii-wellbore-geology-prediction"],
+        min_length=1,
+        max_length=30,
     )
-    score_threshold: Optional[float] = None
+    # 每个竞赛独立阈值；启用时每个 competitions 项都必须有对应值。
+    score_thresholds: dict[str, float] = Field(default_factory=dict)
     interval_minutes: int = Field(default=30, ge=1, le=1440)
     include_outputs: bool = True
     score_direction: ScoreDirection = ScoreDirection.AUTO
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_single_competition(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        competitions = payload.get("competitions")
+        if not competitions:
+            legacy = payload.get("competition")
+            if legacy:
+                payload["competitions"] = [legacy]
+        if "score_thresholds" not in payload or payload.get("score_thresholds") is None:
+            thresholds: dict[str, float] = {}
+            legacy_threshold = payload.get("score_threshold")
+            comps = payload.get("competitions") or []
+            if legacy_threshold is not None and comps:
+                try:
+                    value = float(legacy_threshold)
+                except (TypeError, ValueError):
+                    value = None
+                if value is not None and len(comps) == 1:
+                    thresholds[str(comps[0])] = value
+            payload["score_thresholds"] = thresholds
+        return payload
+
+    @field_validator("competitions", mode="before")
+    @classmethod
+    def _validate_competitions(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            raise ValueError("competitions 必须是列表。")
+        cleaned = _normalize_competition_slugs(value)
+        if not cleaned:
+            raise ValueError("至少选择一个竞赛。")
+        return cleaned
+
+    @field_validator("score_thresholds", mode="before")
+    @classmethod
+    def _validate_score_thresholds(cls, value: Any) -> dict[str, float]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("score_thresholds 必须是对象。")
+        cleaned: dict[str, float] = {}
+        for key, raw in value.items():
+            slug = str(key).strip()
+            if not slug:
+                continue
+            cleaned[slug] = float(raw)
+        return cleaned
+
+    def threshold_for(self, competition: str) -> float | None:
+        if competition in self.score_thresholds:
+            return float(self.score_thresholds[competition])
+        return None
 
 
 class NotificationConfig(BaseModel):
@@ -260,6 +348,7 @@ class NotificationTestResult(BaseModel):
 class AutoArchiveItemResult(BaseModel):
     """单个 Kernel 在最近一次自动检查中的处理结果。"""
 
+    competition: str = ""
     ref: str
     public_score: float
     status: Literal["archived", "skipped", "failed"]
@@ -282,6 +371,7 @@ class AutoArchiveStatus(BaseModel):
     archived_count: int = 0
     skipped_count: int = 0
     failed_count: int = 0
+    competitions_checked: list[str] = Field(default_factory=list)
     effective_score_direction: Optional[
         Literal["minimize", "maximize"]
     ] = None
@@ -303,6 +393,7 @@ class AutoArchiveRunLog(BaseModel):
     archived_count: int = 0
     skipped_count: int = 0
     failed_count: int = 0
+    competitions_checked: list[str] = Field(default_factory=list)
     error: Optional[str] = None
     details_available: bool = False
 
@@ -310,6 +401,7 @@ class AutoArchiveRunLog(BaseModel):
 class AutoArchiveCheckedItem(BaseModel):
     """一次检查中某个 Kernel 的公开信息与处理结果。"""
 
+    competition: str = ""
     ref: str
     title: str
     author: str
@@ -351,24 +443,50 @@ class CompetitionSubmission(BaseModel):
 
 
 class SubmissionMonitorConfig(BaseModel):
-    """定时检查本人竞赛提交出分的配置。"""
+    """定时检查本人竞赛提交出分的配置（共享设置 + 多竞赛）。"""
 
     enabled: bool = False
-    competition: str = Field(
-        default="rogii-wellbore-geology-prediction",
-        min_length=3,
-        max_length=120,
-        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9-]*$",
+    competitions: list[str] = Field(
+        default_factory=lambda: ["rogii-wellbore-geology-prediction"],
+        min_length=1,
+        max_length=30,
     )
     interval_minutes: int = Field(default=5, ge=1, le=1440)
     # 本人每日提交很少；默认只拉最近少量记录即可覆盖待出分窗口。
     page_size: int = Field(default=10, ge=1, le=50)
     description_prefix: str = Field(default="", max_length=200)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_single_competition(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        if not payload.get("competitions"):
+            legacy = payload.get("competition")
+            if legacy:
+                payload["competitions"] = [legacy]
+        return payload
+
+    @field_validator("competitions", mode="before")
+    @classmethod
+    def _validate_competitions(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            raise ValueError("competitions 必须是列表。")
+        cleaned = _normalize_competition_slugs(value)
+        if not cleaned:
+            raise ValueError("至少选择一个竞赛。")
+        return cleaned
+
 
 class SubmissionScoreEvent(BaseModel):
     """一次新出分事件。"""
 
+    competition: str = ""
     ref: str
     description: str = ""
     public_score: float
@@ -381,6 +499,7 @@ class SubmissionScoreEvent(BaseModel):
 class SubmissionMonitorItem(BaseModel):
     """最近一次检查中看到的提交摘要。"""
 
+    competition: str = ""
     ref: str
     description: str = ""
     status: str = ""
@@ -405,6 +524,7 @@ class SubmissionMonitorStatus(BaseModel):
     pending_count: int = 0
     scored_count: int = 0
     newly_scored_count: int = 0
+    competitions_checked: list[str] = Field(default_factory=list)
     recent_events: list[SubmissionScoreEvent] = Field(default_factory=list)
     recent_items: list[SubmissionMonitorItem] = Field(default_factory=list)
 
@@ -422,6 +542,7 @@ class SubmissionMonitorRunLog(BaseModel):
     pending_count: int = 0
     scored_count: int = 0
     newly_scored_count: int = 0
+    competitions_checked: list[str] = Field(default_factory=list)
     error: Optional[str] = None
     details_available: bool = False
 

@@ -71,16 +71,19 @@ class SubmissionMonitorManager:
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._service_started_at = _utc_now().isoformat()
-        self._config = SubmissionMonitorConfig(competition=default_competition)
+        self._config = SubmissionMonitorConfig(competitions=[default_competition])
         self._status = SubmissionMonitorStatus(
             service_started_at=self._service_started_at,
             scheduler_heartbeat_at=self._service_started_at,
         )
-        # ref -> last known public_score (None means seen but unscored)
+        # key: f"{competition}::{ref}" -> last known public_score
         self._known_scores: dict[str, float | None] = {}
-        self._baseline_seeded = False
+        self._baseline_seeded_by_competition: dict[str, bool] = {}
         self._logs: list[SubmissionMonitorRunLog] = []
         self._load_state()
+
+    def _score_key(self, competition: str, ref: str) -> str:
+        return f"{competition}::{ref}"
 
     def _load_state(self) -> None:
         if not self._state_path.exists():
@@ -96,14 +99,37 @@ class SubmissionMonitorManager:
             known = data.get("known_scores", {})
             if isinstance(known, dict):
                 cleaned: dict[str, float | None] = {}
+                legacy_only = True
                 for key, value in known.items():
                     ref = str(key)
+                    if "::" in ref:
+                        legacy_only = False
                     if value is None:
                         cleaned[ref] = None
                     elif isinstance(value, (int, float)):
                         cleaned[ref] = float(value)
+                # 旧版 key 仅为 ref：仅当当前只有一个竞赛时挂到该竞赛，否则丢弃并重 seed。
+                if cleaned and legacy_only:
+                    comps = list(self._config.competitions)
+                    if len(comps) == 1:
+                        prefix = comps[0]
+                        cleaned = {
+                            self._score_key(prefix, key): value
+                            for key, value in cleaned.items()
+                        }
+                    else:
+                        cleaned = {}
                 self._known_scores = cleaned
-            self._baseline_seeded = bool(data.get("baseline_seeded", False))
+            baselines = data.get("baseline_seeded_by_competition")
+            if isinstance(baselines, dict):
+                self._baseline_seeded_by_competition = {
+                    str(key): bool(value) for key, value in baselines.items()
+                }
+            elif data.get("baseline_seeded"):
+                # 旧全局 baseline：仅迁移到当前唯一竞赛
+                comps = list(self._config.competitions)
+                if len(comps) == 1:
+                    self._baseline_seeded_by_competition = {comps[0]: True}
             logs = data.get("logs", [])
             if isinstance(logs, list):
                 for item in logs[: self.MAX_RUN_LOGS]:
@@ -126,12 +152,12 @@ class SubmissionMonitorManager:
                 keep = list(self._known_scores.items())[-self.MAX_KNOWN_REFS :]
                 self._known_scores = dict(keep)
             payload = {
-                "version": 1,
+                "version": 2,
                 "updated_at": _utc_now().isoformat(),
                 "config": self._config.model_dump(),
                 "status": self._status.model_dump(),
                 "known_scores": self._known_scores,
-                "baseline_seeded": self._baseline_seeded,
+                "baseline_seeded_by_competition": self._baseline_seeded_by_competition,
                 "logs": [item.model_dump() for item in self._logs],
             }
             temp_path = self._state_path.with_suffix(".tmp")
@@ -252,7 +278,7 @@ class SubmissionMonitorManager:
                 config = self._config.model_copy(deep=True)
 
             try:
-                status, known_scores, baseline_seeded, new_events = (
+                status, known_scores, baselines, new_events = (
                     await asyncio.to_thread(self._run_once_sync, config)
                 )
             except Exception as exc:
@@ -261,7 +287,7 @@ class SubmissionMonitorManager:
                     last_error=str(exc)[:500],
                 )
                 known_scores = None
-                baseline_seeded = None
+                baselines = None
                 new_events = []
 
             with self._state_lock:
@@ -283,25 +309,28 @@ class SubmissionMonitorManager:
                     merged_events = list(new_events) + list(
                         self._status.recent_events
                     )
-                    seen_refs: set[str] = set()
+                    seen_keys: set[str] = set()
                     deduped: list[SubmissionScoreEvent] = []
                     for event in merged_events:
-                        if event.ref in seen_refs:
+                        key = f"{event.competition}::{event.ref}"
+                        if key in seen_keys:
                             continue
-                        seen_refs.add(event.ref)
+                        seen_keys.add(key)
                         deduped.append(event)
                         if len(deduped) >= self.MAX_RECENT_EVENTS:
                             break
                     status.recent_events = deduped
                     self._known_scores = known_scores
-                    if baseline_seeded is not None:
-                        self._baseline_seeded = baseline_seeded
+                    if baselines is not None:
+                        self._baseline_seeded_by_competition = baselines
                 else:
                     status.recent_events = list(self._status.recent_events)
                 self._status = status
                 outcome: Literal["success", "partial", "failed"] = (
                     "failed"
                     if known_scores is None
+                    else "partial"
+                    if status.last_error
                     else "success"
                 )
                 detail_items = list(status.recent_items) if known_scores is not None else []
@@ -318,6 +347,7 @@ class SubmissionMonitorManager:
                     pending_count=status.pending_count,
                     scored_count=status.scored_count,
                     newly_scored_count=status.newly_scored_count,
+                    competitions_checked=list(status.competitions_checked),
                     error=status.last_error,
                     # 必须在落盘前设为 True，否则明细文件里的 log 会把前端读成「仅汇总」。
                     details_available=known_scores is not None,
@@ -333,11 +363,17 @@ class SubmissionMonitorManager:
 
             if self._notifications is not None and new_events:
                 try:
-                    self._notifications.enqueue_submission_scores(
-                        competition=config.competition,
-                        events=[event.model_dump() for event in new_events],
-                        checked_at=status.last_checked_at,
-                    )
+                    by_comp: dict[str, list[SubmissionScoreEvent]] = {}
+                    for event in new_events:
+                        by_comp.setdefault(event.competition or "unknown", []).append(
+                            event
+                        )
+                    for competition, events in by_comp.items():
+                        self._notifications.enqueue_submission_scores(
+                            competition=competition,
+                            events=[event.model_dump() for event in events],
+                            checked_at=status.last_checked_at,
+                        )
                 except Exception:
                     pass
             self._wake_event.set()
@@ -355,105 +391,121 @@ class SubmissionMonitorManager:
     ) -> tuple[
         SubmissionMonitorStatus,
         dict[str, float | None],
-        bool,
+        dict[str, bool],
         list[SubmissionScoreEvent],
     ]:
-        submissions = self._kaggle.list_competition_submissions(
-            competition=config.competition,
-            page_size=config.page_size,
-        )
-        prefix = (config.description_prefix or "").strip()
-        watched = [
-            item for item in submissions if self._matches_prefix(item, prefix)
-        ]
-
         with self._state_lock:
             known_scores = dict(self._known_scores)
-            baseline_seeded = self._baseline_seeded
+            baselines = dict(self._baseline_seeded_by_competition)
 
+        prefix = (config.description_prefix or "").strip()
         new_events: list[SubmissionScoreEvent] = []
         recent_items: list[SubmissionMonitorItem] = []
         pending_count = 0
         scored_count = 0
+        competitions_checked: list[str] = []
+        errors: list[str] = []
 
-        # 首次启用：建立基线，不把已有出分当作“新出分”
-        seed_baseline = not baseline_seeded
+        for competition in config.competitions:
+            competitions_checked.append(competition)
+            try:
+                submissions = self._kaggle.list_competition_submissions(
+                    competition=competition,
+                    page_size=config.page_size,
+                )
+            except Exception as exc:
+                errors.append(f"{competition}: {str(exc)[:200]}")
+                continue
 
-        for submission in watched:
-            score = submission.public_score
-            previous = known_scores.get(submission.ref, ...)
-            newly_scored = False
+            watched = [
+                item for item in submissions if self._matches_prefix(item, prefix)
+            ]
+            seed_baseline = not baselines.get(competition, False)
+            comp_new_events: list[SubmissionScoreEvent] = []
 
-            if score is None:
-                pending_count += 1
-            else:
-                scored_count += 1
+            for submission in watched:
+                score = submission.public_score
+                key = self._score_key(competition, submission.ref)
+                previous = known_scores.get(key, ...)
+                newly_scored = False
+
+                if score is None:
+                    pending_count += 1
+                else:
+                    scored_count += 1
+
+                if seed_baseline:
+                    known_scores[key] = score
+                elif previous is ...:
+                    if score is not None:
+                        newly_scored = True
+                    known_scores[key] = score
+                else:
+                    prev_score = previous  # float | None
+                    if prev_score is None and score is not None:
+                        newly_scored = True
+                    known_scores[key] = score
+
+                if newly_scored and score is not None:
+                    previous_public = (
+                        None if previous is ... else previous  # type: ignore[assignment]
+                    )
+                    if not isinstance(previous_public, (int, float)):
+                        previous_public = None
+                    event = SubmissionScoreEvent(
+                        competition=competition,
+                        ref=submission.ref,
+                        description=submission.description,
+                        public_score=float(score),
+                        public_score_display=(
+                            submission.public_score_display
+                            or f"{float(score):.6g}"
+                        ),
+                        status=submission.status,
+                        date=submission.date,
+                        previous_public_score=(
+                            float(previous_public)
+                            if previous_public is not None
+                            else None
+                        ),
+                    )
+                    comp_new_events.append(event)
+
+                recent_items.append(
+                    SubmissionMonitorItem(
+                        competition=competition,
+                        ref=submission.ref,
+                        description=submission.description,
+                        status=submission.status,
+                        public_score=score,
+                        public_score_display=submission.public_score_display,
+                        date=submission.date,
+                        watched=True,
+                        newly_scored=newly_scored and not seed_baseline,
+                    )
+                )
 
             if seed_baseline:
-                known_scores[submission.ref] = score
-            elif previous is ...:
-                # 新出现的提交
-                if score is not None:
-                    newly_scored = True
-                known_scores[submission.ref] = score
+                baselines[competition] = True
             else:
-                prev_score = previous  # float | None
-                if prev_score is None and score is not None:
-                    newly_scored = True
-                known_scores[submission.ref] = score
+                new_events.extend(comp_new_events)
+                baselines[competition] = True
 
-            if newly_scored and score is not None:
-                previous_public = (
-                    None if previous is ... else previous  # type: ignore[assignment]
-                )
-                if not isinstance(previous_public, (int, float)):
-                    previous_public = None
-                event = SubmissionScoreEvent(
-                    ref=submission.ref,
-                    description=submission.description,
-                    public_score=float(score),
-                    public_score_display=(
-                        submission.public_score_display
-                        or f"{float(score):.6g}"
-                    ),
-                    status=submission.status,
-                    date=submission.date,
-                    previous_public_score=(
-                        float(previous_public)
-                        if previous_public is not None
-                        else None
-                    ),
-                )
-                new_events.append(event)
-
-            recent_items.append(
-                SubmissionMonitorItem(
-                    ref=submission.ref,
-                    description=submission.description,
-                    status=submission.status,
-                    public_score=score,
-                    public_score_display=submission.public_score_display,
-                    date=submission.date,
-                    watched=True,
-                    newly_scored=newly_scored,
-                )
-            )
-
-        if seed_baseline:
-            baseline_seeded = True
-            new_events = []
+        if not competitions_checked and errors:
+            raise RuntimeError("；".join(errors))
 
         status = SubmissionMonitorStatus(
             last_checked_at=_utc_now().isoformat(),
-            last_error=None,
-            checked_count=len(watched),
+            last_error="；".join(errors) if errors else None,
+            checked_count=len(recent_items),
             pending_count=pending_count,
             scored_count=scored_count,
             newly_scored_count=len(new_events),
+            competitions_checked=competitions_checked,
             recent_events=new_events,
             recent_items=recent_items[:100],
         )
-        return status, known_scores, baseline_seeded, new_events
+        return status, known_scores, baselines, new_events
 
     async def _scheduler_loop(self) -> None:
         while not self._stop_event.is_set():

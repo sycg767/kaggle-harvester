@@ -584,12 +584,23 @@ a:hover {
 
 .overview-competition-select {
   width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.toolbar-competition-control .ant-space-compact {
+  width: 100%;
 }
 
 .overview-competition-select .ant-select-selector,
 .overview-competition-select .ant-input-affix-wrapper {
   height: 32px !important;
-  border-radius: 16px !important;
+  border-radius: 16px 0 0 16px !important;
+}
+
+.toolbar-competition-control .ant-space-compact > .ant-btn {
+  height: 32px;
+  border-radius: 0 16px 16px 0 !important;
 }
 
 .data-toolbar.ant-card,
@@ -1244,6 +1255,36 @@ a:hover {
 .ant-select-focused .ant-select-selector {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* 多选/下拉选中：浅灰底 + 深字，避免 colorPrimary 黑底 */
+.ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: #e5e5e5 !important;
+  color: #0a0a0a !important;
+  font-weight: 600;
+}
+
+.ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: #f0f0f0 !important;
+}
+
+.ant-select-item-option-selected .ant-select-item-option-state {
+  color: #0a0a0a !important;
+}
+
+.ant-select-multiple .ant-select-selection-item {
+  background: #f0f0f0 !important;
+  border-color: #e5e5e5 !important;
+  color: #0a0a0a !important;
+  border-radius: 999px !important;
+}
+
+.ant-select-multiple .ant-select-selection-item-remove {
+  color: #686868 !important;
+}
+
+.ant-select-multiple .ant-select-selection-item-remove:hover {
+  color: #0a0a0a !important;
 }
 
 .ant-tag {

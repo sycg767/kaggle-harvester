@@ -73,7 +73,7 @@ class AutoArchiveManager:
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._service_started_at = _utc_now().isoformat()
-        self._config = AutoArchiveConfig(competition=default_competition)
+        self._config = AutoArchiveConfig(competitions=[default_competition])
         self._status = AutoArchiveStatus(
             service_started_at=self._service_started_at,
             scheduler_heartbeat_at=self._service_started_at,
@@ -119,7 +119,7 @@ class AutoArchiveManager:
     def _save_state(self) -> None:
         with self._state_lock:
             payload = {
-                "version": 2,
+                "version": 3,
                 "updated_at": _utc_now().isoformat(),
                 "config": self._config.model_dump(),
                 "status": self._status.model_dump(),
@@ -212,8 +212,16 @@ class AutoArchiveManager:
     async def update_config(
         self, config: AutoArchiveConfig
     ) -> AutoArchiveSnapshot:
-        if config.enabled and config.score_threshold is None:
-            raise ValueError("启用自动归档前必须设置分数阈值。")
+        missing = [
+            slug
+            for slug in config.competitions
+            if config.threshold_for(slug) is None
+        ]
+        if config.enabled and missing:
+            raise ValueError(
+                "启用自动归档前必须为每个竞赛设置分数阈值："
+                + "、".join(missing)
+            )
         with self._state_lock:
             self._config = config.model_copy(deep=True)
             self._status.next_run_at = (
@@ -230,8 +238,15 @@ class AutoArchiveManager:
     ) -> AutoArchiveSnapshot:
         if self._run_lock.locked():
             raise AutoArchiveBusyError("自动归档检查正在运行，请稍后再试。")
-        if self._config.score_threshold is None:
-            raise ValueError("请先设置分数阈值。")
+        missing = [
+            slug
+            for slug in self._config.competitions
+            if self._config.threshold_for(slug) is None
+        ]
+        if missing:
+            raise ValueError(
+                "请先为每个竞赛设置分数阈值：" + "、".join(missing)
+            )
 
         async with self._run_lock:
             started_at = _utc_now()
@@ -292,6 +307,7 @@ class AutoArchiveManager:
                     archived_count=status.archived_count,
                     skipped_count=status.skipped_count,
                     failed_count=status.failed_count,
+                    competitions_checked=list(status.competitions_checked),
                     error=status.last_error,
                     details_available=True,
                 )
@@ -310,8 +326,11 @@ class AutoArchiveManager:
                 self._save_state()
             if self._notifications is not None:
                 try:
+                    label = "、".join(config.competitions[:5])
+                    if len(config.competitions) > 5:
+                        label += f" 等{len(config.competitions)}个"
                     self._notifications.enqueue_run(
-                        log, checked_items, config.competition
+                        log, checked_items, label
                     )
                 except Exception:
                     # 通知失败不能改变已经完成的归档结果。
@@ -319,19 +338,22 @@ class AutoArchiveManager:
             self._wake_event.set()
             return self.snapshot()
 
-    def _run_once_sync(
-        self, config: AutoArchiveConfig
+    def _run_once_for_competition(
+        self,
+        config: AutoArchiveConfig,
+        competition: str,
+        threshold: float,
+        processed_runs: dict[str, dict[str, object]],
     ) -> tuple[
-        AutoArchiveStatus,
-        dict[str, dict[str, object]],
+        list[AutoArchiveItemResult],
         list[AutoArchiveCheckedItem],
+        str,
+        str,
     ]:
         configured_direction = config.score_direction
         direction_source = "manual"
         if configured_direction == ScoreDirection.AUTO:
-            competition_info = self._kaggle.fetch_competition_info(
-                config.competition
-            )
+            competition_info = self._kaggle.fetch_competition_info(competition)
             effective_direction = (
                 ScoreDirection.MINIMIZE
                 if competition_info.is_lower_better
@@ -349,11 +371,11 @@ class AutoArchiveManager:
             ),
             page_size=self.SCOREBOARD_PAGE_SIZE,
             max_pages=1,
-            competition=config.competition,
+            competition=competition,
         )
         scored = self._kaggle.enrich_kernel_summaries(
             kernels,
-            competition=config.competition,
+            competition=competition,
             score_limit=self.SCOREBOARD_PAGE_SIZE,
         )
         if effective_direction == ScoreDirection.MINIMIZE:
@@ -361,25 +383,20 @@ class AutoArchiveManager:
                 kernel
                 for kernel in scored
                 if kernel.public_score is not None
-                and kernel.public_score < config.score_threshold  # type: ignore[operator]
+                and kernel.public_score < threshold
             ]
         else:
             matched = [
                 kernel
                 for kernel in scored
                 if kernel.public_score is not None
-                and kernel.public_score > config.score_threshold  # type: ignore[operator]
+                and kernel.public_score > threshold
             ]
-
-        with self._state_lock:
-            processed_runs = {
-                key: dict(value) for key, value in self._processed_runs.items()
-            }
 
         results: list[AutoArchiveItemResult] = []
         for kernel in matched:
             score = float(kernel.public_score)  # 已由筛选保证不为空。
-            processed_key = f"{config.competition}::{kernel.ref}"
+            processed_key = f"{competition}::{kernel.ref}"
             processed = processed_runs.get(processed_key, {})
             processed_version = processed.get("version_number")
             archive_exists = False
@@ -397,10 +414,13 @@ class AutoArchiveManager:
             ):
                 results.append(
                     AutoArchiveItemResult(
+                        competition=competition,
                         ref=kernel.ref,
                         public_score=score,
                         status="skipped",
-                        version_number=processed_version,
+                        version_number=processed_version
+                        if isinstance(processed_version, int)
+                        else None,
                     )
                 )
                 continue
@@ -410,7 +430,7 @@ class AutoArchiveManager:
                     kernel_ref=kernel.ref,
                     score_direction=effective_direction.value,
                     include_outputs=config.include_outputs,
-                    competition=config.competition,
+                    competition=competition,
                 )
                 selected_score = score
                 try:
@@ -442,6 +462,7 @@ class AutoArchiveManager:
                     }
                 results.append(
                     AutoArchiveItemResult(
+                        competition=competition,
                         ref=kernel.ref,
                         public_score=score,
                         status=(
@@ -453,6 +474,7 @@ class AutoArchiveManager:
             except Exception as exc:
                 results.append(
                     AutoArchiveItemResult(
+                        competition=competition,
                         ref=kernel.ref,
                         public_score=score,
                         status="failed",
@@ -460,13 +482,13 @@ class AutoArchiveManager:
                     )
                 )
 
-        failed = [item for item in results if item.status == "failed"]
         result_by_ref = {item.ref: item for item in results}
         checked_items: list[AutoArchiveCheckedItem] = []
         for kernel in scored:
             result = result_by_ref.get(kernel.ref)
             checked_items.append(
                 AutoArchiveCheckedItem(
+                    competition=competition,
                     ref=kernel.ref,
                     title=kernel.title,
                     author=kernel.author,
@@ -480,24 +502,71 @@ class AutoArchiveManager:
                     error=result.error if result is not None else None,
                 )
             )
+        return (
+            results,
+            checked_items,
+            effective_direction.value,
+            direction_source,
+        )
 
+    def _run_once_sync(
+        self, config: AutoArchiveConfig
+    ) -> tuple[
+        AutoArchiveStatus,
+        dict[str, dict[str, object]],
+        list[AutoArchiveCheckedItem],
+    ]:
+        with self._state_lock:
+            processed_runs = {
+                key: dict(value) for key, value in self._processed_runs.items()
+            }
+
+        all_results: list[AutoArchiveItemResult] = []
+        all_checked: list[AutoArchiveCheckedItem] = []
+        competitions_checked: list[str] = []
+        errors: list[str] = []
+        last_direction: str | None = None
+        last_direction_source: str | None = None
+
+        for competition in config.competitions:
+            threshold = config.threshold_for(competition)
+            if threshold is None:
+                errors.append(f"{competition}: 缺少分数阈值")
+                continue
+            competitions_checked.append(competition)
+            try:
+                results, checked, direction, source = self._run_once_for_competition(
+                    config, competition, threshold, processed_runs
+                )
+            except Exception as exc:
+                errors.append(f"{competition}: {str(exc)[:200]}")
+                continue
+            all_results.extend(results)
+            all_checked.extend(checked)
+            last_direction = direction
+            last_direction_source = source
+
+        failed = [item for item in all_results if item.status == "failed"]
+        error_parts = list(errors)
+        if failed:
+            error_parts.append(f"{len(failed)} 个 Kernel 归档失败，请查看最近结果。")
         status = AutoArchiveStatus(
             last_checked_at=_utc_now().isoformat(),
-            last_error=(
-                f"{len(failed)} 个 Kernel 归档失败，请查看最近结果。"
-                if failed
-                else None
-            ),
-            checked_count=len(scored),
-            matched_count=len(matched),
-            archived_count=sum(item.status == "archived" for item in results),
-            skipped_count=sum(item.status == "skipped" for item in results),
+            last_error="；".join(error_parts) if error_parts else None,
+            checked_count=len(all_checked),
+            matched_count=len(all_results),
+            archived_count=sum(item.status == "archived" for item in all_results),
+            skipped_count=sum(item.status == "skipped" for item in all_results),
             failed_count=len(failed),
-            effective_score_direction=effective_direction.value,
-            score_direction_source=direction_source,
-            recent_results=results,
+            competitions_checked=competitions_checked,
+            effective_score_direction=last_direction,  # type: ignore[arg-type]
+            score_direction_source=last_direction_source,
+            recent_results=all_results,
         )
-        return status, processed_runs, checked_items
+        # 任一竞赛完全失败且无任何 checked 时，视为整体失败
+        if not all_checked and errors:
+            raise RuntimeError(status.last_error or "自动归档检查失败。")
+        return status, processed_runs, all_checked
 
     async def _scheduler_loop(self) -> None:
         while not self._stop_event.is_set():

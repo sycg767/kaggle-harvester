@@ -117,16 +117,26 @@ export interface ArchiveFile {
   type: string;
 }
 
+export interface EnteredCompetition {
+  id: string;
+  title: string;
+  category?: string;
+  deadline?: string;
+  reward?: string;
+  team_count?: number;
+}
+
 export interface AutoArchiveConfig {
   enabled: boolean;
-  competition: string;
-  score_threshold?: number;
+  competitions: string[];
+  score_thresholds: Record<string, number>;
   interval_minutes: number;
   include_outputs: boolean;
   score_direction: 'auto' | 'minimize' | 'maximize';
 }
 
 export interface AutoArchiveItemResult {
+  competition?: string;
   ref: string;
   public_score: number;
   status: 'archived' | 'skipped' | 'failed';
@@ -147,6 +157,7 @@ export interface AutoArchiveStatus {
   archived_count: number;
   skipped_count: number;
   failed_count: number;
+  competitions_checked?: string[];
   effective_score_direction?: 'minimize' | 'maximize';
   score_direction_source?: string;
   recent_results: AutoArchiveItemResult[];
@@ -164,11 +175,13 @@ export interface AutoArchiveRunLog {
   archived_count: number;
   skipped_count: number;
   failed_count: number;
+  competitions_checked?: string[];
   error?: string;
   details_available: boolean;
 }
 
 export interface AutoArchiveCheckedItem {
+  competition?: string;
   ref: string;
   title: string;
   author: string;
@@ -233,13 +246,14 @@ export interface NotificationConfigUpdate {
 
 export interface SubmissionMonitorConfig {
   enabled: boolean;
-  competition: string;
+  competitions: string[];
   interval_minutes: number;
   page_size: number;
   description_prefix: string;
 }
 
 export interface SubmissionScoreEvent {
+  competition?: string;
   ref: string;
   description: string;
   public_score: number;
@@ -250,6 +264,7 @@ export interface SubmissionScoreEvent {
 }
 
 export interface SubmissionMonitorItem {
+  competition?: string;
   ref: string;
   description: string;
   status: string;
@@ -272,6 +287,7 @@ export interface SubmissionMonitorStatus {
   pending_count: number;
   scored_count: number;
   newly_scored_count: number;
+  competitions_checked?: string[];
   recent_events: SubmissionScoreEvent[];
   recent_items: SubmissionMonitorItem[];
 }
@@ -287,6 +303,7 @@ export interface SubmissionMonitorRunLog {
   pending_count: number;
   scored_count: number;
   newly_scored_count: number;
+  competitions_checked?: string[];
   error?: string;
   details_available?: boolean;
 }
@@ -364,6 +381,16 @@ export const api = {
     if (options?.refresh) q.set('refresh', 'true');
     const qs = q.toString();
     return request(`/competition${qs ? `?${qs}` : ''}`, { signal: options?.signal });
+  },
+
+  listEnteredCompetitions(
+    pageSize = 100,
+    options?: { refresh?: boolean; signal?: AbortSignal },
+  ): Promise<EnteredCompetition[]> {
+    const q = new URLSearchParams();
+    q.set('page_size', String(pageSize));
+    if (options?.refresh) q.set('refresh', 'true');
+    return request(`/competitions/entered?${q.toString()}`, { signal: options?.signal });
   },
 
   // Kernels

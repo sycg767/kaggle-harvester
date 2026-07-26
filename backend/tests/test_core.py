@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harvester.archiver import Archiver
 from harvester.auto_archive import AutoArchiveManager
 from harvester.cache import PersistentKernelMetadataCache
+from harvester.cache import PersistentEnteredCompetitionsCache
 from harvester.kaggle_client import (
+    _competition_slug_from_ref,
     _extract_public_score,
     _extract_current_public_score,
     _infer_score_direction_from_metric,
@@ -26,6 +28,7 @@ from harvester.models import (
     AutoArchiveRunLog,
     CompetitionInfo,
     CompetitionSubmission,
+    EnteredCompetition,
     KernelSummary,
     NotificationConfigUpdate,
     ScoredKernel,
@@ -193,6 +196,72 @@ class FakeAutoArchiveKaggleClient(FakeKaggleClient):
             )
             for item in summaries[:score_limit]
         ]
+
+
+class EnteredCompetitionParsingTests(unittest.TestCase):
+    def test_competition_slug_from_url_or_plain_ref(self) -> None:
+        self.assertEqual(
+            _competition_slug_from_ref(
+                "https://www.kaggle.com/competitions/rogii-wellbore-geology-prediction"
+            ),
+            "rogii-wellbore-geology-prediction",
+        )
+        self.assertEqual(
+            _competition_slug_from_ref("rogii-wellbore-geology-prediction"),
+            "rogii-wellbore-geology-prediction",
+        )
+        self.assertEqual(
+            _competition_slug_from_ref(
+                "https://www.kaggle.com/competitions/pokemon-tcg-ai-battle?foo=1"
+            ),
+            "pokemon-tcg-ai-battle",
+        )
+
+    def test_list_entered_competitions_accepts_url_refs(self) -> None:
+        client = KaggleClient()
+        client._run_kaggle_json = (  # type: ignore[method-assign]
+            lambda args, timeout=90: [
+                {
+                    "ref": "https://www.kaggle.com/competitions/rogii-wellbore-geology-prediction",
+                    "title": "ROGII",
+                    "category": "Featured",
+                    "deadline": "2026-08-05T23:59:00",
+                    "reward": "50,000 Usd",
+                    "teamCount": 10,
+                    "userHasEntered": True,
+                },
+                {
+                    "ref": "plain-slug-comp",
+                    "category": "Featured",
+                    "teamCount": 1,
+                },
+            ]
+        )
+        items = client.list_entered_competitions()
+        self.assertEqual(
+            [item.id for item in items],
+            ["rogii-wellbore-geology-prediction", "plain-slug-comp"],
+        )
+        self.assertEqual(items[0].title, "ROGII")
+        self.assertEqual(items[1].title, "plain-slug-comp")
+
+    def test_entered_competitions_cache_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = PersistentEnteredCompetitionsCache(temp_dir)
+            self.assertIsNone(cache.get())
+            payload = [
+                EnteredCompetition(
+                    id="rogii-wellbore-geology-prediction",
+                    title="ROGII",
+                    category="Featured",
+                )
+            ]
+            cache.set(payload)
+            restored = cache.get()
+            self.assertIsNotNone(restored)
+            assert restored is not None
+            self.assertEqual(restored[0].id, "rogii-wellbore-geology-prediction")
+            self.assertEqual(cache.stats()["entered_competitions_cached"], 1)
 
 
 class ScoreParserTests(unittest.TestCase):
@@ -498,8 +567,8 @@ class AutoArchiveTests(unittest.IsolatedAsyncioTestCase):
             await manager.update_config(
                 AutoArchiveConfig(
                     enabled=False,
-                    competition="example-competition",
-                    score_threshold=7.0,
+                    competitions=["example-competition"],
+                    score_thresholds={"example-competition": 7.0},
                     interval_minutes=1,
                     include_outputs=True,
                 )
@@ -511,6 +580,7 @@ class AutoArchiveTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(first.status.archived_count, 1)
             self.assertEqual(first.status.skipped_count, 0)
             self.assertEqual(first.status.recent_results[0].ref, "owner/kernel")
+            self.assertEqual(first.status.competitions_checked, ["example-competition"])
             self.assertEqual(len(first.logs), 1)
             self.assertEqual(first.logs[0].trigger, "manual")
             self.assertEqual(first.logs[0].outcome, "success")
@@ -533,6 +603,9 @@ class AutoArchiveTests(unittest.IsolatedAsyncioTestCase):
                 default_competition="other-competition",
             )
             self.assertEqual(restored.snapshot().config.interval_minutes, 1)
+            self.assertEqual(
+                restored.snapshot().config.competitions, ["example-competition"]
+            )
             self.assertEqual(restored.snapshot().status.matched_count, 1)
             self.assertEqual(len(restored.snapshot().logs), 1)
             restored_detail = restored.get_run_detail(first.logs[0].id)
@@ -553,6 +626,55 @@ class AutoArchiveTests(unittest.IsolatedAsyncioTestCase):
             assert second_detail is not None
             self.assertEqual(len(second_detail.items), 3)
 
+    async def test_legacy_single_competition_config_migrates(self) -> None:
+        config = AutoArchiveConfig(
+            enabled=False,
+            competition="legacy-comp",
+            score_threshold=6.5,
+            interval_minutes=10,
+        )
+        self.assertEqual(config.competitions, ["legacy-comp"])
+        self.assertEqual(config.score_thresholds, {"legacy-comp": 6.5})
+        self.assertEqual(config.threshold_for("legacy-comp"), 6.5)
+
+        monitor_config = SubmissionMonitorConfig(
+            enabled=False,
+            competition="legacy-comp",
+            interval_minutes=5,
+        )
+        self.assertEqual(monitor_config.competitions, ["legacy-comp"])
+
+    async def test_multi_competition_thresholds_apply_independently(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = FakeAutoArchiveKaggleClient()
+            archiver = Archiver(
+                client,  # type: ignore[arg-type]
+                ArchiverConfig(harvest_root=temp_dir),
+            )
+            manager = AutoArchiveManager(
+                client,  # type: ignore[arg-type]
+                archiver,
+                harvest_root=temp_dir,
+                default_competition="comp-a",
+            )
+            await manager.update_config(
+                AutoArchiveConfig(
+                    enabled=False,
+                    competitions=["comp-a", "comp-b"],
+                    score_thresholds={"comp-a": 7.0, "comp-b": 6.0},
+                    interval_minutes=1,
+                    include_outputs=True,
+                )
+            )
+            result = await manager.run_now(trigger="manual")
+            self.assertEqual(result.status.competitions_checked, ["comp-a", "comp-b"])
+            # 每个竞赛 3 个 kernel，阈值 7.0 命中 1 个，阈值 6.0 不命中
+            self.assertEqual(result.status.checked_count, 6)
+            self.assertEqual(result.status.matched_count, 1)
+            self.assertEqual(result.status.archived_count, 1)
+            self.assertEqual(result.status.recent_results[0].competition, "comp-a")
+            self.assertEqual(result.status.recent_results[0].ref, "owner/kernel")
+
     async def test_higher_is_better_threshold_and_version_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             client = FakeAutoArchiveKaggleClient(is_lower_better=False)
@@ -569,8 +691,8 @@ class AutoArchiveTests(unittest.IsolatedAsyncioTestCase):
             await manager.update_config(
                 AutoArchiveConfig(
                     enabled=False,
-                    competition="example-competition",
-                    score_threshold=7.0,
+                    competitions=["example-competition"],
+                    score_thresholds={"example-competition": 7.0},
                     interval_minutes=1,
                     include_outputs=True,
                 )
@@ -914,9 +1036,18 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class FakeSubmissionClient:
-    def __init__(self, batches: list[list[CompetitionSubmission]]) -> None:
-        self._batches = list(batches)
+    def __init__(
+        self,
+        batches: list[list[CompetitionSubmission]] | None = None,
+        by_competition: dict[str, list[list[CompetitionSubmission]]] | None = None,
+    ) -> None:
+        self._batches = list(batches or [])
+        self._by_competition = {
+            key: [list(batch) for batch in value]
+            for key, value in (by_competition or {}).items()
+        }
         self.calls = 0
+        self.competitions: list[str] = []
 
     def list_competition_submissions(
         self,
@@ -924,6 +1055,12 @@ class FakeSubmissionClient:
         page_size: int = 10,
     ) -> list[CompetitionSubmission]:
         self.calls += 1
+        self.competitions.append(competition)
+        if competition in self._by_competition:
+            queue = self._by_competition[competition]
+            if not queue:
+                return []
+            return queue.pop(0)
         if not self._batches:
             return []
         return self._batches.pop(0)
@@ -949,7 +1086,7 @@ class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
             )
             await monitor.update_config(SubmissionMonitorConfig(
                 enabled=False,
-                competition="example-comp",
+                competitions=["example-comp"],
                 interval_minutes=5,
                 page_size=10,
             ))
@@ -1082,7 +1219,7 @@ class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
                 )
                 await monitor.update_config(SubmissionMonitorConfig(
                     enabled=False,
-                    competition="example-comp",
+                    competitions=["example-comp"],
                     interval_minutes=5,
                     page_size=10,
                 ))
@@ -1114,6 +1251,96 @@ class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(second.status.newly_scored_count, 0)
                 await notifications.wait_until_idle()
                 self.assertEqual(sent, ["score::example-comp::100"])
+            finally:
+                await notifications.stop()
+
+    async def test_multi_competition_baselines_are_isolated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            notifications = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            sent: list[str] = []
+            notifications._send_channel = (  # type: ignore[method-assign]
+                lambda channel, event: sent.append(event["id"])
+            )
+            await notifications.start()
+            try:
+                await notifications.update_config(NotificationConfigUpdate(
+                    webhook_enabled=True,
+                    webhook_url="https://example.com/hook",
+                    notify_on_score=True,
+                ))
+                client = FakeSubmissionClient(
+                    by_competition={
+                        "comp-a": [
+                            [
+                                CompetitionSubmission(
+                                    ref="shared-ref",
+                                    description="a-pending",
+                                    status="Pending",
+                                    public_score=None,
+                                ),
+                            ],
+                            [
+                                CompetitionSubmission(
+                                    ref="shared-ref",
+                                    description="a-scored",
+                                    status="Finished",
+                                    public_score=1.0,
+                                    public_score_display="1.0",
+                                ),
+                            ],
+                        ],
+                        "comp-b": [
+                            [
+                                CompetitionSubmission(
+                                    ref="shared-ref",
+                                    description="b-scored",
+                                    status="Finished",
+                                    public_score=2.0,
+                                    public_score_display="2.0",
+                                ),
+                            ],
+                            [
+                                CompetitionSubmission(
+                                    ref="shared-ref",
+                                    description="b-scored",
+                                    status="Finished",
+                                    public_score=2.0,
+                                    public_score_display="2.0",
+                                ),
+                            ],
+                        ],
+                    }
+                )
+                monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                    client,
+                    temp_dir,
+                    "comp-a",
+                    notification_manager=notifications,
+                )
+                await monitor.update_config(SubmissionMonitorConfig(
+                    enabled=False,
+                    competitions=["comp-a", "comp-b"],
+                    interval_minutes=5,
+                    page_size=10,
+                ))
+
+                baseline = await monitor.run_now(trigger="manual")
+                self.assertEqual(baseline.status.competitions_checked, ["comp-a", "comp-b"])
+                self.assertEqual(baseline.status.newly_scored_count, 0)
+                self.assertEqual(baseline.status.checked_count, 2)
+                await notifications.wait_until_idle()
+                self.assertEqual(sent, [])
+
+                scored = await monitor.run_now(trigger="manual")
+                self.assertEqual(scored.status.newly_scored_count, 1)
+                self.assertEqual(scored.status.recent_events[0].competition, "comp-a")
+                self.assertEqual(scored.status.recent_events[0].ref, "shared-ref")
+                await notifications.wait_until_idle()
+                self.assertEqual(sent, ["score::comp-a::shared-ref"])
+                self.assertEqual(client.competitions, ["comp-a", "comp-b", "comp-a", "comp-b"])
             finally:
                 await notifications.stop()
 
@@ -1158,7 +1385,7 @@ class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
             )
             await monitor.update_config(SubmissionMonitorConfig(
                 enabled=False,
-                competition="example-comp",
+                competitions=["example-comp"],
                 description_prefix="dexp",
             ))
             await monitor.run_now(trigger="manual")
