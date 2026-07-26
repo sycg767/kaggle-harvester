@@ -78,7 +78,6 @@ ReactDOM.createRoot(rootElement).render(
           optionActiveBg: '#f0f0f0',
           multipleItemBg: '#f0f0f0',
           multipleItemBorderColor: '#e5e5e5',
-          multipleItemColor: '#0a0a0a',
         },
         Switch: { colorPrimary: '#0a0a0a', colorPrimaryHover: '#2a2a2a' },
       },

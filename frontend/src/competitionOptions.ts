@@ -34,7 +34,8 @@ export function buildEnteredCompetitionOptions(
   }));
   const known = new Set(fromEntered.map((item) => item.value));
   const extraOptions = extras
-    .filter((slug): slug is string => Boolean(slug) && !known.has(slug))
+    .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0)
+    .filter((slug) => !known.has(slug))
     .map((slug) => {
       known.add(slug);
       return {
