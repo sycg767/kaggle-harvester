@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  App as AntApp,
   Button,
   Col,
   Form,
@@ -13,7 +14,6 @@ import {
   Switch,
   Tag,
   Typography,
-  message,
 } from 'antd';
 import { Bell, Mail, Send, Webhook } from 'lucide-react';
 import {
@@ -161,6 +161,7 @@ const formatDate = (value?: string) => {
 };
 
 const NotificationCenter: React.FC = () => {
+  const { message } = AntApp.useApp();
   const [form] = Form.useForm<NotificationFormValues>();
   const [snapshot, setSnapshot] = useState<NotificationSnapshot | null>(null);
   const [open, setOpen] = useState(false);
@@ -307,7 +308,7 @@ const NotificationCenter: React.FC = () => {
         )}
         open={open}
         forceRender
-        destroyOnClose={false}
+        destroyOnHidden={false}
         closable={false}
         width={900}
         confirmLoading={saving}

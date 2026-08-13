@@ -139,9 +139,10 @@ class FakeKaggleClient:
 
 
 class FakeAutoArchiveKaggleClient(FakeKaggleClient):
-    def __init__(self, is_lower_better: bool = True) -> None:
+    def __init__(self, is_lower_better: bool = True, direction_source: str = "leaderboard") -> None:
         super().__init__()
         self.is_lower_better = is_lower_better
+        self.direction_source = direction_source
 
     def fetch_competition_info(
         self, competition: str, refresh: bool = False
@@ -151,7 +152,7 @@ class FakeAutoArchiveKaggleClient(FakeKaggleClient):
             title=competition,
             category="featured",
             is_lower_better=self.is_lower_better,
-            score_direction_source="leaderboard",
+            score_direction_source=self.direction_source,
         )
 
     def list_kernels(self, **kwargs) -> list[KernelSummary]:
@@ -488,6 +489,20 @@ class KernelLocalDownloadTests(unittest.TestCase):
 
 
 class ArchiverTests(unittest.TestCase):
+    def test_low_disk_space_blocks_download(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = FakeKaggleClient()
+            archiver = Archiver(
+                client,  # type: ignore[arg-type]
+                ArchiverConfig(harvest_root=temp_dir, min_free_bytes=10 ** 20),
+            )
+            with self.assertRaisesRegex(OSError, "磁盘剩余空间不足"):
+                archiver.archive_kernel("owner/kernel", score_direction="minimize")
+            self.assertEqual(client.calls, 0)
+            stats = archiver.get_stats()
+            self.assertTrue(stats["low_disk_space"])
+            self.assertGreater(stats["disk_total_bytes"], 0)
+
     def test_archive_is_atomic_indexed_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             client = FakeKaggleClient()
@@ -551,6 +566,29 @@ class ArchiverTests(unittest.TestCase):
 
 
 class AutoArchiveTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unknown_score_direction_blocks_auto_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = FakeAutoArchiveKaggleClient(direction_source="fallback")
+            archiver = Archiver(
+                client,  # type: ignore[arg-type]
+                ArchiverConfig(harvest_root=temp_dir),
+            )
+            manager = AutoArchiveManager(
+                client,  # type: ignore[arg-type]
+                archiver,
+                harvest_root=temp_dir,
+                default_competition="example-competition",
+            )
+            await manager.update_config(AutoArchiveConfig(
+                competitions=["example-competition"],
+                score_thresholds={"example-competition": 7.0},
+                score_direction="auto",
+            ))
+            snapshot = await manager.run_now()
+            self.assertIn("分数方向无法可靠识别", snapshot.status.last_error or "")
+            self.assertEqual(snapshot.status.checked_count, 0)
+            self.assertEqual(client.calls, 0)
+
     async def test_strict_threshold_persistence_and_idempotence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             client = FakeAutoArchiveKaggleClient()

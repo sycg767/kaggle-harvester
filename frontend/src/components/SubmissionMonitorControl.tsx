@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  App as AntApp,
   Button,
   Col,
   Drawer,
@@ -18,7 +19,6 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -132,6 +132,7 @@ const renderItemState = (item: SubmissionMonitorItem) => {
 const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   currentCompetition,
 }) => {
+  const { message } = AntApp.useApp();
   const [form] = Form.useForm<SubmissionMonitorConfig>();
   const [snapshot, setSnapshot] = useState<SubmissionMonitorSnapshot | null>(null);
   const [open, setOpen] = useState(false);
@@ -399,7 +400,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
         )}
         open={open}
         forceRender
-        destroyOnClose={false}
+        destroyOnHidden={false}
         closable={false}
         width={900}
         confirmLoading={saving}
@@ -516,7 +517,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
                   maxTagTextLength={28}
                   listHeight={280}
                   popupMatchSelectWidth={false}
-                  dropdownStyle={{ minWidth: 320 }}
+                  styles={{ popup: { root: { minWidth: 320 } } }}
                   style={{ width: '100%' }}
                 />
               </Form.Item>

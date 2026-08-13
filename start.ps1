@@ -44,7 +44,11 @@ function Wait-ForHealth {
     param([string]$Uri, [int]$Attempts = 30)
     foreach ($attempt in 1..$Attempts) {
         try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec 2
+            $headers = @{}
+            if ($env:HARVESTER_API_KEY) {
+                $headers['X-Harvester-Key'] = $env:HARVESTER_API_KEY
+            }
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -Headers $headers -TimeoutSec 2
             if ($response.StatusCode -eq 200) {
                 return $true
             }
@@ -68,6 +72,17 @@ function Stop-ProcessTree {
 function Test-ProcessRunning {
     param([int]$ProcessId)
     return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
+function Get-ListeningProcessId {
+    param([int]$Port)
+    $pattern = ":$Port\s+.*LISTENING\s+(\d+)\s*$"
+    foreach ($line in & netstat.exe -ano -p tcp) {
+        if ($line -match $pattern) {
+            return [int]$matches[1]
+        }
+    }
+    throw "Cannot resolve the process listening on port $Port."
 }
 
 Write-Host ''
@@ -95,6 +110,14 @@ if (-not $env:KAGGLE_API_TOKEN -and (Test-Path $EnvFile)) {
     foreach ($line in Get-Content -Encoding UTF8 $EnvFile) {
         if ($line -match '^\s*KAGGLE_API_TOKEN\s*=\s*["'']?(.+?)["'']?\s*$') {
             $env:KAGGLE_API_TOKEN = $matches[1]
+            break
+        }
+    }
+}
+if (-not $env:HARVESTER_API_KEY -and (Test-Path $EnvFile)) {
+    foreach ($line in Get-Content -Encoding UTF8 $EnvFile) {
+        if ($line -match '^\s*HARVESTER_API_KEY\s*=\s*["'']?(.+?)["'']?\s*$') {
+            $env:HARVESTER_API_KEY = $matches[1]
             break
         }
     }
@@ -155,7 +178,7 @@ if (-not (Wait-ForHealth -Uri $BackendHealthUrl)) {
     } else { 'The backend produced no error log.' }
     throw "Backend startup failed: $details"
 }
-$BackendServicePid = (Get-NetTCPConnection -State Listen -LocalPort $BackendPort).OwningProcess
+$BackendServicePid = Get-ListeningProcessId -Port $BackendPort
 
 $env:VITE_API_TARGET = "http://127.0.0.1:$BackendPort"
 $FrontendProcess = Start-Process `
@@ -176,7 +199,7 @@ if (-not (Wait-ForHealth -Uri $FrontendUrl)) {
     } else { 'The frontend produced no error log.' }
     throw "Frontend startup failed: $details"
 }
-$FrontendServicePid = (Get-NetTCPConnection -State Listen -LocalPort $FrontendPort).OwningProcess
+$FrontendServicePid = Get-ListeningProcessId -Port $FrontendPort
 
 Write-Host ''
 Write-Host 'Services are ready' -ForegroundColor Green

@@ -396,6 +396,31 @@ a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.newapi-sidebar-summary-row strong.is-danger {
+  color: var(--destructive);
+}
+
+.runtime-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.runtime-overview section {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.runtime-overview section:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.runtime-overview h5.ant-typography {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
 .newapi-sidebar-rail {
   position: absolute;
   z-index: 2;
@@ -659,6 +684,79 @@ a:hover {
 
 .kernel-score-count {
   white-space: nowrap;
+}
+
+.data-freshness {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.data-freshness > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  background: var(--background);
+}
+
+.data-freshness strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.data-freshness span {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-freshness.is-error {
+  color: var(--destructive);
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.kernel-ref-line,
+.copy-field {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+}
+
+.kernel-ref-line .kernel-ref,
+.copy-field .archive-path-value {
+  min-width: 0;
+  flex: 1;
+}
+
+.copy-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.copy-button:hover {
+  color: var(--foreground);
+  background: var(--muted);
+  border-color: var(--border);
 }
 
 .kernel-title {
@@ -1394,6 +1492,33 @@ a:hover {
 }
 
 @media (max-width: 767px) {
+  .data-freshness {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kernel-title {
+    display: -webkit-box;
+    max-height: 40px;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .kernel-ref {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .copy-button,
+  .newapi-icon-button.ant-btn,
+  .newapi-sidebar-trigger.ant-btn,
+  .page-actions .ant-btn {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
   .notification-event-row,
   .notification-settings-footer {
     align-items: flex-start;
@@ -1712,6 +1837,16 @@ a:hover {
   .mobile-data-card-actions .ant-btn {
     min-width: 0;
     flex: 1;
+  }
+}
+
+@media (max-width: 767px) {
+  .copy-button,
+  .newapi-icon-button.ant-btn,
+  .page-actions .ant-btn {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
   }
 }
 

@@ -354,6 +354,10 @@ class AutoArchiveManager:
         direction_source = "manual"
         if configured_direction == ScoreDirection.AUTO:
             competition_info = self._kaggle.fetch_competition_info(competition)
+            if competition_info.score_direction_source == "fallback":
+                raise ValueError(
+                    f"竞赛 {competition} 的分数方向无法可靠识别，请在自动归档中明确选择越低或越高越好。"
+                )
             effective_direction = (
                 ScoreDirection.MINIMIZE
                 if competition_info.is_lower_better

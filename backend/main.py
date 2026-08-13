@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Add parent to path for local imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -61,6 +64,32 @@ SCORE_INDEX_REFRESH_SECONDS = int(
     os.environ.get("SCORE_INDEX_REFRESH_SECONDS", "300")
 )
 LOGGER = logging.getLogger("kaggle-harvester")
+
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    """在显式配置访问密钥后保护全部 API 接口。"""
+
+    def __init__(self, app, api_key: str = "") -> None:
+        super().__init__(app)
+        self.api_key = api_key.strip()
+
+    async def dispatch(self, request: Request, call_next):
+        if self.api_key and request.url.path.startswith("/api"):
+            supplied = request.headers.get("X-Harvester-Key", "")
+            if not hmac.compare_digest(supplied, self.api_key):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "访问密钥无效或未提供。"},
+                    headers={"X-Harvester-Auth": "required"},
+                )
+        return await call_next(request)
+
+
+def _allowed_origins() -> list[str]:
+    configured = os.environ.get("HARVESTER_ALLOWED_ORIGINS", "")
+    if configured.strip():
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return ["http://127.0.0.1:5173", "http://localhost:5173"]
 
 
 async def _build_kernel_snapshot(
@@ -191,7 +220,12 @@ async def lifespan(app: FastAPI):
         score_cache=app.state.kernel_score_cache,
         metadata_cache=app.state.kernel_metadata_cache,
     )
-    config = ArchiverConfig(harvest_root=harvest_root)
+    config = ArchiverConfig(
+        harvest_root=harvest_root,
+        min_free_bytes=int(
+            os.environ.get("HARVESTER_MIN_FREE_BYTES", str(2 * 1024 * 1024 * 1024))
+        ),
+    )
     app.state.archiver = Archiver(app.state.kaggle_client, config=config)
     app.state.notifications = NotificationManager(harvest_root)
     app.state.auto_archive = AutoArchiveManager(
@@ -231,11 +265,15 @@ app = FastAPI(
 )
 
 app.add_middleware(
+    ApiKeyMiddleware,
+    api_key=os.environ.get("HARVESTER_API_KEY", ""),
+)
+app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Harvester-Key"],
 )
 
 # ---------------------------------------------------------------------------
@@ -427,6 +465,7 @@ async def list_kernels(
             else "MISS"
         )
         response.headers["X-Kernel-Cache-Age"] = "0"
+        response.headers["X-Kernel-Cache-Fetched-At"] = str(int(time.time()))
         response.headers["X-Kernel-Refresh"] = "idle"
 
         return scored
@@ -612,6 +651,8 @@ async def archive_kernel(request: ArchiveRequest):
                 client.fetch_competition_info,
                 request.competition or client.competition_slug,
             )
+            if competition_info.score_direction_source == "fallback":
+                raise ValueError("竞赛分数方向无法可靠识别，请明确选择 minimize 或 maximize。")
             score_direction = (
                 ScoreDirection.MINIMIZE
                 if competition_info.is_lower_better
@@ -645,6 +686,10 @@ async def archive_kernel(request: ArchiveRequest):
             pass
 
         return result.model_dump()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=507, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -758,8 +803,14 @@ async def get_archive_files(archive_id: str):
 
 
 @app.post("/api/archives/{archive_id}/open-folder")
-async def open_archive_folder(archive_id: str):
+async def open_archive_folder(archive_id: str, request: Request):
     """在本机文件管理器中打开归档目录。"""
+    client_host = request.client.host if request.client else ""
+    allow_remote = os.environ.get("HARVESTER_ALLOW_OPEN_FOLDER", "").lower() in {
+        "1", "true", "yes", "on"
+    }
+    if client_host not in {"127.0.0.1", "::1", "localhost"} and not allow_remote:
+        raise HTTPException(status_code=403, detail="远程请求不允许打开服务器本地目录。")
     archiver: Archiver = app.state.archiver
     entry = archiver.get_archive(archive_id)
     if entry is None:

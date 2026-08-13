@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  App as AntApp,
   Button,
   Col,
   Drawer,
@@ -19,7 +20,6 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -179,6 +179,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   currentCompetition,
   onArchiveComplete,
 }) => {
+  const { message } = AntApp.useApp();
   const [form] = Form.useForm<AutoArchiveConfig>();
   const [snapshot, setSnapshot] = useState<AutoArchiveSnapshot | null>(null);
   const [open, setOpen] = useState(false);
@@ -385,7 +386,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
         )}
         open={open}
         forceRender
-        destroyOnClose={false}
+        destroyOnHidden={false}
         closable={false}
         width={900}
         confirmLoading={saving}
@@ -461,7 +462,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
             competitions: currentCompetition ? [currentCompetition] : [],
             score_thresholds: {},
             interval_minutes: 30,
-            include_outputs: true,
+            include_outputs: false,
             score_direction: 'auto',
           }}
         >
@@ -504,7 +505,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
                   maxTagTextLength={28}
                   listHeight={280}
                   popupMatchSelectWidth={false}
-                  dropdownStyle={{ minWidth: 320 }}
+                  styles={{ popup: { root: { minWidth: 320 } } }}
                   style={{ width: '100%' }}
                 />
               </Form.Item>
@@ -565,6 +566,17 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
               <Switch checkedChildren="包含输出" unCheckedChildren="仅源码" />
             </Form.Item>
           </Space>
+          <Form.Item
+            name="score_direction"
+            label="分数方向"
+            extra="自动识别失败时任务会停止，不会按默认方向归档。多竞赛方向不一致时请拆分配置。"
+          >
+            <Select options={[
+              { value: 'auto', label: '自动识别（仅接受可靠来源）' },
+              { value: 'minimize', label: '越低越好' },
+              { value: 'maximize', label: '越高越好' },
+            ]} />
+          </Form.Item>
         </Form>
 
         <div className="auto-archive-summary-grid" role="group" aria-label="自动归档运行状态">

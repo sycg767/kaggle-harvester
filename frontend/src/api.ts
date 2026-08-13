@@ -79,6 +79,11 @@ export interface ArchiveStats {
   unique_kernels: number;
   harvest_root: string;
   total_size_bytes: number;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
+  disk_used_percent: number;
+  min_free_bytes: number;
+  low_disk_space: boolean;
 }
 
 export interface HealthStatus {
@@ -360,6 +365,25 @@ export interface NotificationTestResult {
 // ---------------------------------------------------------------------------
 
 const BASE = '/api';
+const API_KEY_STORAGE = 'harvester.apiKey';
+
+export const apiAuth = {
+  getKey: () => typeof sessionStorage === 'undefined' ? '' : sessionStorage.getItem(API_KEY_STORAGE) || '',
+  setKey: (value: string) => {
+    if (typeof sessionStorage === 'undefined') return;
+    const key = value.trim();
+    if (key) sessionStorage.setItem(API_KEY_STORAGE, key);
+    else sessionStorage.removeItem(API_KEY_STORAGE);
+  },
+  clearKey: () => {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(API_KEY_STORAGE);
+  },
+};
+
+function authHeaders(): Record<string, string> {
+  const key = apiAuth.getKey();
+  return key ? { 'X-Harvester-Key': key } : {};
+}
 
 async function parseResponse<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
@@ -371,6 +395,11 @@ async function parseResponse<T>(resp: Response): Promise<T> {
     } catch {
       // 非 JSON 错误响应保留原文。
     }
+    if (resp.status === 401 && resp.headers.get('X-Harvester-Auth') === 'required') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('harvester:auth-required'));
+      }
+    }
     const fallback = resp.status >= 500 ? '服务暂时不可用，请稍后重试。' : '请求未完成。';
     throw new Error((detail || fallback).slice(0, 500));
   }
@@ -379,7 +408,7 @@ async function parseResponse<T>(resp: Response): Promise<T> {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options?.headers },
     ...options,
   });
   return parseResponse<T>(resp);
@@ -425,7 +454,10 @@ export const api = {
     if (params?.score_limit) q.set('score_limit', String(params.score_limit));
     if (params?.refresh) q.set('refresh', 'true');
     const qs = q.toString();
-    return fetch(`${BASE}/kernels${qs ? `?${qs}` : ''}`, { signal: params?.signal }).then(async (response) => {
+    return fetch(`${BASE}/kernels${qs ? `?${qs}` : ''}`, {
+      signal: params?.signal,
+      headers: authHeaders(),
+    }).then(async (response) => {
       const refreshState = (response.headers.get('X-Kernel-Refresh') || 'idle') as KernelCacheInfo['refresh_state'];
       return {
         items: await parseResponse<ScoredKernel[]>(response),
@@ -485,7 +517,9 @@ export const api = {
   },
 
   getArchiveSource(archiveId: string): Promise<Blob> {
-    return fetch(`${BASE}/archives/${encodeURIComponent(archiveId)}/source`).then(
+    return fetch(`${BASE}/archives/${encodeURIComponent(archiveId)}/source`, {
+      headers: authHeaders(),
+    }).then(
       (r) => {
         if (!r.ok) throw new Error(`Failed to fetch source: ${r.status}`);
         return r.blob();

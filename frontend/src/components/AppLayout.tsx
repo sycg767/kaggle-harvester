@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Badge, Button, Drawer, Spin, Tooltip } from 'antd';
+import { Alert, App as AntApp, Badge, Button, Descriptions, Drawer, Input, Modal, Progress, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import {
   Archive,
+  Activity,
   ChevronLeft,
+  Clipboard,
   Database,
   LayoutDashboard,
   Menu,
@@ -12,7 +14,7 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react';
-import { api, type ArchiveStats, type CompetitionInfo, type HealthStatus } from '../api';
+import { api, apiAuth, type ArchiveStats, type CompetitionInfo, type HealthStatus } from '../api';
 import { HARVESTER_EVENTS } from '../events';
 import kaggleLogo from '../assets/kaggle-logo.svg';
 
@@ -23,7 +25,58 @@ interface NavItem {
   badge?: number;
 }
 
+const formatDate = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
+};
+
+const formatBytes = (value = 0) => {
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = value / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+};
+
+const redactDiagnostic = (value: string) => value
+  .replace(/https?:\/\/\S+/gi, '[URL 已隐藏]')
+  .replace(/(token|password|secret|key)\s*[=:]\s*\S+/gi, '$1=[已隐藏]');
+
+const copyDiagnostics = async (health: HealthStatus | null) => {
+  const report = health ? {
+    service: health.service,
+    version: health.version,
+    ready: health.ready,
+    kaggle_cli: health.kaggle_cli,
+    utf8_wrapper_exists: health.utf8_wrapper_exists,
+    token_configured: health.token_configured,
+    auto_archive: {
+      running: health.auto_archive.running,
+      scheduler_alive: health.auto_archive.scheduler_alive,
+      last_error: health.auto_archive.last_error ? redactDiagnostic(health.auto_archive.last_error) : null,
+    },
+    submission_monitor: health.submission_monitor ? {
+      running: health.submission_monitor.running,
+      scheduler_alive: health.submission_monitor.scheduler_alive,
+      last_error: health.submission_monitor.last_error ? redactDiagnostic(health.submission_monitor.last_error) : null,
+    } : null,
+    notifications: health.notifications ? {
+      worker_alive: health.notifications.worker_alive,
+      pending_count: health.notifications.pending_count,
+      last_error: health.notifications.last_error ? redactDiagnostic(health.notifications.last_error) : null,
+    } : null,
+    archive: health.archive,
+  } : { service: 'unavailable' };
+  await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+};
+
 const AppLayout: React.FC = () => {
+  const { message } = AntApp.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const [archiveStats, setArchiveStats] = useState<ArchiveStats | null>(null);
@@ -32,6 +85,10 @@ const AppLayout: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [runtimeOpen, setRuntimeOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [authChecking, setAuthChecking] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('harvester.sidebarCollapsed') === 'true',
   );
@@ -58,6 +115,30 @@ const AppLayout: React.FC = () => {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const requireAuth = () => setAuthOpen(true);
+    window.addEventListener('harvester:auth-required', requireAuth);
+    return () => window.removeEventListener('harvester:auth-required', requireAuth);
+  }, []);
+
+  const submitApiKey = async () => {
+    if (!apiKey.trim()) return;
+    setAuthChecking(true);
+    apiAuth.setKey(apiKey);
+    try {
+      await api.health();
+      setAuthOpen(false);
+      setApiKey('');
+      message.success('访问密钥验证成功');
+      await loadData();
+    } catch {
+      apiAuth.clearKey();
+      message.error('访问密钥无效');
+    } finally {
+      setAuthChecking(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -111,6 +192,12 @@ const AppLayout: React.FC = () => {
   }, [focusCompetitionSearch]);
 
   const currentKey: NavItem['key'] = location.pathname.startsWith('/archives') ? 'archives' : 'kernels';
+  const runtimeErrors = [
+    health?.auto_archive.last_error,
+    health?.submission_monitor?.last_error,
+    health?.notifications?.last_error,
+  ].filter(Boolean) as string[];
+  const runtimeIssueCount = runtimeErrors.length + (health?.archive.low_disk_space ? 1 : 0);
   const navItems: NavItem[] = [
     { key: 'kernels', label: 'Kernel 广场', icon: <LayoutDashboard size={17} /> },
     {
@@ -170,6 +257,12 @@ const AppLayout: React.FC = () => {
       <div className="newapi-sidebar-summary-row">
         <span>唯一 Kernel</span>
         <strong>{archiveStats.unique_kernels}</strong>
+      </div>
+      <div className="newapi-sidebar-summary-row">
+        <span>磁盘剩余</span>
+        <strong className={archiveStats.low_disk_space ? 'is-danger' : ''}>
+          {formatBytes(archiveStats.disk_free_bytes)}
+        </strong>
       </div>
     </div>
   );
@@ -233,6 +326,17 @@ const AppLayout: React.FC = () => {
         )}
 
         <div className="newapi-header-actions">
+          <Tooltip title="运行概况与诊断">
+            <Badge count={runtimeIssueCount} size="small" offset={[-2, 2]}>
+              <Button
+                type="text"
+                className="newapi-icon-button"
+                icon={<Activity size={16} />}
+                aria-label={`运行概况${runtimeIssueCount ? `，${runtimeIssueCount} 项异常` : ''}`}
+                onClick={() => setRuntimeOpen(true)}
+              />
+            </Badge>
+          </Tooltip>
           <Tooltip
             title={!backendOnline
               ? '后端服务未连接'
@@ -299,6 +403,100 @@ const AppLayout: React.FC = () => {
         {renderNavigation(true)}
         {renderArchiveSummary()}
       </Drawer>
+      <Drawer
+        title="运行概况"
+        placement="right"
+        width={420}
+        open={runtimeOpen}
+        onClose={() => setRuntimeOpen(false)}
+        extra={(
+          <Space>
+            <Tooltip title="复制脱敏诊断信息">
+              <Button
+                type="text"
+                icon={<Clipboard size={16} />}
+                aria-label="复制诊断信息"
+                onClick={() => void copyDiagnostics(health).then(() => message.success('诊断信息已复制'))}
+              />
+            </Tooltip>
+            <Tooltip title="刷新运行状态">
+              <Button type="text" icon={<RefreshCw size={16} />} loading={loading} onClick={loadData} />
+            </Tooltip>
+          </Space>
+        )}
+      >
+        {!health ? (
+          <Alert type="error" showIcon message="后端服务未连接" description="请确认后端已经启动并可访问。" />
+        ) : (
+          <div className="runtime-overview">
+            {runtimeErrors.map((error, index) => (
+              <Alert key={`${error}-${index}`} type="error" showIcon message={redactDiagnostic(error)} />
+            ))}
+            {health.archive.low_disk_space && (
+              <Alert type="error" showIcon message="磁盘剩余空间低于归档保护阈值" />
+            )}
+            <section>
+              <Typography.Title level={5}>服务</Typography.Title>
+              <Descriptions size="small" column={1} colon={false}>
+                <Descriptions.Item label="状态"><Tag color={health.ready ? 'success' : 'warning'}>{health.ready ? '就绪' : '配置不完整'}</Tag></Descriptions.Item>
+                <Descriptions.Item label="版本">{health.version}</Descriptions.Item>
+                <Descriptions.Item label="Kaggle CLI">{health.kaggle_cli ? '可用' : '不可用'}</Descriptions.Item>
+                <Descriptions.Item label="访问凭据">{health.token_configured ? '已配置' : '未配置'}</Descriptions.Item>
+              </Descriptions>
+            </section>
+            <section>
+              <Typography.Title level={5}>自动归档</Typography.Title>
+              <Descriptions size="small" column={1} colon={false}>
+                <Descriptions.Item label="任务">{health.auto_archive.running ? '正在检查' : health.auto_archive.scheduler_alive ? '调度器在线' : '调度器离线'}</Descriptions.Item>
+                <Descriptions.Item label="下次检查">{formatDate(health.auto_archive.next_run_at)}</Descriptions.Item>
+                <Descriptions.Item label="最近结果">{health.auto_archive.archived_count} 新增 / {health.auto_archive.failed_count} 失败</Descriptions.Item>
+              </Descriptions>
+            </section>
+            <section>
+              <Typography.Title level={5}>出分监控</Typography.Title>
+              <Descriptions size="small" column={1} colon={false}>
+                <Descriptions.Item label="任务">{health.submission_monitor?.running ? '正在检查' : health.submission_monitor?.scheduler_alive ? '调度器在线' : '调度器离线'}</Descriptions.Item>
+                <Descriptions.Item label="下次检查">{formatDate(health.submission_monitor?.next_run_at)}</Descriptions.Item>
+                <Descriptions.Item label="最近结果">{health.submission_monitor?.pending_count ?? 0} 待出分 / {health.submission_monitor?.failed_count ?? 0} 失败</Descriptions.Item>
+              </Descriptions>
+            </section>
+            <section>
+              <Typography.Title level={5}>通知</Typography.Title>
+              <Descriptions size="small" column={1} colon={false}>
+                <Descriptions.Item label="发送队列">{health.notifications?.pending_count ?? 0}</Descriptions.Item>
+                <Descriptions.Item label="最近发送">{formatDate(health.notifications?.last_sent_at)}</Descriptions.Item>
+              </Descriptions>
+            </section>
+            <section>
+              <Typography.Title level={5}>本地存储</Typography.Title>
+              <Progress percent={health.archive.disk_used_percent} status={health.archive.low_disk_space ? 'exception' : 'normal'} size="small" />
+              <Descriptions size="small" column={1} colon={false}>
+                <Descriptions.Item label="磁盘剩余">{formatBytes(health.archive.disk_free_bytes)} / {formatBytes(health.archive.disk_total_bytes)}</Descriptions.Item>
+                <Descriptions.Item label="归档占用">{formatBytes(health.archive.total_size_bytes)}</Descriptions.Item>
+                <Descriptions.Item label="保护阈值">{formatBytes(health.archive.min_free_bytes)}</Descriptions.Item>
+              </Descriptions>
+            </section>
+          </div>
+        )}
+      </Drawer>
+      <Modal
+        title="需要访问密钥"
+        open={authOpen}
+        closable={false}
+        maskClosable={false}
+        okText="验证"
+        cancelButtonProps={{ style: { display: 'none' } }}
+        confirmLoading={authChecking}
+        onOk={() => void submitApiKey()}
+      >
+        <Input.Password
+          value={apiKey}
+          autoFocus
+          placeholder="输入 HARVESTER_API_KEY"
+          onChange={(event) => setApiKey(event.target.value)}
+          onPressEnter={() => void submitApiKey()}
+        />
+      </Modal>
     </div>
   );
 };

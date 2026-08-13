@@ -113,6 +113,11 @@ class ArchiverConfig(BaseModel):
         default=3,
         description="Maximum concurrent archive operations"
     )
+    min_free_bytes: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=0,
+        description="Minimum free disk space required before a download",
+    )
 
 
 class KernelListRequest(BaseModel):
@@ -197,7 +202,7 @@ class AutoArchiveConfig(BaseModel):
     # 每个竞赛独立阈值；启用时每个 competitions 项都必须有对应值。
     score_thresholds: dict[str, float] = Field(default_factory=dict)
     interval_minutes: int = Field(default=30, ge=1, le=1440)
-    include_outputs: bool = True
+    include_outputs: bool = False
     score_direction: ScoreDirection = ScoreDirection.AUTO
 
     @model_validator(mode="before")

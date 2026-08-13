@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
+  App as AntApp,
   AutoComplete,
   Button,
   Card,
@@ -24,7 +25,6 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
   theme,
   type TableColumnsType,
   type InputRef,
@@ -68,6 +68,8 @@ import AutoArchiveControl from './AutoArchiveControl';
 import DialogTitle from './DialogTitle';
 import NotificationCenter from './NotificationCenter';
 import SubmissionMonitorControl from './SubmissionMonitorControl';
+import CopyButton from './CopyButton';
+import { resolveScoreDirection, saveScoreDirection, type ScoreDirection } from '../scoreDirection';
 import {
   dispatchArchivesChanged,
   dispatchCompetitionChanged,
@@ -155,6 +157,15 @@ const formatCacheAge = (seconds: number) => {
   return `${Math.floor(seconds / 86400)} 天前`;
 };
 
+const scoreDirectionSourceLabel = (source?: CompetitionInfo['score_direction_source'] | 'user' | 'unknown') => ({
+  api: '竞赛 API',
+  leaderboard: '公开排行榜',
+  metric: '评价指标推断',
+  fallback: '兼容默认值',
+  user: '用户确认',
+  unknown: '未确认',
+}[source || 'unknown']);
+
 const waitForRefreshPoll = (milliseconds: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
   const timer = window.setTimeout(resolve, milliseconds);
   signal.addEventListener('abort', () => {
@@ -188,6 +199,7 @@ const renderVersionStatus = (value?: string) => {
 };
 
 const KernelList: React.FC = () => {
+  const { message } = AntApp.useApp();
   const navigate = useNavigate();
   const { token } = theme.useToken();
   const competitionInputRef = useRef<InputRef>(null);
@@ -214,11 +226,13 @@ const KernelList: React.FC = () => {
   const [kernels, setKernels] = useState<ScoredKernel[]>([]);
   const [archives, setArchives] = useState<ArchiveEntry[]>([]);
   const [competitionInfo, setCompetitionInfo] = useState<CompetitionInfo | null>(null);
+  const [confirmedDirection, setConfirmedDirection] = useState<ScoreDirection | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [cacheInfo, setCacheInfo] = useState<KernelCacheInfo | null>(null);
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
+  const directionResolution = resolveScoreDirection(competition, competitionInfo);
   const [searchText, setSearchText] = useState('');
   const [scoreFilter, setScoreFilter] = useState('all');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -237,7 +251,7 @@ const KernelList: React.FC = () => {
   const [archiveVersions, setArchiveVersions] = useState<VersionInfo[]>([]);
   const [archiveVersionsLoading, setArchiveVersionsLoading] = useState(false);
   const [archiveVersionsError, setArchiveVersionsError] = useState<string | null>(null);
-  const [includeOutputs, setIncludeOutputs] = useState(true);
+  const [includeOutputs, setIncludeOutputs] = useState(false);
   const [archiveRunning, setArchiveRunning] = useState(false);
   const [archiveCompleted, setArchiveCompleted] = useState(false);
   const [archiveProgress, setArchiveProgress] = useState(0);
@@ -274,8 +288,12 @@ const KernelList: React.FC = () => {
         .catch(() => null);
       if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
       setCompetitionInfo(comp);
-      const isLowerBetter = comp?.is_lower_better ?? true;
-      const apiSortBy = resolveApiScoreSort(sortBy, isLowerBetter);
+      const resolvedDirection = resolveScoreDirection(nextCompetition, comp);
+      setConfirmedDirection(resolvedDirection.direction);
+      const isLowerBetter = resolvedDirection.direction === 'minimize';
+      const apiSortBy = scoreSorted && !resolvedDirection.direction
+        ? 'hotness'
+        : resolveApiScoreSort(sortBy, isLowerBetter);
       const queryParams = {
         competition: nextCompetition,
         sort_by: apiSortBy,
@@ -433,14 +451,15 @@ const KernelList: React.FC = () => {
 
     if (!isScoreSort(sortBy)) return filtered;
 
-    const isLowerBetter = competitionInfo?.is_lower_better ?? true;
+    if (!confirmedDirection) return filtered;
+    const isLowerBetter = confirmedDirection === 'minimize';
     return [...filtered].sort((left, right) => comparePublicScores(
       left.public_score,
       right.public_score,
       sortBy,
       isLowerBetter,
     ));
-  }, [competitionInfo?.is_lower_better, kernels, scoreFilter, searchText, sortBy]);
+  }, [confirmedDirection, kernels, scoreFilter, searchText, sortBy]);
 
   useEffect(() => {
     setMobilePage(1);
@@ -459,8 +478,9 @@ const KernelList: React.FC = () => {
   const bestScore = useMemo(() => {
     const scores = scoredKernels.map((kernel) => kernel.public_score as number);
     if (!scores.length) return null;
-    return competitionInfo?.is_lower_better === false ? Math.max(...scores) : Math.min(...scores);
-  }, [competitionInfo?.is_lower_better, scoredKernels]);
+    if (!confirmedDirection) return null;
+    return confirmedDirection === 'maximize' ? Math.max(...scores) : Math.min(...scores);
+  }, [confirmedDirection, scoredKernels]);
 
   const archiveLatestVersion = useMemo(
     () => archiveVersions.reduce<VersionInfo | null>(
@@ -478,12 +498,12 @@ const KernelList: React.FC = () => {
     return scored.reduce((best, version) => {
       const bestScoreValue = best.public_lb_numeric as number;
       const currentScore = version.public_lb_numeric as number;
-      if (competitionInfo?.is_lower_better === false) {
+      if (confirmedDirection === 'maximize') {
         return currentScore > bestScoreValue ? version : best;
       }
       return currentScore < bestScoreValue ? version : best;
     });
-  }, [archiveLatestVersion, archiveVersions, competitionInfo?.is_lower_better]);
+  }, [archiveLatestVersion, archiveVersions, confirmedDirection]);
 
   const archiveVersionOptions = useMemo(() => {
     const versionLabel = (version: VersionInfo | null, fallback: string) => {
@@ -526,12 +546,16 @@ const KernelList: React.FC = () => {
 
   const openArchiveDialog = (targets: ScoredKernel[], version?: number) => {
     if (!targets.length) return;
+    if (!confirmedDirection) {
+      message.warning('请先确认该竞赛的分数方向，再选择最佳版本归档。');
+      return;
+    }
     if (version !== undefined) setVersionModalOpen(false);
     setArchiveTargets(targets);
     setArchiveVersionChoice(version === undefined ? 'best' : `version:${version}`);
     setArchiveVersions([]);
     setArchiveVersionsError(null);
-    setIncludeOutputs(true);
+    setIncludeOutputs(false);
     setArchiveRunning(false);
     setArchiveCompleted(false);
     setArchiveProgress(0);
@@ -556,6 +580,11 @@ const KernelList: React.FC = () => {
   };
 
   const runArchive = async () => {
+    const archiveDirection = confirmedDirection;
+    if (!archiveDirection) {
+      message.error('分数方向尚未确认，无法执行归档。');
+      return;
+    }
     setArchiveRunning(true);
     setArchiveCompleted(false);
     let successes = 0;
@@ -575,7 +604,7 @@ const KernelList: React.FC = () => {
         await api.archiveKernel({
           kernel_ref: kernel.ref,
           version: selectedVersion,
-          score_direction: 'auto',
+          score_direction: archiveDirection,
           include_outputs: includeOutputs,
           competition,
         });
@@ -621,7 +650,7 @@ const KernelList: React.FC = () => {
       dataIndex: 'public_score',
       width: 110,
       sorter: (a, b) => {
-        const isLowerBetter = competitionInfo?.is_lower_better ?? true;
+        const isLowerBetter = confirmedDirection === 'minimize';
         // 表头点击：第一次按「最佳优先」，再点则倒序。
         return comparePublicScores(
           a.public_score,
@@ -819,7 +848,7 @@ const KernelList: React.FC = () => {
               value={sortBy}
               onChange={setSortBy}
               style={{ width: '100%' }}
-              options={buildSortOptions(competitionInfo?.is_lower_better ?? true)}
+              options={buildSortOptions(confirmedDirection !== 'maximize')}
             />
           </Col>
           <Col xs={12} md={4} lg={4} className="toolbar-query-control">
@@ -866,10 +895,10 @@ const KernelList: React.FC = () => {
                   </Tag>
                 </Tooltip>
               )}
-              {competitionInfo && (
-                <Tooltip title={competitionInfo.score_direction_source === 'fallback' ? '平台未返回明确方向，当前使用兼容推断' : '已根据竞赛信息或公开榜单识别'}>
-                  <Tag color={competitionInfo.score_direction_source === 'fallback' ? 'warning' : 'blue'}>
-                    {competitionInfo.is_lower_better ? '越低越好' : '越高越好'}
+              {competitionInfo && confirmedDirection && (
+                <Tooltip title={competitionInfo.score_direction_source === 'fallback' ? '该方向由你确认并保存在当前浏览器' : '已根据竞赛信息或公开榜单识别'}>
+                  <Tag color={competitionInfo.score_direction_source === 'fallback' ? 'cyan' : 'blue'}>
+                    {confirmedDirection === 'minimize' ? '越低越好' : '越高越好'}
                   </Tag>
                 </Tooltip>
               )}
@@ -887,7 +916,7 @@ const KernelList: React.FC = () => {
                 value={sortBy}
                 onChange={setSortBy}
                 style={{ width: '100%' }}
-                options={buildSortOptions(competitionInfo?.is_lower_better ?? true)}
+                options={buildSortOptions(confirmedDirection !== 'maximize')}
               />
             </Col>
             <Col xs={24} md={12}>
@@ -916,6 +945,50 @@ const KernelList: React.FC = () => {
           </Row>
         </div>
       </Card>
+
+      {competitionInfo?.score_direction_source === 'fallback' && !confirmedDirection && (
+        <Alert
+          type="warning"
+          showIcon
+          message="需要确认分数方向"
+          description="Kaggle 未返回可靠的优化方向。确认后才能按最佳分数排序和归档最佳版本。"
+          action={(
+            <Space wrap>
+              <Button size="small" onClick={() => {
+                saveScoreDirection(competition, 'minimize');
+                setConfirmedDirection('minimize');
+                void loadKernels(false);
+              }}>越低越好</Button>
+              <Button size="small" onClick={() => {
+                saveScoreDirection(competition, 'maximize');
+                setConfirmedDirection('maximize');
+                void loadKernels(false);
+              }}>越高越好</Button>
+            </Space>
+          )}
+        />
+      )}
+
+      {cacheInfo && (
+        <div className={`data-freshness${cacheInfo.refresh_state === 'failed' ? ' is-error' : ''}`} role="status">
+          <div>
+            <strong>数据范围</strong>
+            <span>{isScoreSort(sortBy) && confirmedDirection ? '公开分数榜前 50 条' : `当前查询 ${kernels.length} 条`}</span>
+          </div>
+          <div>
+            <strong>快照时间</strong>
+            <span>{cacheInfo.fetched_at ? formatDate(new Date(cacheInfo.fetched_at * 1000).toISOString()) : formatCacheAge(cacheInfo.age_seconds)}</span>
+          </div>
+          <div>
+            <strong>数据状态</strong>
+            <span>{cacheInfo.refresh_state === 'failed' ? '后台刷新失败，正在展示旧数据' : backgroundRefreshing ? '旧数据可用，后台更新中' : cacheInfo.state === 'STALE' ? '正在展示旧数据' : '快照可用'}</span>
+          </div>
+          <div>
+            <strong>方向来源</strong>
+            <span>{scoreDirectionSourceLabel(directionResolution.source)}</span>
+          </div>
+        </div>
+      )}
 
       {loading && !kernels.length && (
         <Card size="small" className="data-toolbar">
@@ -1001,7 +1074,7 @@ const KernelList: React.FC = () => {
                   <a className="kernel-title" href={kaggleKernelUrl(kernel.ref)} target="_blank" rel="noreferrer">
                     {kernel.title || kernel.ref}
                   </a>
-                  <span className="kernel-ref">{kernel.ref}</span>
+                  <span className="kernel-ref-line"><span className="kernel-ref">{kernel.ref}</span><CopyButton value={kernel.ref} label="复制 Kernel ref" /></span>
                 </div>
                 <span className="score-value" style={{ color: getScoreColor(kernel.public_score) }}>
                   {kernel.public_score === undefined || kernel.public_score === null

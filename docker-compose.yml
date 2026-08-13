@@ -9,6 +9,10 @@ services:
       HARVEST_ROOT: /data/harvested_kernels
       KAGGLE_API_TOKEN: ${KAGGLE_API_TOKEN:-}
       KAGGLE_COMPETITION: ${KAGGLE_COMPETITION:-rogii-wellbore-geology-prediction}
+      HARVESTER_API_KEY: ${HARVESTER_API_KEY:-}
+      HARVESTER_ALLOWED_ORIGINS: ${HARVESTER_ALLOWED_ORIGINS:-http://127.0.0.1:8080}
+      HARVESTER_MIN_FREE_BYTES: ${HARVESTER_MIN_FREE_BYTES:-2147483648}
+      HARVESTER_ALLOW_OPEN_FOLDER: "false"
       HARVESTER_NOTIFICATION_WEBHOOK_URL: ${HARVESTER_NOTIFICATION_WEBHOOK_URL:-}
       HARVESTER_NOTIFICATION_SMTP_PASSWORD: ${HARVESTER_NOTIFICATION_SMTP_PASSWORD:-}
     volumes:
@@ -21,8 +25,9 @@ services:
         - python
         - -c
         - >-
-          import urllib.request;
-          urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)
+          import os, urllib.request;
+          req=urllib.request.Request('http://127.0.0.1:8000/api/health', headers={'X-Harvester-Key': os.environ.get('HARVESTER_API_KEY','')});
+          urllib.request.urlopen(req, timeout=5)
       interval: 30s
       timeout: 10s
       retries: 5

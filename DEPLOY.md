@@ -117,6 +117,9 @@ nano .env.deploy
 ```dotenv
 KAGGLE_API_TOKEN=你的_Kaggle_Token
 KAGGLE_COMPETITION=rogii-wellbore-geology-prediction
+HARVESTER_API_KEY=使用密码管理器生成的高强度随机密钥
+HARVESTER_ALLOWED_ORIGINS=https://kaggle.example.com
+HARVESTER_MIN_FREE_BYTES=2147483648
 APP_BIND_ADDRESS=127.0.0.1
 APP_PORT=8080
 ```
@@ -170,7 +173,7 @@ kaggle.example.com {
 }
 ```
 
-若使用 Cloudflare，建议开启 Access 登录保护；当前 API 没有内置用户认证，不能直接把管理界面裸露到公网。Cloudflare 只负责 DNS、HTTPS、Access/WAF，不承载当前的 FastAPI 调度进程。
+若使用 Cloudflare，仍建议开启 Access 登录保护。应用内置的 API Key 是基础访问边界，不能替代 HTTPS、身份认证和 WAF。首次访问会要求输入 `HARVESTER_API_KEY`，密钥只保存在浏览器当前会话中。Cloudflare 只负责 DNS、HTTPS、Access/WAF，不承载当前的 FastAPI 调度进程。
 
 ## 八、日常更新
 
@@ -209,6 +212,7 @@ docker compose --env-file .env.deploy up -d --build
 3. 手动归档能在 `harvested_kernels/` 生成文件；
 4. 自动归档状态显示调度器在线；
 5. 通知测试成功，容器重启后配置仍符合预期；
-6. 域名通过 HTTPS 访问，并有 Cloudflare Access 或其他鉴权；
+6. 域名通过 HTTPS 访问，API Key 验证生效，并有 Cloudflare Access 或其他鉴权；
 7. 服务器安全组没有开放 `8000` 和未经保护的 `8080`；
 8. 已配置 `harvested_kernels/` 的定期备份。
+9. 运行概况中的磁盘剩余量高于保护阈值；远程“打开目录”请求被拒绝。

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
+  App as AntApp,
   Button,
   Card,
   Checkbox,
@@ -19,7 +20,6 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -41,6 +41,7 @@ import {
   kaggleOwnerFromRef,
 } from '../kaggleUrls';
 import DialogTitle from './DialogTitle';
+import CopyButton from './CopyButton';
 
 const { Text } = Typography;
 const MOBILE_PAGE_SIZE = 10;
@@ -145,6 +146,7 @@ const sourceLink = (kind: 'dataset' | 'kernel' | 'competition', source: string) 
 const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 const ArchiveManager: React.FC = () => {
+  const { message } = AntApp.useApp();
   const navigate = useNavigate();
   const [archives, setArchives] = useState<ArchiveEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -610,9 +612,7 @@ const ArchiveManager: React.FC = () => {
           <>
             <div className="archive-detail-grid" aria-label="归档基础信息">
               <DetailField label="Kernel">
-                <a href={kaggleKernelUrl(detailArchive.ref)} target="_blank" rel="noreferrer">
-                  {detailArchive.ref}
-                </a>
+                <span className="copy-field"><a href={kaggleKernelUrl(detailArchive.ref)} target="_blank" rel="noreferrer">{detailArchive.ref}</a><CopyButton value={detailArchive.ref} label="复制 Kernel ref" /></span>
               </DetailField>
               <DetailField label="作者">
                 <a
@@ -630,7 +630,7 @@ const ArchiveManager: React.FC = () => {
               <DetailField label="归档时间">{formatDate(detailArchive.archived_at)}</DetailField>
               <DetailField label="包含输出">{detailArchive.include_outputs ? <Tag color="success">是</Tag> : <Tag>否</Tag>}</DetailField>
               <DetailField label="保存路径" wide>
-                <Text copyable className="archive-path-value">{detailArchive.path}</Text>
+                <span className="copy-field"><Text className="archive-path-value">{detailArchive.path}</Text><CopyButton value={detailArchive.path} label="复制保存路径" /></span>
               </DetailField>
             </div>
 

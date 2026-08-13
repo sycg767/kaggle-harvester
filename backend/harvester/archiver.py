@@ -119,6 +119,14 @@ class Archiver:
             if existing and Path(existing.path).exists() and not overwrite:
                 return self._result_from_entry(existing, already_existed=True)
 
+        disk = shutil.disk_usage(self._harvest_root)
+        if disk.free < self._config.min_free_bytes:
+            required_gib = self._config.min_free_bytes / (1024 ** 3)
+            free_gib = disk.free / (1024 ** 3)
+            raise OSError(
+                f"磁盘剩余空间不足：当前 {free_gib:.2f} GiB，归档至少需要保留 {required_gib:.2f} GiB。"
+            )
+
         staging_dir = self._safe_archive_path(
             self._harvest_root / ".staging" / uuid.uuid4().hex
         )
@@ -411,10 +419,16 @@ class Archiver:
         """Get archive statistics."""
         entries = list(self._index.values())
         comp_count = len(set(e.competition for e in entries if e.competition))
+        disk = shutil.disk_usage(self._harvest_root)
         return {
             "total_archives": len(entries),
             "unique_competitions": comp_count,
             "unique_kernels": len(set(e.ref for e in entries)),
             "harvest_root": self._config.harvest_root,
             "total_size_bytes": sum(e.size_bytes for e in entries),
+            "disk_free_bytes": disk.free,
+            "disk_total_bytes": disk.total,
+            "disk_used_percent": round((disk.used / disk.total) * 100, 1) if disk.total else 0,
+            "min_free_bytes": self._config.min_free_bytes,
+            "low_disk_space": disk.free < self._config.min_free_bytes,
         }
