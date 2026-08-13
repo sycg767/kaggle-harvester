@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Alert, App as AntApp, Badge, Button, Descriptions, Drawer, Input, Modal, Progress, Space, Spin, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App as AntApp, Badge, Button, Checkbox, Descriptions, Drawer, Input, Modal, Progress, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import {
   Archive,
   Activity,
@@ -8,6 +8,7 @@ import {
   Clipboard,
   Database,
   LayoutDashboard,
+  LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -88,6 +89,7 @@ const AppLayout: React.FC = () => {
   const [runtimeOpen, setRuntimeOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [rememberApiKey, setRememberApiKey] = useState(true);
   const [authChecking, setAuthChecking] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('harvester.sidebarCollapsed') === 'true',
@@ -125,12 +127,12 @@ const AppLayout: React.FC = () => {
   const submitApiKey = async () => {
     if (!apiKey.trim()) return;
     setAuthChecking(true);
-    apiAuth.setKey(apiKey);
+    apiAuth.setKey(apiKey, rememberApiKey);
     try {
       await api.health();
       setAuthOpen(false);
       setApiKey('');
-      message.success('访问密钥验证成功');
+      message.success(rememberApiKey ? '访问密钥已记住' : '访问密钥验证成功');
       await loadData();
     } catch {
       apiAuth.clearKey();
@@ -138,6 +140,14 @@ const AppLayout: React.FC = () => {
     } finally {
       setAuthChecking(false);
     }
+  };
+
+  const forgetApiKey = () => {
+    apiAuth.clearKey();
+    setRuntimeOpen(false);
+    setApiKey('');
+    setAuthOpen(true);
+    message.success('已清除当前浏览器保存的访问密钥');
   };
 
   useEffect(() => {
@@ -443,6 +453,16 @@ const AppLayout: React.FC = () => {
                 <Descriptions.Item label="Kaggle CLI">{health.kaggle_cli ? '可用' : '不可用'}</Descriptions.Item>
                 <Descriptions.Item label="访问凭据">{health.token_configured ? '已配置' : '未配置'}</Descriptions.Item>
               </Descriptions>
+              {!!apiAuth.getKey() && (
+                <Button
+                  type="text"
+                  danger
+                  icon={<LogOut size={15} />}
+                  onClick={forgetApiKey}
+                >
+                  清除访问密钥
+                </Button>
+              )}
             </section>
             <section>
               <Typography.Title level={5}>自动归档</Typography.Title>
@@ -489,13 +509,27 @@ const AppLayout: React.FC = () => {
         confirmLoading={authChecking}
         onOk={() => void submitApiKey()}
       >
-        <Input.Password
-          value={apiKey}
-          autoFocus
-          placeholder="输入 HARVESTER_API_KEY"
-          onChange={(event) => setApiKey(event.target.value)}
-          onPressEnter={() => void submitApiKey()}
-        />
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Input.Password
+            value={apiKey}
+            autoFocus
+            aria-label="访问密钥"
+            placeholder="输入 HARVESTER_API_KEY"
+            onChange={(event) => setApiKey(event.target.value)}
+            onPressEnter={() => void submitApiKey()}
+          />
+          <Checkbox
+            checked={rememberApiKey}
+            onChange={(event) => setRememberApiKey(event.target.checked)}
+          >
+            记住此浏览器
+          </Checkbox>
+          {rememberApiKey && (
+            <Typography.Text type="secondary">
+              密钥会保存在当前浏览器中，请勿在公共或共享设备上使用。
+            </Typography.Text>
+          )}
+        </Space>
       </Modal>
     </div>
   );

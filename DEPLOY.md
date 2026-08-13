@@ -173,7 +173,7 @@ kaggle.example.com {
 }
 ```
 
-若使用 Cloudflare，仍建议开启 Access 登录保护。应用内置的 API Key 是基础访问边界，不能替代 HTTPS、身份认证和 WAF。首次访问会要求输入 `HARVESTER_API_KEY`，密钥只保存在浏览器当前会话中。Cloudflare 只负责 DNS、HTTPS、Access/WAF，不承载当前的 FastAPI 调度进程。
+若使用 Cloudflare，仍建议开启 Access 登录保护。应用内置的 API Key 是基础访问边界，不能替代 HTTPS、身份认证和 WAF。首次访问会要求输入 `HARVESTER_API_KEY`；勾选“记住此浏览器”后会持久保存，公共或共享设备不要勾选。Cloudflare 只负责 DNS、HTTPS、Access/WAF，不承载当前的 FastAPI 调度进程。
 
 ## 八、日常更新
 

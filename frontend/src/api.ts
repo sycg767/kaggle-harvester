@@ -368,15 +368,28 @@ const BASE = '/api';
 const API_KEY_STORAGE = 'harvester.apiKey';
 
 export const apiAuth = {
-  getKey: () => typeof sessionStorage === 'undefined' ? '' : sessionStorage.getItem(API_KEY_STORAGE) || '',
-  setKey: (value: string) => {
-    if (typeof sessionStorage === 'undefined') return;
+  getKey: () => {
+    const sessionKey = typeof sessionStorage === 'undefined'
+      ? ''
+      : sessionStorage.getItem(API_KEY_STORAGE) || '';
+    if (sessionKey) return sessionKey;
+    return typeof localStorage === 'undefined'
+      ? ''
+      : localStorage.getItem(API_KEY_STORAGE) || '';
+  },
+  setKey: (value: string, remember = false) => {
     const key = value.trim();
-    if (key) sessionStorage.setItem(API_KEY_STORAGE, key);
-    else sessionStorage.removeItem(API_KEY_STORAGE);
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(API_KEY_STORAGE);
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(API_KEY_STORAGE);
+    if (!key) return;
+    const storage = remember
+      ? typeof localStorage === 'undefined' ? null : localStorage
+      : typeof sessionStorage === 'undefined' ? null : sessionStorage;
+    storage?.setItem(API_KEY_STORAGE, key);
   },
   clearKey: () => {
     if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(API_KEY_STORAGE);
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(API_KEY_STORAGE);
   },
 };
 
@@ -396,6 +409,7 @@ async function parseResponse<T>(resp: Response): Promise<T> {
       // 非 JSON 错误响应保留原文。
     }
     if (resp.status === 401 && resp.headers.get('X-Harvester-Auth') === 'required') {
+      apiAuth.clearKey();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('harvester:auth-required'));
       }
