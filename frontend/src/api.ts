@@ -260,6 +260,10 @@ export interface SubmissionScoreEvent {
   public_score_display: string;
   status: string;
   date?: string;
+  scored_at?: string;
+  submitted_by?: string;
+  submitted_by_ref?: string;
+  team_name?: string;
   previous_public_score?: number;
 }
 
@@ -268,9 +272,15 @@ export interface SubmissionMonitorItem {
   ref: string;
   description: string;
   status: string;
+  error_description?: string;
+  submitted_by?: string;
+  submitted_by_ref?: string;
+  team_name?: string;
   public_score?: number;
   public_score_display?: string;
   date?: string;
+  scored_at?: string;
+  state?: 'pending' | 'scored' | 'failed';
   watched: boolean;
   newly_scored: boolean;
 }
@@ -286,6 +296,7 @@ export interface SubmissionMonitorStatus {
   checked_count: number;
   pending_count: number;
   scored_count: number;
+  failed_count: number;
   newly_scored_count: number;
   competitions_checked?: string[];
   recent_events: SubmissionScoreEvent[];
@@ -302,6 +313,7 @@ export interface SubmissionMonitorRunLog {
   checked_count: number;
   pending_count: number;
   scored_count: number;
+  failed_count: number;
   newly_scored_count: number;
   competitions_checked?: string[];
   error?: string;

@@ -117,10 +117,13 @@ const renderRunOutcome = (log: SubmissionMonitorRunLog) => {
 };
 
 const renderItemState = (item: SubmissionMonitorItem) => {
+  if (item.state === 'failed') {
+    return <Tag color="error">失败</Tag>;
+  }
   if (item.newly_scored) {
     return <Tag color="success">新出分</Tag>;
   }
-  if (item.public_score === undefined || item.public_score === null) {
+  if (item.state === 'pending' || item.public_score === undefined || item.public_score === null) {
     return <Tag color="processing">待出分</Tag>;
   }
   return <Tag>已出分</Tag>;
@@ -144,7 +147,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   const [selectedLog, setSelectedLog] = useState<SubmissionMonitorRunLog | null>(null);
   const [runDetail, setRunDetail] = useState<SubmissionMonitorRunDetail | null>(null);
   const [detailSearch, setDetailSearch] = useState('');
-  const [detailState, setDetailState] = useState<'all' | 'pending' | 'scored' | 'newly_scored'>('all');
+  const [detailState, setDetailState] = useState<'all' | 'pending' | 'scored' | 'failed' | 'newly_scored'>('all');
   const [narrowViewport, setNarrowViewport] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches,
   );
@@ -284,11 +287,13 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   const detailItems = useMemo(() => {
     const query = detailSearch.trim().toLowerCase();
     return (runDetail?.items || []).filter((item) => {
-      if (detailState === 'pending' && item.public_score != null) return false;
-      if (detailState === 'scored' && (item.public_score == null || item.newly_scored)) return false;
+      const state = item.state || (item.public_score == null ? 'pending' : 'scored');
+      if (detailState === 'pending' && state !== 'pending') return false;
+      if (detailState === 'scored' && (state !== 'scored' || item.newly_scored)) return false;
+      if (detailState === 'failed' && state !== 'failed') return false;
       if (detailState === 'newly_scored' && !item.newly_scored) return false;
       if (!query) return true;
-      return [item.ref, item.description, item.status, item.competition]
+      return [item.ref, item.description, item.status, item.competition, item.submitted_by, item.submitted_by_ref, item.team_name, item.error_description]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query));
     });
@@ -324,11 +329,22 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       render: (value?: string) => value || '（无描述）',
     },
     {
+      title: '提交人',
+      key: 'submitted_by',
+      width: 140,
+      ellipsis: true,
+      render: (_, item) => item.submitted_by || item.submitted_by_ref || '—',
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       width: 120,
-      render: (value?: string) => value || '—',
+      render: (value: string | undefined, item) => item.error_description ? (
+        <Tooltip title={item.error_description}>
+          <Tag color="error">{value || '失败'}</Tag>
+        </Tooltip>
+      ) : value || '—',
     },
     {
       title: '结果',
@@ -340,6 +356,13 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       title: '提交时间',
       dataIndex: 'date',
       key: 'date',
+      width: 180,
+      render: (value?: string) => formatDate(value),
+    },
+    {
+      title: '监测到出分',
+      dataIndex: 'scored_at',
+      key: 'scored_at',
       width: 180,
       render: (value?: string) => formatDate(value),
     },
@@ -568,8 +591,8 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
           <SummaryItem label="最近检查" tabular>{formatDate(status?.last_checked_at)}</SummaryItem>
           <SummaryItem label="下次检查" tabular>{formatDate(status?.next_run_at)}</SummaryItem>
           <SummaryItem label="本轮提交" tabular>{status?.checked_count ?? 0}</SummaryItem>
-          <SummaryItem label="待出分 / 已出分" tabular>
-            {status ? `${status.pending_count} / ${status.scored_count}` : '0 / 0'}
+          <SummaryItem label="待出分 / 已出分 / 失败" tabular>
+            {status ? `${status.pending_count} / ${status.scored_count} / ${status.failed_count}` : '0 / 0 / 0'}
           </SummaryItem>
           <SummaryItem label="新出分" tabular>{status?.newly_scored_count ?? 0}</SummaryItem>
         </div>
@@ -665,6 +688,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
                     <span>检查 <Text strong>{log.checked_count}</Text></span>
                     <span>待出分 <Text>{log.pending_count}</Text></span>
                     <span>已出分 <Text>{log.scored_count}</Text></span>
+                    <span>失败 <Text type={log.failed_count > 0 ? 'danger' : undefined}>{log.failed_count}</Text></span>
                     <span>新出分 <Text type={log.newly_scored_count > 0 ? 'success' : undefined} strong>{log.newly_scored_count}</Text></span>
                     <Text type="secondary">耗时 {formatDuration(log.duration_seconds)}</Text>
                     {log.details_available === false && <Text type="secondary">仅汇总</Text>}
@@ -707,8 +731,8 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
               <SummaryItem label="完成时间" tabular>{formatDate(selectedLog.finished_at)}</SummaryItem>
               <SummaryItem label="耗时" tabular>{formatDuration(selectedLog.duration_seconds)}</SummaryItem>
               <SummaryItem label="检查条数" tabular>{selectedLog.checked_count}</SummaryItem>
-              <SummaryItem label="待出分 / 已出分" tabular>
-                {selectedLog.pending_count} / {selectedLog.scored_count}
+              <SummaryItem label="待出分 / 已出分 / 失败" tabular>
+                {selectedLog.pending_count} / {selectedLog.scored_count} / {selectedLog.failed_count}
               </SummaryItem>
               <SummaryItem label="新出分" tabular>{selectedLog.newly_scored_count}</SummaryItem>
             </div>
@@ -741,7 +765,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
                       allowClear
                       prefix={<SearchOutlined />}
                       value={detailSearch}
-                      placeholder="筛选 ref、描述或状态"
+                      placeholder="筛选 ref、描述、提交人或状态"
                       onChange={(event) => setDetailSearch(event.target.value)}
                     />
                   </Col>
@@ -755,6 +779,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
                         { value: 'all', label: '全部提交' },
                         { value: 'pending', label: '待出分' },
                         { value: 'scored', label: '已出分' },
+                        { value: 'failed', label: '失败' },
                         { value: 'newly_scored', label: '新出分' },
                       ]}
                     />
@@ -789,6 +814,8 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
                       <div className="mobile-data-card-meta">
                         <span>{item.status || '—'}</span>
                         <span>{formatDate(item.date)}</span>
+                        <span>监测到出分 {formatDate(item.scored_at)}</span>
+                        <span>{item.submitted_by || item.submitted_by_ref || '提交人未知'}</span>
                         {renderItemState(item)}
                       </div>
                     </article>

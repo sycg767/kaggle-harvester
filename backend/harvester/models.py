@@ -436,6 +436,10 @@ class CompetitionSubmission(BaseModel):
     date: Optional[str] = None
     description: str = ""
     status: str = ""
+    error_description: str = ""
+    submitted_by: str = ""
+    submitted_by_ref: str = ""
+    team_name: str = ""
     public_score: Optional[float] = None
     public_score_display: Optional[str] = None
     private_score: Optional[float] = None
@@ -493,6 +497,11 @@ class SubmissionScoreEvent(BaseModel):
     public_score_display: str = ""
     status: str = ""
     date: Optional[str] = None
+    # 监控器首次观察到该提交已有 Public LB 分数的时间，并非 Kaggle 实际出分时间。
+    scored_at: Optional[str] = None
+    submitted_by: str = ""
+    submitted_by_ref: str = ""
+    team_name: str = ""
     previous_public_score: Optional[float] = None
 
 
@@ -503,9 +512,16 @@ class SubmissionMonitorItem(BaseModel):
     ref: str
     description: str = ""
     status: str = ""
+    error_description: str = ""
+    submitted_by: str = ""
+    submitted_by_ref: str = ""
+    team_name: str = ""
     public_score: Optional[float] = None
     public_score_display: Optional[str] = None
     date: Optional[str] = None
+    # 监控器首次观察到该提交已有 Public LB 分数的时间，并非 Kaggle 实际出分时间。
+    scored_at: Optional[str] = None
+    state: Literal["pending", "scored", "failed"] = "pending"
     watched: bool = True
     newly_scored: bool = False
 
@@ -523,6 +539,7 @@ class SubmissionMonitorStatus(BaseModel):
     checked_count: int = 0
     pending_count: int = 0
     scored_count: int = 0
+    failed_count: int = 0
     newly_scored_count: int = 0
     competitions_checked: list[str] = Field(default_factory=list)
     recent_events: list[SubmissionScoreEvent] = Field(default_factory=list)
@@ -541,6 +558,7 @@ class SubmissionMonitorRunLog(BaseModel):
     checked_count: int = 0
     pending_count: int = 0
     scored_count: int = 0
+    failed_count: int = 0
     newly_scored_count: int = 0
     competitions_checked: list[str] = Field(default_factory=list)
     error: Optional[str] = None

@@ -144,6 +144,56 @@ def _parse_public_score(value: Any) -> float | None:
         return None
 
 
+def _row_value(row: dict[str, Any], *keys: str) -> Any:
+    """兼容 Kaggle SDK/CLI 的 camelCase 与 snake_case 字段。"""
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _parse_competition_submission(row: dict[str, Any]) -> CompetitionSubmission | None:
+    """把 Kaggle 提交对象归一化为内部模型，并保留团队提交元数据。"""
+    ref_value = _row_value(row, "ref", "id", "submissionId", "submission_id")
+    if ref_value is None:
+        return None
+
+    public_display = _row_value(row, "publicScore", "public_score")
+    private_display = _row_value(row, "privateScore", "private_score")
+    status_raw = str(_row_value(row, "status") or "").strip()
+    if status_raw.startswith("SubmissionStatus."):
+        status_raw = status_raw.split(".", 1)[1]
+
+    return CompetitionSubmission(
+        ref=str(ref_value),
+        file_name=str(_row_value(row, "fileName", "file_name") or ""),
+        date=(
+            str(_row_value(row, "date", "dateSubmitted", "date_submitted"))
+            if _row_value(row, "date", "dateSubmitted", "date_submitted") is not None
+            else None
+        ),
+        description=str(_row_value(row, "description") or ""),
+        status=status_raw,
+        error_description=str(
+            _row_value(row, "errorDescription", "error_description") or ""
+        ),
+        submitted_by=str(_row_value(row, "submittedBy", "submitted_by") or ""),
+        submitted_by_ref=str(
+            _row_value(row, "submittedByRef", "submitted_by_ref") or ""
+        ),
+        team_name=str(_row_value(row, "teamName", "team_name") or ""),
+        public_score=_parse_public_score(public_display),
+        public_score_display=(
+            str(public_display).strip() if public_display is not None else None
+        ),
+        private_score=_parse_public_score(private_display),
+        private_score_display=(
+            str(private_display).strip() if private_display is not None else None
+        ),
+    )
+
+
 def _extract_public_score(view: dict[str, Any]) -> float | None:
     """读取 Kaggle 列表使用的最佳公开分数，并兼容旧响应字段。"""
     candidates = (
@@ -1370,61 +1420,36 @@ class KaggleClient:
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,119}", comp):
             raise ValueError(f"竞赛标识无效：{comp}")
         size = max(1, min(int(page_size), 50))
-        rows = self._run_kaggle_json(
-            [
-                "competitions",
-                "submissions",
-                comp,
-                "--format",
-                "json",
-                "--page-size",
-                str(size),
-            ],
-            timeout=90,
-        )
+        try:
+            # CLI 会主动裁掉 submittedBy、teamName 和 errorDescription；SDK
+            # 使用相同接口但保留完整字段，团队提交和失败原因依赖这些信息。
+            from kaggle.api.kaggle_api_extended import KaggleApi
+
+            api = KaggleApi()
+            api.authenticate()
+            submissions = api.competition_submissions(comp, page_size=size) or []
+            rows = [item.to_dict() for item in submissions if item is not None]
+        except Exception:
+            # 兼容缺少新版 SDK 的环境；此路径仍可显示基本提交信息。
+            rows = self._run_kaggle_json(
+                [
+                    "competitions",
+                    "submissions",
+                    comp,
+                    "--format",
+                    "json",
+                    "--page-size",
+                    str(size),
+                ],
+                timeout=90,
+            )
         results: list[CompetitionSubmission] = []
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            public_display = row.get("publicScore")
-            private_display = row.get("privateScore")
-            if public_display is None:
-                public_display = row.get("public_score")
-            if private_display is None:
-                private_display = row.get("private_score")
-            public_score = _parse_public_score(public_display)
-            private_score = _parse_public_score(private_display)
-            ref_value = row.get("ref")
-            if ref_value is None:
-                continue
-            status_raw = str(row.get("status") or "").strip()
-            if status_raw.startswith("SubmissionStatus."):
-                status_raw = status_raw.split(".", 1)[1]
-            results.append(
-                CompetitionSubmission(
-                    ref=str(ref_value),
-                    file_name=str(row.get("fileName") or row.get("file_name") or ""),
-                    date=(
-                        str(row.get("date"))
-                        if row.get("date") not in (None, "")
-                        else None
-                    ),
-                    description=str(row.get("description") or ""),
-                    status=status_raw,
-                    public_score=public_score,
-                    public_score_display=(
-                        str(public_display).strip()
-                        if public_display not in (None, "")
-                        else None
-                    ),
-                    private_score=private_score,
-                    private_score_display=(
-                        str(private_display).strip()
-                        if private_display not in (None, "")
-                        else None
-                    ),
-                )
-            )
+            submission = _parse_competition_submission(row)
+            if submission is not None:
+                results.append(submission)
         return results
 
     def list_datasets(self) -> list[dict]:

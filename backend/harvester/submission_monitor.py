@@ -78,6 +78,8 @@ class SubmissionMonitorManager:
         )
         # key: f"{competition}::{ref}" -> last known public_score
         self._known_scores: dict[str, float | None] = {}
+        # key: f"{competition}::{ref}" -> 首次观察到 Public LB 分数的时间
+        self._known_scored_at: dict[str, str] = {}
         self._baseline_seeded_by_competition: dict[str, bool] = {}
         self._logs: list[SubmissionMonitorRunLog] = []
         self._load_state()
@@ -120,6 +122,13 @@ class SubmissionMonitorManager:
                     else:
                         cleaned = {}
                 self._known_scores = cleaned
+            known_scored_at = data.get("known_scored_at", {})
+            if isinstance(known_scored_at, dict):
+                self._known_scored_at = {
+                    str(key): str(value)
+                    for key, value in known_scored_at.items()
+                    if isinstance(value, str) and _parse_datetime(value) is not None
+                }
             baselines = data.get("baseline_seeded_by_competition")
             if isinstance(baselines, dict):
                 self._baseline_seeded_by_competition = {
@@ -151,12 +160,18 @@ class SubmissionMonitorManager:
             if len(self._known_scores) > self.MAX_KNOWN_REFS:
                 keep = list(self._known_scores.items())[-self.MAX_KNOWN_REFS :]
                 self._known_scores = dict(keep)
+            self._known_scored_at = {
+                key: value
+                for key, value in self._known_scored_at.items()
+                if key in self._known_scores
+            }
             payload = {
                 "version": 2,
                 "updated_at": _utc_now().isoformat(),
                 "config": self._config.model_dump(),
                 "status": self._status.model_dump(),
                 "known_scores": self._known_scores,
+                "known_scored_at": self._known_scored_at,
                 "baseline_seeded_by_competition": self._baseline_seeded_by_competition,
                 "logs": [item.model_dump() for item in self._logs],
             }
@@ -278,7 +293,7 @@ class SubmissionMonitorManager:
                 config = self._config.model_copy(deep=True)
 
             try:
-                status, known_scores, baselines, new_events = (
+                status, known_scores, known_scored_at, baselines, new_events = (
                     await asyncio.to_thread(self._run_once_sync, config)
                 )
             except Exception as exc:
@@ -287,6 +302,7 @@ class SubmissionMonitorManager:
                     last_error=str(exc)[:500],
                 )
                 known_scores = None
+                known_scored_at = None
                 baselines = None
                 new_events = []
 
@@ -321,6 +337,8 @@ class SubmissionMonitorManager:
                             break
                     status.recent_events = deduped
                     self._known_scores = known_scores
+                    if known_scored_at is not None:
+                        self._known_scored_at = known_scored_at
                     if baselines is not None:
                         self._baseline_seeded_by_competition = baselines
                 else:
@@ -346,6 +364,7 @@ class SubmissionMonitorManager:
                     checked_count=status.checked_count,
                     pending_count=status.pending_count,
                     scored_count=status.scored_count,
+                    failed_count=status.failed_count,
                     newly_scored_count=status.newly_scored_count,
                     competitions_checked=list(status.competitions_checked),
                     error=status.last_error,
@@ -386,16 +405,30 @@ class SubmissionMonitorManager:
             return True
         return (submission.description or "").startswith(prefix)
 
+    @staticmethod
+    def _submission_state(submission: CompetitionSubmission) -> Literal["pending", "scored", "failed"]:
+        """依据 Kaggle 提交状态分类，避免把失败提交误报为待出分。"""
+        normalized = (submission.status or "").strip().lower()
+        if normalized in {"error", "failed", "failure", "cancelled", "canceled", "invalid"}:
+            return "failed"
+        if submission.error_description.strip():
+            return "failed"
+        if submission.public_score is not None:
+            return "scored"
+        return "pending"
+
     def _run_once_sync(
         self, config: SubmissionMonitorConfig
     ) -> tuple[
         SubmissionMonitorStatus,
         dict[str, float | None],
+        dict[str, str],
         dict[str, bool],
         list[SubmissionScoreEvent],
     ]:
         with self._state_lock:
             known_scores = dict(self._known_scores)
+            known_scored_at = dict(self._known_scored_at)
             baselines = dict(self._baseline_seeded_by_competition)
 
         prefix = (config.description_prefix or "").strip()
@@ -403,6 +436,7 @@ class SubmissionMonitorManager:
         recent_items: list[SubmissionMonitorItem] = []
         pending_count = 0
         scored_count = 0
+        failed_count = 0
         competitions_checked: list[str] = []
         errors: list[str] = []
 
@@ -425,14 +459,18 @@ class SubmissionMonitorManager:
 
             for submission in watched:
                 score = submission.public_score
+                submission_state = self._submission_state(submission)
                 key = self._score_key(competition, submission.ref)
                 previous = known_scores.get(key, ...)
                 newly_scored = False
+                scored_at = known_scored_at.get(key)
 
-                if score is None:
+                if submission_state == "pending":
                     pending_count += 1
-                else:
+                elif submission_state == "scored":
                     scored_count += 1
+                else:
+                    failed_count += 1
 
                 if seed_baseline:
                     known_scores[key] = score
@@ -445,6 +483,10 @@ class SubmissionMonitorManager:
                     if prev_score is None and score is not None:
                         newly_scored = True
                     known_scores[key] = score
+
+                if score is not None and not scored_at:
+                    scored_at = _utc_now().isoformat()
+                    known_scored_at[key] = scored_at
 
                 if newly_scored and score is not None:
                     previous_public = (
@@ -463,6 +505,10 @@ class SubmissionMonitorManager:
                         ),
                         status=submission.status,
                         date=submission.date,
+                        scored_at=scored_at,
+                        submitted_by=submission.submitted_by,
+                        submitted_by_ref=submission.submitted_by_ref,
+                        team_name=submission.team_name,
                         previous_public_score=(
                             float(previous_public)
                             if previous_public is not None
@@ -477,9 +523,15 @@ class SubmissionMonitorManager:
                         ref=submission.ref,
                         description=submission.description,
                         status=submission.status,
+                        error_description=submission.error_description,
+                        submitted_by=submission.submitted_by,
+                        submitted_by_ref=submission.submitted_by_ref,
+                        team_name=submission.team_name,
                         public_score=score,
                         public_score_display=submission.public_score_display,
                         date=submission.date,
+                        scored_at=scored_at,
+                        state=submission_state,
                         watched=True,
                         newly_scored=newly_scored and not seed_baseline,
                     )
@@ -500,12 +552,13 @@ class SubmissionMonitorManager:
             checked_count=len(recent_items),
             pending_count=pending_count,
             scored_count=scored_count,
+            failed_count=failed_count,
             newly_scored_count=len(new_events),
             competitions_checked=competitions_checked,
             recent_events=new_events,
             recent_items=recent_items[:100],
         )
-        return status, known_scores, baselines, new_events
+        return status, known_scores, known_scored_at, baselines, new_events
 
     async def _scheduler_loop(self) -> None:
         while not self._stop_event.is_set():

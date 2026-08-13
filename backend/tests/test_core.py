@@ -1067,6 +1067,50 @@ class FakeSubmissionClient:
 
 
 class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_submission_is_not_counted_as_pending_and_keeps_submitter(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = FakeSubmissionClient([
+                [
+                    CompetitionSubmission(
+                        ref="failed-1",
+                        description="bad-file",
+                        status="ERROR",
+                        error_description="Submission file has invalid columns.",
+                        submitted_by="Alice",
+                        submitted_by_ref="alice-kaggle",
+                        team_name="Example Team",
+                        public_score=None,
+                    ),
+                    CompetitionSubmission(
+                        ref="pending-1",
+                        description="still-running",
+                        status="PENDING",
+                        public_score=None,
+                    ),
+                ],
+            ])
+            monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                client,
+                temp_dir,
+                "example-comp",
+            )
+            await monitor.update_config(SubmissionMonitorConfig(
+                enabled=False,
+                competitions=["example-comp"],
+            ))
+
+            snapshot = await monitor.run_now(trigger="manual")
+            self.assertEqual(snapshot.status.failed_count, 1)
+            self.assertEqual(snapshot.status.pending_count, 1)
+            self.assertEqual(snapshot.status.scored_count, 0)
+            detail = monitor.get_run_detail(snapshot.logs[0].id)
+            self.assertIsNotNone(detail)
+            assert detail is not None
+            failed = next(item for item in detail.items if item.ref == "failed-1")
+            self.assertEqual(failed.state, "failed")
+            self.assertEqual(failed.submitted_by, "Alice")
+            self.assertEqual(failed.error_description, "Submission file has invalid columns.")
+
     async def test_run_detail_file_flag_is_true_after_save(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             client = FakeSubmissionClient([
@@ -1244,6 +1288,7 @@ class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
                 assert first_detail is not None
                 newly = [item for item in first_detail.items if item.newly_scored]
                 self.assertEqual([item.ref for item in newly], ["100"])
+                self.assertIsNotNone(newly[0].scored_at)
                 await notifications.wait_until_idle()
                 self.assertEqual(sent, ["score::example-comp::100"])
 
