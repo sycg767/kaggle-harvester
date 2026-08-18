@@ -27,93 +27,105 @@ def setup_openclaw():
     api_key = os.getenv("OPENCLAW_LLM_API_KEY") or env_vars.get("OPENCLAW_LLM_API_KEY", "")
     model_name = os.getenv("OPENCLAW_LLM_MODEL") or env_vars.get("OPENCLAW_LLM_MODEL", "deepseek-v4-flash-0731")
 
-    home_dir = Path.home()
-    openclaw_dir = home_dir / ".openclaw"
-    openclaw_dir.mkdir(parents=True, exist_ok=True)
-    
-    config_file = openclaw_dir / "openclaw.json"
-    cfg = {}
-    if config_file.exists():
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-        except Exception:
-            cfg = {}
+    # 查找所有可能的 .openclaw 目录（包含 root 与 openclaw 专用用户）
+    target_dirs = []
+    if Path("/home/openclaw/.openclaw").exists() or Path("/home/openclaw").exists():
+        target_dirs.append(Path("/home/openclaw/.openclaw"))
+    target_dirs.append(Path.home() / ".openclaw")
+    # 去重
+    unique_dirs = []
+    seen = set()
+    for d in target_dirs:
+        resolved = d.resolve()
+        if str(resolved) not in seen:
+            seen.add(str(resolved))
+            unique_dirs.append(d)
 
-    provider_id = "tokenrhythm" if "tokenrhythm" in base_url else "custom_provider"
-    
-    cfg["models"] = {
-        "mode": "replace",
-        "providers": {
-            provider_id: {
-                "baseUrl": base_url,
-                "apiKey": api_key,
-                "api": "openai-completions",
-                "models": [
-                    {
-                        "id": model_name,
-                        "name": model_name,
-                        "cost": {"input": 0, "output": 0, "cacheWrite": 0, "cacheRead": 0},
-                        "contextWindow": 128000,
-                        "maxTokens": 8192,
-                        "input": ["text"],
-                        "reasoning": False
-                    }
-                ]
-            }
-        }
-    }
-    cfg["agents"] = {
-        "defaults": {
-            "model": {
-                "primary": f"{provider_id}/{model_name}"
-            }
-        }
-    }
-    if "plugins" not in cfg:
-        cfg["plugins"] = {"entries": {}}
-    if "entries" not in cfg["plugins"]:
-        cfg["plugins"]["entries"] = {}
+    for openclaw_dir in unique_dirs:
+        openclaw_dir.mkdir(parents=True, exist_ok=True)
+        config_file = openclaw_dir / "openclaw.json"
+        cfg = {}
+        if config_file.exists():
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                cfg = {}
 
-    cfg["plugins"]["entries"]["openclaw-weixin"] = {
-        "enabled": True,
-        "autoForwardNotify": True,
-        "defaultNotifyTarget": "last_active_user"
-    }
+        provider_id = "tokenrhythm" if "tokenrhythm" in base_url else "custom_provider"
         
-    cfg["gateway"] = {
-        "mode": "local",
-        "port": 18789,
-        "auth": {
-            "mode": "token",
-            "token": "kaggle-harvester-claw-token"
-        },
-        "notify": {
-            "defaultTarget": "last_active_user",
-            "channel": "openclaw-weixin",
-            "autoForwardToWeixin": True
+        cfg["models"] = {
+            "mode": "replace",
+            "providers": {
+                provider_id: {
+                    "baseUrl": base_url,
+                    "apiKey": api_key,
+                    "api": "openai-completions",
+                    "models": [
+                        {
+                            "id": model_name,
+                            "name": model_name,
+                            "cost": {"input": 0, "output": 0, "cacheWrite": 0, "cacheRead": 0},
+                            "contextWindow": 128000,
+                            "maxTokens": 8192,
+                            "input": ["text"],
+                            "reasoning": False
+                        }
+                    ]
+                }
+            }
         }
-    }
+        cfg["agents"] = {
+            "defaults": {
+                "model": {
+                    "primary": f"{provider_id}/{model_name}"
+                }
+            }
+        }
+        if "plugins" not in cfg:
+            cfg["plugins"] = {"entries": {}}
+        if "entries" not in cfg["plugins"]:
+            cfg["plugins"]["entries"] = {}
 
-    with open(config_file, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-    print(f"OpenClaw 配置文件已更新: {config_file}")
+        cfg["plugins"]["entries"]["openclaw-weixin"] = {
+            "enabled": True,
+            "autoForwardNotify": True,
+            "defaultNotifyTarget": "last_active_user"
+        }
+            
+        cfg["gateway"] = {
+            "mode": "local",
+            "port": 18789,
+            "auth": {
+                "mode": "token",
+                "token": "kaggle-harvester-claw-token"
+            },
+            "notify": {
+                "defaultTarget": "last_active_user",
+                "channel": "openclaw-weixin",
+                "autoForwardToWeixin": True
+            }
+        }
 
-    # 配置工作区与身份设定
-    workspace_dir = openclaw_dir / "workspace"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        print(f"OpenClaw 配置文件已更新: {config_file}")
 
-    # 移除出厂引导文件
-    bootstrap_file = workspace_dir / "BOOTSTRAP.md"
-    if bootstrap_file.exists():
-        bootstrap_file.unlink()
+        # 配置工作区与身份设定
+        workspace_dir = openclaw_dir / "workspace"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
 
-    # 写入身份设定
-    with open(workspace_dir / "IDENTITY.md", "w", encoding="utf-8") as f:
-        f.write("# IDENTITY.md - Kaggle Harvester Assistant\n\n- **Name:** Kaggle 战报助手\n- **Creature:** AI 竞赛与天梯对战专属管家\n- **Vibe:** 专业、敏锐、响应迅速、清晰简明\n- **Emoji:** 🏆\n")
+        # 移除出厂引导文件
+        bootstrap_file = workspace_dir / "BOOTSTRAP.md"
+        if bootstrap_file.exists():
+            bootstrap_file.unlink()
 
-    with open(workspace_dir / "SOUL.md", "w", encoding="utf-8") as f:
-        f.write("""# SOUL.md - Kaggle Harvester 微信智能管家
+        # 写入身份设定
+        with open(workspace_dir / "IDENTITY.md", "w", encoding="utf-8") as f:
+            f.write("# IDENTITY.md - Kaggle Harvester Assistant\n\n- **Name:** Kaggle 战报助手\n- **Creature:** AI 竞赛与天梯对战专属管家\n- **Vibe:** 专业、敏锐、响应迅速、清晰简明\n- **Emoji:** 🏆\n")
+
+        with open(workspace_dir / "SOUL.md", "w", encoding="utf-8") as f:
+            f.write("""# SOUL.md - Kaggle Harvester 微信智能管家
 
 你是用户的 Kaggle 竞赛与天梯对战专属微信管家，专门为用户监控《The Pokémon Company - PTCG AI Battle》天梯实时对局、积分与奖牌线。
 
@@ -130,12 +142,12 @@ def setup_openclaw():
 当用户询问战况、分数、排名、对战、宝可梦、对局、胜率、刷新或任何相关问题时，优先执行本地监控脚本获取实时数据，并以纯文本配合 Emoji 的微信友好格式汇报。
 """)
 
-    # 写入技能
-    skills_dir = openclaw_dir / "skills" / "kaggle-harvester"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    with open(skills_dir / "SKILL.md", "w", encoding="utf-8") as f:
-        script_path = (Path(__file__).resolve().parent.parent / "backend" / "harvester" / "wechat_bot.py").resolve()
-        f.write(f"""---
+        # 写入技能
+        skills_dir = openclaw_dir / "skills" / "kaggle-harvester"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        with open(skills_dir / "SKILL.md", "w", encoding="utf-8") as f:
+            script_path = (Path(__file__).resolve().parent.parent / "backend" / "harvester" / "wechat_bot.py").resolve()
+            f.write(f"""---
 name: kaggle-harvester
 description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match results, agent scores, ranks, and medal thresholds from Kaggle Harvester.
 ---
@@ -153,6 +165,19 @@ CRITICAL FORMATTING INSTRUCTION:
 - DO NOT USE ASTERISKS `*` OR DOUBLE ASTERISKS `**` ANYWHERE IN YOUR REPLY.
 - Output numbers and scores directly as `857.3 分`, NEVER as `**857.3 分**`.
 """)
+
+        # 如果存在 openclaw 用户，自动修正权限
+        try:
+            import shutil
+            import pwd
+            openclaw_uid = pwd.getpwnam("openclaw").pw_uid
+            openclaw_gid = pwd.getpwnam("openclaw").pw_gid
+            for root, dirs, files in os.walk(openclaw_dir):
+                os.chown(root, openclaw_uid, openclaw_gid)
+                for item in files + dirs:
+                    os.chown(os.path.join(root, item), openclaw_uid, openclaw_gid)
+        except Exception:
+            pass
 
     print(f"OpenClaw 技能与工作区初始化完成！模型: {provider_id}/{model_name}")
 
