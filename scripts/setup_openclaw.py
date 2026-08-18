@@ -71,9 +71,15 @@ def setup_openclaw():
         }
     }
     if "plugins" not in cfg:
-        cfg["plugins"] = {"entries": {"openclaw-weixin": {"enabled": True}}}
-    else:
-        cfg["plugins"]["entries"]["openclaw-weixin"] = {"enabled": True}
+        cfg["plugins"] = {"entries": {}}
+    if "entries" not in cfg["plugins"]:
+        cfg["plugins"]["entries"] = {}
+
+    cfg["plugins"]["entries"]["openclaw-weixin"] = {
+        "enabled": True,
+        "autoForwardNotify": True,
+        "defaultNotifyTarget": "last_active_user"
+    }
         
     cfg["gateway"] = {
         "mode": "local",
@@ -81,6 +87,11 @@ def setup_openclaw():
         "auth": {
             "mode": "token",
             "token": "kaggle-harvester-claw-token"
+        },
+        "notify": {
+            "defaultTarget": "last_active_user",
+            "channel": "openclaw-weixin",
+            "autoForwardToWeixin": True
         }
     }
 

@@ -842,10 +842,22 @@ class NotificationManager:
             f"{gateway_url}/api/v1/message",
             f"{gateway_url}/api/send",
         ]
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer kaggle-harvester-claw-token",
+            "X-OpenClaw-Token": "kaggle-harvester-claw-token",
+        }
         apikey = os.getenv("OPENCLAW_LLM_API_KEY")
         if apikey:
-            headers["Authorization"] = f"Bearer {apikey}"
+            headers["X-API-Key"] = apikey
+
+        payload = {
+            "content": message_text,
+            "text": message_text,
+            "message": message_text,
+            "target": "last_active_user",
+            "channel": "openclaw-weixin",
+        }
 
         sent = False
         last_err = None
@@ -854,7 +866,7 @@ class NotificationManager:
                 with httpx.Client(timeout=3.0) as client:
                     res = client.post(
                         endpoint,
-                        json={"content": message_text, "text": message_text, "message": message_text},
+                        json=payload,
                         headers=headers,
                     )
                     if res.status_code in [200, 201, 204]:
