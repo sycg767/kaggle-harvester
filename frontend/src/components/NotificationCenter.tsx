@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   App as AntApp,
@@ -11,7 +11,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Radio,
   Row,
   Segmented,
   Select,
@@ -23,20 +22,16 @@ import {
   Typography,
 } from 'antd';
 import {
+  AlertTriangle,
+  Archive,
   Bell,
   CheckCircle2,
   Clock,
-  Copy,
   Eye,
-  Flame,
   HelpCircle,
   History,
-  Layers,
-  Lock,
+  Info,
   Mail,
-  MessageCircle,
-  MessageSquare,
-  RefreshCw,
   Send,
   ShieldCheck,
   Smartphone,
@@ -69,7 +64,7 @@ const WEBHOOK_HELP = {
     steps: [
       '在飞书电脑端群聊中，点击右上角「设置」→「群机器人」',
       '点击「添加机器人」→ 选择「自定义机器人」并命名',
-      '复制生成的 Webhook 地址粘贴到下方（支持自动加密存储）',
+      '复制生成的 Webhook 地址粘贴到下方（系统自动加密存储）',
     ],
   },
   wecom: {
@@ -139,7 +134,7 @@ const EMAIL_PRESETS: Record<Exclude<EmailProvider, 'custom'>, {
     steps: [
       '登录 QQ 邮箱网页版，进入「设置」→「账号与安全」→「安全设置」',
       '开启「POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务」',
-      '点击「生成授权码」，按提示发送短信获取 16 位英文授权码（填入下方密码框）',
+      '点击「生成授权码」，按提示获取 16 位授权码填入下方密码框',
     ],
     passwordLabel: 'QQ 邮箱 SMTP 授权码',
   },
@@ -486,7 +481,7 @@ export const NotificationCenter: React.FC = () => {
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
-                            群机器人 Webhook（推荐：飞书 / 企业微信 / 钉钉 / ntfy）
+                            群机器人 Webhook（飞书 / 企业微信 / 钉钉 / Slack / ntfy）
                           </div>
                           <Text type="secondary" style={{ fontSize: 12 }}>
                             即时将战报、出分、归档等事件推送到工作群或手机客户端
@@ -508,12 +503,12 @@ export const NotificationCenter: React.FC = () => {
                             <Form.Item name="webhook_format" label="选择目标机器人协议" rules={[{ required: true }]}>
                               <Select
                                 options={[
-                                  { value: 'feishu', label: '🕊️ 飞书群机器人' },
-                                  { value: 'wecom', label: '💼 企业微信群机器人' },
-                                  { value: 'dingtalk', label: '🎯 钉钉群机器人' },
-                                  { value: 'slack', label: '💬 Slack Channel' },
-                                  { value: 'ntfy', label: '📱 ntfy 手机推送' },
-                                  { value: 'generic', label: '🌐 自定义通用 JSON' },
+                                  { value: 'feishu', label: '飞书群机器人' },
+                                  { value: 'wecom', label: '企业微信群机器人' },
+                                  { value: 'dingtalk', label: '钉钉群机器人' },
+                                  { value: 'slack', label: 'Slack' },
+                                  { value: 'ntfy', label: 'ntfy 手机推送' },
+                                  { value: 'generic', label: '自定义通用 Webhook' },
                                 ]}
                               />
                             </Form.Item>
@@ -546,7 +541,10 @@ export const NotificationCenter: React.FC = () => {
                         </Row>
 
                         <div style={{ background: '#f1f5f9', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#475569' }}>
-                          <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>💡 快速配置指引：</div>
+                          <Space size={6} style={{ marginBottom: 4 }}>
+                            <HelpCircle size={14} color="#0284c7" />
+                            <span style={{ fontWeight: 700, color: '#0f172a' }}>快速配置指引：</span>
+                          </Space>
                           <ol style={{ paddingLeft: 18, margin: 0, lineHeight: 1.6 }}>
                             {webhookHelp.steps.map((step) => <li key={step}>{step}</li>)}
                           </ol>
@@ -638,7 +636,7 @@ export const NotificationCenter: React.FC = () => {
                             <Form.Item
                               name="smtp_password"
                               label={emailPreset?.passwordLabel || 'SMTP 授权码或应用专用密码'}
-                              extra={snapshot?.config.smtp_password_configured ? '密码已安全加密；留空表示不修改' : '⚠️ 请填写邮箱安全设置中生成的「SMTP 授权码」，不要填写网页登录密码'}
+                              extra={snapshot?.config.smtp_password_configured ? '密码已安全加密；留空表示不修改' : '请填写邮箱安全设置中生成的「SMTP 授权码」，不要填写网页登录密码'}
                               rules={[{
                                 validator: (_, value) => (
                                   value || snapshot?.config.smtp_password_configured
@@ -685,7 +683,10 @@ export const NotificationCenter: React.FC = () => {
                         )}
 
                         <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#166534' }}>
-                          <div style={{ fontWeight: 600, marginBottom: 4 }}>💡 邮箱授权码指引：</div>
+                          <Space size={6} style={{ marginBottom: 4 }}>
+                            <HelpCircle size={14} color="#16a34a" />
+                            <span style={{ fontWeight: 700, color: '#166534' }}>邮箱授权码指引：</span>
+                          </Space>
                           <ol style={{ paddingLeft: 18, margin: 0, lineHeight: 1.6 }}>
                             {(emailPreset?.steps || [
                               '登录邮箱网页端，进入安全设置页面开启 SMTP 服务',
@@ -709,35 +710,53 @@ export const NotificationCenter: React.FC = () => {
               ),
               children: (
                 <Card size="small" style={{ borderRadius: 10, border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a', marginBottom: 12 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a', marginBottom: 14 }}>
                     订阅与触发策略
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: 8 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>📈 竞赛提交产生新出分</div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>监控器检测到提交从 Pending 变为 Scored，立即解析 Public Leaderboard 分数并推送通知</div>
-                      </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Event 1 */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9' }}>
+                      <Space size={12} align="center">
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: '#eff6ff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                          <TrendingUp size={18} color="#2563eb" />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>竞赛提交产生新出分</div>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>监控器检测到提交从 Pending 变为 Scored，立即解析 Public Leaderboard 分数并推送通知</div>
+                        </div>
+                      </Space>
                       <Form.Item name="notify_on_score" valuePropName="checked" noStyle>
                         <Switch checkedChildren="开启" unCheckedChildren="关闭" defaultChecked />
                       </Form.Item>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: 8 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>📦 高分 Kernel 自动归档完成</div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>定时自动归档命中设定的门槛分数并成功下载 Notebook 源代码与输出时触发推送</div>
-                      </div>
+                    {/* Event 2 */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9' }}>
+                      <Space size={12} align="center">
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: '#f5f3ff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                          <Archive size={18} color="#7c3aed" />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>高分 Kernel 自动归档完成</div>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>定时自动归档命中设定的门槛分数并成功下载 Notebook 源代码与输出时触发推送</div>
+                        </div>
+                      </Space>
                       <Form.Item name="notify_on_archive" valuePropName="checked" noStyle>
                         <Switch checkedChildren="开启" unCheckedChildren="关闭" defaultChecked />
                       </Form.Item>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: 8 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>⚠️ 检查失败与重试告警</div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>当 Kaggle API 凭据失效、网络受阻或归档过程发生不可逆错误时即时告警</div>
-                      </div>
+                    {/* Event 3 */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9' }}>
+                      <Space size={12} align="center">
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: '#fff1f2', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                          <AlertTriangle size={18} color="#e11d48" />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>检查失败与重试告警</div>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>当 Kaggle API 凭据失效、网络受阻或归档过程发生不可逆错误时即时告警</div>
+                        </div>
+                      </Space>
                       <Form.Item name="notify_on_failure" valuePropName="checked" noStyle>
                         <Switch checkedChildren="开启" unCheckedChildren="关闭" defaultChecked />
                       </Form.Item>
@@ -764,9 +783,33 @@ export const NotificationCenter: React.FC = () => {
                       value={previewType}
                       onChange={(val) => setPreviewType(val as any)}
                       options={[
-                        { label: '⚔️ 宝可梦战报', value: 'sim' },
-                        { label: '📈 提交出分提醒', value: 'score' },
-                        { label: '📦 自动归档通知', value: 'archive' },
+                        {
+                          label: (
+                            <Space size={5}>
+                              <Swords size={13} color="#d97706" />
+                              <span>宝可梦对战战报</span>
+                            </Space>
+                          ),
+                          value: 'sim',
+                        },
+                        {
+                          label: (
+                            <Space size={5}>
+                              <TrendingUp size={13} color="#2563eb" />
+                              <span>提交出分提醒</span>
+                            </Space>
+                          ),
+                          value: 'score',
+                        },
+                        {
+                          label: (
+                            <Space size={5}>
+                              <Archive size={13} color="#7c3aed" />
+                              <span>自动归档通知</span>
+                            </Space>
+                          ),
+                          value: 'archive',
+                        },
                       ]}
                     />
                   </div>
@@ -794,7 +837,7 @@ export const NotificationCenter: React.FC = () => {
                           Agent p46 (Sub #55565346)
                         </div>
                         <div style={{ paddingLeft: 12, color: '#e2e8f0' }}>
-                          • 天梯积分: <span style={{ color: '#facc15', fontWeight: 800 }}>858.1</span> 分 (第 580 名 | <span style={{ color: '#fb923c' }}>🥉 铜牌线内</span>)<br />
+                          • 天梯积分: <span style={{ color: '#facc15', fontWeight: 800 }}>858.1</span> 分 (第 580 名 | <span style={{ color: '#fb923c' }}>铜牌线内</span>)<br />
                           • 铜牌安全垫: <span style={{ color: '#4ade80', fontWeight: 700 }}>高于铜牌线 +19.0分</span><br />
                           • 战绩胜率: 52.9% (37胜 / 33负)<br />
                           • 最新战况: <span style={{ color: '#38bdf8' }}>vs AlphaPoke (845分) 胜利 +3.9分</span>
@@ -802,9 +845,9 @@ export const NotificationCenter: React.FC = () => {
                         <Divider style={{ borderColor: '#334155', margin: '10px 0' }} />
                         <div style={{ color: '#94a3b8', fontSize: 12 }}>
                           奖牌线切分（总参赛队伍: 6,807 队）<br />
-                          • 🥇 金牌线: 1131.9 分 (Top 23)<br />
-                          • 🥈 银牌线: 917.4 分 (Top 340)<br />
-                          • 🥉 铜牌线: 839.1 分 (Top 680)
+                          • 金牌线: 1131.9 分 (Top 23)<br />
+                          • 银牌线: 917.4 分 (Top 340)<br />
+                          • 铜牌线: 839.1 分 (Top 680)
                         </div>
                       </div>
                     )}
@@ -812,12 +855,12 @@ export const NotificationCenter: React.FC = () => {
                     {previewType === 'score' && (
                       <div>
                         <div style={{ color: '#38bdf8', fontWeight: 800, fontSize: 15, marginBottom: 8 }}>
-                          🎉 Kaggle Harvester：提交已出分 (新纪录！)
+                          [出分提醒] Kaggle Harvester：提交已出分 (新纪录！)
                         </div>
                         <div style={{ color: '#e2e8f0', marginBottom: 4 }}>
                           • 竞赛项目: <span style={{ color: '#facc15' }}>biohub-cell-tracking-during-development</span><br />
                           • 提交说明: <span style={{ color: '#38bdf8' }}>exp-04-unet-transformer-ensemble</span><br />
-                          • 最新得分: <span style={{ color: '#4ade80', fontWeight: 800, fontSize: 16 }}>0.8924</span> (历史最佳突破！🔥)<br />
+                          • 最新得分: <span style={{ color: '#4ade80', fontWeight: 800, fontSize: 16 }}>0.8924</span> (历史最佳突破！)<br />
                           • 提交时间: 2026-08-18 16:40:27（北京时间）
                         </div>
                       </div>
@@ -826,7 +869,7 @@ export const NotificationCenter: React.FC = () => {
                     {previewType === 'archive' && (
                       <div>
                         <div style={{ color: '#38bdf8', fontWeight: 800, fontSize: 15, marginBottom: 8 }}>
-                          📦 Kaggle Harvester：发现并归档新高分 Kernel
+                          [自动归档] Kaggle Harvester：发现并归档新高分 Kernel
                         </div>
                         <div style={{ color: '#e2e8f0' }}>
                           • 竞赛项目: biohub-cell-tracking-during-development<br />

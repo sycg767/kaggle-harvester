@@ -30,6 +30,7 @@ import {
   Cpu,
   Layers,
   ChevronRight,
+  Smartphone,
 } from 'lucide-react';
 import {
   api,
@@ -141,7 +142,7 @@ export const Dashboard: React.FC = () => {
               </span>
             </div>
             <Title level={3} style={{ color: '#f8fafc', margin: 0, fontWeight: 800, fontSize: 22 }}>
-              🏆 竞赛作战指挥中心
+              竞赛作战指挥中心
             </Title>
             <Text style={{ color: '#94a3b8', fontSize: 13 }}>
               全天候模拟对抗对战监控、自动出分推送、代码自动归档与微信智能管家中枢
@@ -444,9 +445,9 @@ export const Dashboard: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
                     <span style={{ fontWeight: 600 }}>奖牌线切分 (总计 {thresholds?.total_teams || 6807} 支参赛队)</span>
                     <Space size={12}>
-                      <span style={{ color: '#ca8a04' }}>🥇 金: {thresholds?.gold_cutoff_score || 1131.9}分</span>
-                      <span style={{ color: '#475569' }}>🥈 银: {thresholds?.silver_cutoff_score || 917.4}分</span>
-                      <span style={{ color: '#d97706', fontWeight: 700 }}>🥉 铜: {thresholds?.bronze_cutoff_score || 839.1}分</span>
+                      <span style={{ color: '#ca8a04', fontWeight: 600 }}>金牌线: {thresholds?.gold_cutoff_score || 1131.9}分</span>
+                      <span style={{ color: '#475569', fontWeight: 600 }}>银牌线: {thresholds?.silver_cutoff_score || 917.4}分</span>
+                      <span style={{ color: '#d97706', fontWeight: 700 }}>铜牌线: {thresholds?.bronze_cutoff_score || 839.1}分</span>
                     </Space>
                   </div>
                   <Progress
@@ -508,7 +509,7 @@ export const Dashboard: React.FC = () => {
                         color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
                         style={{ margin: 0, fontWeight: 700 }}
                       >
-                        {clawbot?.is_online ? '🟢 在线' : clawbot?.configured ? '🟡 离线 (未启动)' : '⚪ 未就绪'}
+                        {clawbot?.is_online ? '在线' : clawbot?.configured ? '离线 (未启动)' : '未就绪'}
                       </Tag>
                     </Tooltip>
                   </div>
@@ -537,7 +538,10 @@ export const Dashboard: React.FC = () => {
 
                   {/* WeChat Commands Quick List */}
                   <div style={{ fontSize: 12, color: '#475569', marginBottom: 14 }}>
-                    <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>📱 手机微信直接发送指令：</div>
+                    <Space size={6} style={{ marginBottom: 6 }}>
+                      <Smartphone size={14} color="#0284c7" />
+                      <span style={{ fontWeight: 600, color: '#0f172a' }}>手机微信直接发送指令：</span>
+                    </Space>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       <Tag color="blue">战况</Tag>
                       <Tag color="gold">分数</Tag>
