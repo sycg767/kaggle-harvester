@@ -123,74 +123,7 @@ export const Dashboard: React.FC = () => {
     : '—';
 
   return (
-    <div style={{ padding: '4px 0 32px 0', maxWidth: 1440, margin: '0 auto' }}>
-      {/* 1. Header Hero Banner */}
-      <div
-        style={{
-          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f172a 100%)',
-          borderRadius: 16,
-          padding: '24px 28px',
-          color: '#fff',
-          marginBottom: 22,
-          boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.25)',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Glowing gradient aura */}
-        <div
-          style={{
-            position: 'absolute',
-            top: -40,
-            right: -40,
-            width: 240,
-            height: 240,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(56, 189, 248, 0.18) 0%, rgba(56, 189, 248, 0) 70%)',
-            pointerEvents: 'none',
-          }}
-        />
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <Sparkles size={18} color="#38bdf8" />
-              <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', color: '#38bdf8', textTransform: 'uppercase' }}>
-                Kaggle Harvester Command Center
-              </span>
-            </div>
-            <Title level={3} style={{ color: '#f8fafc', margin: 0, fontWeight: 800, fontSize: 22 }}>
-              竞赛作战指挥中心
-            </Title>
-            <Text style={{ color: '#94a3b8', fontSize: 13 }}>
-              全天候模拟对抗对战监控、自动出分推送、代码自动归档与微信智能管家中枢
-            </Text>
-          </div>
-
-          <Space size={10} wrap>
-            <Button
-              icon={<RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />}
-              loading={refreshing}
-              onClick={() => loadDashboardData(true)}
-              style={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                borderColor: 'rgba(255, 255, 255, 0.15)',
-                color: '#f1f5f9',
-              }}
-            >
-              刷新大盘
-            </Button>
-            <Button
-              type="primary"
-              icon={<LayoutDashboard size={14} />}
-              onClick={() => navigate('/kernels')}
-              style={{ fontWeight: 600 }}
-            >
-              前往 Kernel 广场
-            </Button>
-          </Space>
-        </div>
-      </div>
+    <div style={{ padding: '8px 0 32px 0', maxWidth: 1440, margin: '0 auto' }}>
 
       {loading ? (
         <div style={{ display: 'grid', placeItems: 'center', padding: '80px 0' }}>

@@ -271,6 +271,8 @@ class NotificationConfig(BaseModel):
     notify_on_archive: bool = True
     notify_on_failure: bool = True
     notify_on_score: bool = True
+    notify_on_simulation: bool = True
+    wechat_enabled: bool = False
     webhook_enabled: bool = False
     webhook_format: Literal[
         "generic", "slack", "feishu", "dingtalk", "wecom", "ntfy"
@@ -293,6 +295,8 @@ class NotificationConfigUpdate(BaseModel):
     notify_on_archive: Optional[bool] = None
     notify_on_failure: Optional[bool] = None
     notify_on_score: Optional[bool] = None
+    notify_on_simulation: Optional[bool] = None
+    wechat_enabled: Optional[bool] = None
     webhook_enabled: Optional[bool] = None
     webhook_format: Optional[
         Literal["generic", "slack", "feishu", "dingtalk", "wecom", "ntfy"]

@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   Archive,
   Bell,
+  Bot,
   CheckCircle2,
   Clock,
   Eye,
@@ -281,6 +282,8 @@ export const NotificationCenter: React.FC = () => {
       notify_on_archive: values.notify_on_archive ?? base?.notify_on_archive,
       notify_on_failure: values.notify_on_failure ?? base?.notify_on_failure,
       notify_on_score: values.notify_on_score ?? base?.notify_on_score,
+      notify_on_simulation: values.notify_on_simulation ?? base?.notify_on_simulation,
+      wechat_enabled: values.wechat_enabled ?? base?.wechat_enabled,
       webhook_enabled: values.webhook_enabled ?? base?.webhook_enabled,
       webhook_format: values.webhook_format ?? base?.webhook_format,
       email_enabled: values.email_enabled ?? base?.email_enabled,
@@ -344,6 +347,7 @@ export const NotificationCenter: React.FC = () => {
     }
   };
 
+  const wechatEnabled = Form.useWatch('wechat_enabled', form) ?? true;
   const webhookEnabled = Form.useWatch('webhook_enabled', form) ?? false;
   const emailEnabled = Form.useWatch('email_enabled', form) ?? false;
   const webhookFormat = Form.useWatch('webhook_format', form) ?? 'feishu';
@@ -362,7 +366,7 @@ export const NotificationCenter: React.FC = () => {
     });
   };
 
-  const activeChannelsCount = (snapshot?.config.webhook_enabled ? 1 : 0) + (snapshot?.config.email_enabled ? 1 : 0);
+  const activeChannelsCount = (snapshot?.config.wechat_enabled ? 1 : 0) + (snapshot?.config.webhook_enabled ? 1 : 0) + (snapshot?.config.email_enabled ? 1 : 0);
 
   return (
     <>
@@ -411,7 +415,7 @@ export const NotificationCenter: React.FC = () => {
                 key="test"
                 icon={<Send size={14} />}
                 loading={testing}
-                disabled={!webhookEnabled && !emailEnabled}
+                disabled={!wechatEnabled && !webhookEnabled && !emailEnabled}
                 onClick={() => void testNotification()}
               >
                 发送测试通知
@@ -440,7 +444,7 @@ export const NotificationCenter: React.FC = () => {
                 <Space size={6}>
                   <Webhook size={15} />
                   <span>推送通道配置</span>
-                  {(webhookEnabled || emailEnabled) && <Tag color="green" style={{ margin: 0, padding: '0 4px', fontSize: 10 }}>已启用</Tag>}
+                  {(wechatEnabled || webhookEnabled || emailEnabled) && <Tag color="green" style={{ margin: 0, padding: '0 4px', fontSize: 10 }}>已启用</Tag>}
                 </Space>
               ),
               children: (
@@ -452,6 +456,8 @@ export const NotificationCenter: React.FC = () => {
                     notify_on_archive: true,
                     notify_on_failure: true,
                     notify_on_score: true,
+                    notify_on_simulation: true,
+                    wechat_enabled: true,
                     webhook_enabled: false,
                     webhook_format: 'feishu',
                     email_enabled: false,
@@ -464,6 +470,39 @@ export const NotificationCenter: React.FC = () => {
                     smtp_to_text: '',
                   }}
                 >
+                  {/* Channel 0: WeChat ClawBot */}
+                  <Card
+                    size="small"
+                    style={{
+                      marginBottom: 16,
+                      borderRadius: 10,
+                      border: wechatEnabled ? '1px solid #86efac' : '1px solid #e2e8f0',
+                      background: wechatEnabled ? '#f8fdf9' : '#fff',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Space size={10}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#dcfce7', display: 'grid', placeItems: 'center' }}>
+                          <Bot size={18} color="#16a34a" />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                            微信 ClawBot 智能管家推送
+                          </div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            官方长连接 · 实时将战报、出分与归档推送到您的手机微信
+                          </Text>
+                        </div>
+                      </Space>
+                      <Space>
+                        <Tag color="success">直达手机微信</Tag>
+                        <Form.Item name="wechat_enabled" valuePropName="checked" noStyle>
+                          <Switch checkedChildren="已开启" unCheckedChildren="已停用" defaultChecked />
+                        </Form.Item>
+                      </Space>
+                    </div>
+                  </Card>
+
                   {/* Channel 1: Webhook */}
                   <Card
                     size="small"
@@ -742,6 +781,22 @@ export const NotificationCenter: React.FC = () => {
                         </div>
                       </Space>
                       <Form.Item name="notify_on_archive" valuePropName="checked" noStyle>
+                        <Switch checkedChildren="开启" unCheckedChildren="关闭" defaultChecked />
+                      </Form.Item>
+                    </div>
+
+                    {/* Event 3: Pokemon Simulation Battles */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9' }}>
+                      <Space size={12} align="center">
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: '#fef3c7', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                          <Swords size={18} color="#d97706" />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>宝可梦模拟对战与天梯战报</div>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>双 Agent 新增对局胜负、排位变动与奖牌线升降级时推送（可单独关闭以避免群聊刷屏）</div>
+                        </div>
+                      </Space>
+                      <Form.Item name="notify_on_simulation" valuePropName="checked" noStyle>
                         <Switch checkedChildren="开启" unCheckedChildren="关闭" defaultChecked />
                       </Form.Item>
                     </div>

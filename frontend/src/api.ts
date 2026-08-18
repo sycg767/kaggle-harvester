@@ -217,6 +217,8 @@ export interface NotificationConfig {
   notify_on_archive: boolean;
   notify_on_failure: boolean;
   notify_on_score: boolean;
+  notify_on_simulation?: boolean;
+  wechat_enabled?: boolean;
   webhook_enabled: boolean;
   webhook_format: WebhookFormat;
   email_enabled: boolean;
@@ -235,6 +237,8 @@ export interface NotificationConfigUpdate {
   notify_on_archive?: boolean;
   notify_on_failure?: boolean;
   notify_on_score?: boolean;
+  notify_on_simulation?: boolean;
+  wechat_enabled?: boolean;
   webhook_enabled?: boolean;
   webhook_format?: WebhookFormat;
   email_enabled?: boolean;

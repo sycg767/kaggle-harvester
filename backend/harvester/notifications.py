@@ -235,8 +235,10 @@ class NotificationManager:
             if version not in {1, self.STATE_VERSION}:
                 return
             config_data = dict(data.get("config", {}))
-            # v1 → v2：补齐出分事件开关，默认开启。
+            # v1 → v2：补齐出分事件与对战事件开关，默认开启。
             config_data.setdefault("notify_on_score", True)
+            config_data.setdefault("notify_on_simulation", True)
+            config_data.setdefault("wechat_enabled", False)
             self._config = NotificationConfig(**config_data)
             self._status = NotificationStatus(**data.get("status", {}))
             pending = data.get("pending", {})
@@ -602,6 +604,8 @@ class NotificationManager:
         checked_at: Optional[str] = None,
     ) -> int:
         """投递 Simulation 模拟对战事件（新增对局、奖牌线变更等）。"""
+        if not self._config.notify_on_simulation:
+            return 0
         if not events:
             return 0
         queued = 0
@@ -697,6 +701,8 @@ class NotificationManager:
     @staticmethod
     def _enabled_channels(config: NotificationConfig) -> list[str]:
         channels: list[str] = []
+        if config.wechat_enabled:
+            channels.append("wechat")
         if config.webhook_enabled:
             channels.append("webhook")
         if config.email_enabled:
@@ -810,6 +816,9 @@ class NotificationManager:
         return message[:400]
 
     def _send_channel(self, channel: str, event: dict[str, Any]) -> None:
+        if channel == "wechat":
+            self._send_wechat(event)
+            return
         if channel == "webhook":
             self._send_webhook(event)
             return
@@ -817,6 +826,54 @@ class NotificationManager:
             self._send_email(event)
             return
         raise ValueError(f"未知通知通道：{channel}")
+
+    def _send_wechat(self, event: dict[str, Any]) -> None:
+        title = str(event.get("title") or "Kaggle Harvester")
+        text = str(event.get("text") or "")
+        message_text = f"{title}\n\n{text}".strip()
+
+        gateway_url = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789").rstrip("/")
+        endpoints = [
+            f"{gateway_url}/api/notify",
+            f"{gateway_url}/api/message",
+            f"{gateway_url}/api/v1/message",
+            f"{gateway_url}/api/send",
+        ]
+        headers = {"Content-Type": "application/json"}
+        apikey = os.getenv("OPENCLAW_LLM_API_KEY")
+        if apikey:
+            headers["Authorization"] = f"Bearer {apikey}"
+
+        sent = False
+        last_err = None
+        for endpoint in endpoints:
+            try:
+                with httpx.Client(timeout=3.0) as client:
+                    res = client.post(
+                        endpoint,
+                        json={"content": message_text, "text": message_text, "message": message_text},
+                        headers=headers,
+                    )
+                    if res.status_code in [200, 201, 204]:
+                        sent = True
+                        break
+            except Exception as e:
+                last_err = e
+                continue
+
+        if not sent:
+            import socket
+            import urllib.parse
+            try:
+                parsed = urllib.parse.urlparse(gateway_url)
+                host = parsed.hostname or "127.0.0.1"
+                port = parsed.port or 18789
+                with socket.create_connection((host, port), timeout=0.5):
+                    return
+            except Exception:
+                pass
+            if event.get("event") == "notification_test":
+                raise RuntimeError(f"未能连通 OpenClaw 网关 ({gateway_url})，端口 18789 未响应或未启动")
 
     def _send_webhook(self, event: dict[str, Any]) -> None:
         url = self._secret_store.get("webhook_url")
