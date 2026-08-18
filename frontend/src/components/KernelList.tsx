@@ -64,11 +64,7 @@ import {
   kaggleKernelVersionUrl,
   kaggleOwnerFromRef,
 } from '../kaggleUrls';
-import AutoArchiveControl from './AutoArchiveControl';
 import DialogTitle from './DialogTitle';
-import NotificationCenter from './NotificationCenter';
-import SubmissionMonitorControl from './SubmissionMonitorControl';
-import SimulationMonitorControl from './SimulationMonitorControl';
 import CopyButton from './CopyButton';
 import { resolveScoreDirection, saveScoreDirection, type ScoreDirection } from '../scoreDirection';
 import {
@@ -764,16 +760,6 @@ const KernelList: React.FC = () => {
           <span className="page-subtitle">浏览公开分数榜并保存可复现的本地版本</span>
         </div>
         <div className="page-actions">
-          <NotificationCenter />
-          <SubmissionMonitorControl currentCompetition={competition} />
-          <SimulationMonitorControl currentCompetition={competition} />
-          <AutoArchiveControl
-            currentCompetition={competition}
-            onArchiveComplete={() => {
-              void api.listArchives(competition).then(setArchives).catch(() => undefined);
-              dispatchArchivesChanged();
-            }}
-          />
           <Button
             icon={<ReloadOutlined />}
             aria-label={isScoreSort(sortBy) ? '刷新分数榜' : '强制刷新'}

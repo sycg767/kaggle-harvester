@@ -56,7 +56,7 @@ const { Text } = Typography;
 
 interface AutoArchiveControlProps {
   currentCompetition: string;
-  onArchiveComplete: () => void;
+  onArchiveComplete?: () => void;
 }
 
 interface SummaryItemProps {
@@ -224,7 +224,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
         latestLogIdRef.current = latestLog?.id || '';
       } else if (latestLog && latestLog.id !== latestLogIdRef.current) {
         latestLogIdRef.current = latestLog.id;
-        if (latestLog.archived_count > 0) onArchiveCompleteRef.current();
+        if (latestLog.archived_count > 0) onArchiveCompleteRef.current?.();
       }
       if (fillForm) {
         const competitions = data.config.enabled
@@ -319,7 +319,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
       setSnapshot(data);
       latestLogIdRef.current = data.logs[0]?.id || latestLogIdRef.current;
       form.setFieldsValue(data.config);
-      if (data.status.archived_count > 0) onArchiveComplete();
+      if (data.status.archived_count > 0) onArchiveComplete?.();
       message.success(
         `检查完成：新增 ${data.status.archived_count}，跳过 ${data.status.skipped_count}`,
       );
