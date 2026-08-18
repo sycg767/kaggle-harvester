@@ -1,4 +1,5 @@
-﻿import sys
+import os
+import sys
 import json
 import httpx
 from pathlib import Path
@@ -6,10 +7,16 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+HARVESTER_API_URL = os.getenv("HARVESTER_API_URL", "http://127.0.0.1:8000/api/simulation-monitor")
+HARVESTER_API_KEY = os.getenv("HARVESTER_API_KEY", "")
+
 def get_status_text() -> str:
-    # 尝试从本地运行中的 FastAPI 接口获取
+    # 尝试从运行中的 FastAPI 接口获取
     try:
-        r = httpx.get("http://127.0.0.1:8000/api/simulation-monitor", timeout=3.0)
+        headers = {}
+        if HARVESTER_API_KEY:
+            headers["X-Harvester-Key"] = HARVESTER_API_KEY
+        r = httpx.get(HARVESTER_API_URL, headers=headers, timeout=5.0)
         if r.status_code == 200:
             data = r.json()
             return format_message(data)
