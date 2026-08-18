@@ -68,6 +68,7 @@ import AutoArchiveControl from './AutoArchiveControl';
 import DialogTitle from './DialogTitle';
 import NotificationCenter from './NotificationCenter';
 import SubmissionMonitorControl from './SubmissionMonitorControl';
+import SimulationMonitorControl from './SimulationMonitorControl';
 import CopyButton from './CopyButton';
 import { resolveScoreDirection, saveScoreDirection, type ScoreDirection } from '../scoreDirection';
 import {
@@ -765,6 +766,7 @@ const KernelList: React.FC = () => {
         <div className="page-actions">
           <NotificationCenter />
           <SubmissionMonitorControl currentCompetition={competition} />
+          <SimulationMonitorControl currentCompetition={competition} />
           <AutoArchiveControl
             currentCompetition={competition}
             onArchiveComplete={() => {

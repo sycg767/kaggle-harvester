@@ -47,6 +47,9 @@ from harvester.models import (
     NotificationTestResult,
     ScoredKernel,
     ScoreDirection,
+    SimulationMonitorConfig,
+    SimulationMonitorRunDetail,
+    SimulationMonitorSnapshot,
     SortBy,
     SubmissionMonitorConfig,
     SubmissionMonitorRunDetail,
@@ -57,6 +60,10 @@ from harvester.notifications import NotificationManager
 from harvester.submission_monitor import (
     SubmissionMonitorBusyError,
     SubmissionMonitorManager,
+)
+from harvester.simulation_monitor import (
+    SimulationMonitorBusyError,
+    SimulationMonitorManager,
 )
 
 
@@ -167,11 +174,12 @@ def _schedule_kernel_snapshot_refresh(
     include_scores: bool,
     score_limit: int,
 ) -> bool:
-    """对同一查询去重调度后台刷新，返回是否新建任务。"""
-    task_key = json.dumps(cache_params, sort_keys=True, separators=(",", ":"))
+    """按查询条件去重触发后台刷新，返回是否新建了任务。"""
+    task_key = json.dumps(cache_params, sort_keys=True)
     existing = app.state.kernel_refresh_tasks.get(task_key)
     if existing is not None and not existing.done():
         return False
+
     task = asyncio.create_task(
         _refresh_kernel_snapshot_in_background(
             task_key=task_key,
@@ -183,29 +191,33 @@ def _schedule_kernel_snapshot_refresh(
             include_scores=include_scores,
             score_limit=score_limit,
         ),
-        name=f"kernel-refresh:{competition_slug}:{valid_sort.value}",
+        name=f"kernel-refresh-{task_key[:32]}",
     )
     app.state.kernel_refresh_tasks[task_key] = task
     return True
 
-# ---------------------------------------------------------------------------
-#  App lifecycle
-# ---------------------------------------------------------------------------
 
-load_dotenv()
+def _redact_runtime_metadata(data: dict) -> dict:
+    """脱敏展示只读的运行时环境元数据。"""
+    cleaned: dict = {}
+    for key, value in data.items():
+        lower_key = str(key).lower()
+        if any(secret in lower_key for secret in ("token", "key", "secret", "password")):
+            continue
+        cleaned[key] = value
+    return cleaned
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    kaggle_token = os.environ.get("KAGGLE_API_TOKEN", "")
+    # Load .env file
+    load_dotenv(Path(__file__).parent / ".env")
+
     competition_slug = os.environ.get(
-        "KAGGLE_COMPETITION", KaggleClient.COMPETITION_SLUG
+        "KAGGLE_COMPETITION", "rogii-wellbore-geology-prediction"
     )
-    harvest_root = os.environ.get(
-        "HARVEST_ROOT",
-        str(Path(__file__).parent.parent / "harvested_kernels"),
-    )
+    harvest_root = os.environ.get("HARVEST_ROOT", "harvested_kernels")
+    app.state.kaggle_client = KaggleClient(competition_slug=competition_slug)
     app.state.kernel_query_cache = PersistentKernelQueryCache(harvest_root)
     app.state.kernel_score_cache = PersistentKernelScoreCache(harvest_root)
     app.state.kernel_metadata_cache = PersistentKernelMetadataCache(harvest_root)
@@ -214,12 +226,6 @@ async def lifespan(app: FastAPI):
         harvest_root
     )
     app.state.kernel_refresh_tasks = {}
-    app.state.kaggle_client = KaggleClient(
-        kaggle_token=kaggle_token,
-        competition_slug=competition_slug,
-        score_cache=app.state.kernel_score_cache,
-        metadata_cache=app.state.kernel_metadata_cache,
-    )
     config = ArchiverConfig(
         harvest_root=harvest_root,
         min_free_bytes=int(
@@ -241,9 +247,16 @@ async def lifespan(app: FastAPI):
         default_competition=competition_slug,
         notification_manager=app.state.notifications,
     )
+    app.state.simulation_monitor = SimulationMonitorManager(
+        app.state.kaggle_client,
+        harvest_root=harvest_root,
+        default_competition="pokemon-tcg-ai-battle",
+        notification_manager=app.state.notifications,
+    )
     await app.state.notifications.start()
     await app.state.auto_archive.start()
     await app.state.submission_monitor.start()
+    await app.state.simulation_monitor.start()
     try:
         yield
     finally:
@@ -252,6 +265,7 @@ async def lifespan(app: FastAPI):
             task.cancel()
         if refresh_tasks:
             await asyncio.gather(*refresh_tasks, return_exceptions=True)
+        await app.state.simulation_monitor.stop()
         await app.state.submission_monitor.stop()
         await app.state.auto_archive.stop()
         await app.state.notifications.stop()
@@ -276,8 +290,9 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Harvester-Key"],
 )
 
+
 # ---------------------------------------------------------------------------
-#  Kernel discovery endpoints
+#  Health & System Endpoints
 # ---------------------------------------------------------------------------
 
 
@@ -294,6 +309,7 @@ async def health():
     )
     auto_archive: AutoArchiveManager = app.state.auto_archive
     submission_monitor: SubmissionMonitorManager = app.state.submission_monitor
+    simulation_monitor: SimulationMonitorManager = app.state.simulation_monitor
     notifications: NotificationManager = app.state.notifications
     readiness = client.readiness()
     ready = bool(
@@ -316,8 +332,14 @@ async def health():
         },
         "auto_archive": auto_archive.snapshot().status.model_dump(),
         "submission_monitor": submission_monitor.snapshot().status.model_dump(),
+        "simulation_monitor": simulation_monitor.snapshot().status.model_dump(),
         "notifications": notifications.snapshot().status.model_dump(),
     }
+
+
+# ---------------------------------------------------------------------------
+#  Kernel discovery endpoints
+# ---------------------------------------------------------------------------
 
 
 @app.get("/api/competition", response_model=CompetitionInfo)
@@ -456,74 +478,120 @@ async def list_kernels(
             max_pages=max_pages,
             include_scores=include_scores,
             score_limit=score_limit,
-            # 用户点击“刷新分数榜”时，除了重建榜单索引，还要强制重拉公开分。
             force_score_refresh=refresh,
         )
-        response.headers["X-Kernel-Cache"] = (
-            "REFRESH"
-            if refresh
-            else "MISS"
-        )
+        response.headers["X-Kernel-Cache"] = "MISS"
         response.headers["X-Kernel-Cache-Age"] = "0"
         response.headers["X-Kernel-Cache-Fetched-At"] = str(int(time.time()))
         response.headers["X-Kernel-Refresh"] = "idle"
-
         return scored
     except Exception as exc:
         if cached is not None:
-            response.headers["X-Kernel-Cache"] = "STALE"
-            response.headers["X-Kernel-Refresh"] = "failed"
-            response.headers["X-Kernel-Cache-Age"] = str(
-                int(cached.age_seconds)
-            )
+            response.headers["X-Kernel-Cache"] = "FALLBACK"
+            response.headers["X-Kernel-Cache-Age"] = str(int(cached.age_seconds))
             response.headers["X-Kernel-Cache-Fetched-At"] = str(
                 int(cached.fetched_at)
             )
+            response.headers["X-Kernel-Refresh"] = "idle"
             return cached.data
         raise HTTPException(status_code=502, detail=str(exc))
 
 
-@app.post("/api/kernels/enrich", response_model=list[ScoredKernel])
-async def enrich_kernels(request: EnrichRequest):
-    """Enrich a list of kernel refs with LB scores."""
+@app.post("/api/enrich-scores", response_model=list[ScoredKernel])
+async def enrich_scores(request: EnrichRequest):
+    """Enrich a list of kernels with public LB scores."""
     client: KaggleClient = app.state.kaggle_client
+    competition_slug = request.competition or client.competition_slug
     try:
-        scored = await run_in_threadpool(
-            client.enrich_scores,
+        return await run_in_threadpool(
+            client.enrich_kernel_refs,
             request.kernels,
-            competition=request.competition,
+            competition=competition_slug,
         )
-        return scored
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
 
-@app.get("/api/kernel/{owner}/{slug}/versions", response_model=VersionScoreList)
+@app.get(
+    "/api/kernel/{kernel_ref:path}/versions", response_model=VersionScoreList
+)
 async def get_kernel_versions(
-    owner: str,
-    slug: str,
-    refresh: bool = Query(False, description="Check for new versions"),
+    kernel_ref: str,
+    refresh: bool = Query(False, description="Force refresh version scores"),
 ):
-    """Get version history with scores for a kernel."""
+    """Get version score history for a kernel."""
     client: KaggleClient = app.state.kaggle_client
     try:
-        ref = f"{owner}/{slug}"
-        versions = await run_in_threadpool(
-            client.get_kernel_versions, ref, refresh=refresh
+        return await run_in_threadpool(
+            client.get_kernel_versions, kernel_ref, refresh=refresh
         )
-        return versions
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.get("/api/kernel/{kernel_ref:path}/runtime-metadata")
+async def get_kernel_runtime_metadata(
+    kernel_ref: str,
+    version: Optional[int] = Query(None, ge=1),
+):
+    """读取指定 Kernel 版本的运行环境元数据（只读脱敏）。"""
+    client: KaggleClient = app.state.kaggle_client
+    metadata_cache: PersistentKernelMetadataCache = (
+        app.state.kernel_metadata_cache
+    )
+    cached = await run_in_threadpool(
+        metadata_cache.get, kernel_ref, version
+    )
+    if cached is not None:
+        return _redact_runtime_metadata(cached)
+    try:
+        metadata = await run_in_threadpool(
+            client.get_kernel_runtime_metadata, kernel_ref, version
+        )
+        if metadata:
+            await run_in_threadpool(
+                metadata_cache.set, kernel_ref, metadata, version
+            )
+        return _redact_runtime_metadata(metadata)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------
-#  Archive endpoints
+#  Notification & Monitoring Endpoints
 # ---------------------------------------------------------------------------
+
+
+@app.get("/api/notifications", response_model=NotificationSnapshot)
+async def get_notifications():
+    """读取全局通知中心配置（不含敏感密钥）。"""
+    manager: NotificationManager = app.state.notifications
+    return manager.snapshot()
+
+
+@app.put("/api/notifications", response_model=NotificationSnapshot)
+async def update_notifications(request: NotificationConfigUpdate):
+    """更新通知中心配置与凭据。"""
+    manager: NotificationManager = app.state.notifications
+    try:
+        return await manager.update_config(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/notifications/test", response_model=NotificationTestResult)
+async def test_notifications(request: NotificationConfigUpdate):
+    """测试当前提供/已保存的通知通道。"""
+    manager: NotificationManager = app.state.notifications
+    try:
+        return await manager.test_channels(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.get("/api/auto-archive", response_model=AutoArchiveSnapshot)
 async def get_auto_archive():
-    """读取自动归档配置和最近一次运行状态。"""
+    """读取自动归档配置与最近状态。"""
     manager: AutoArchiveManager = app.state.auto_archive
     return manager.snapshot()
 
@@ -540,7 +608,7 @@ async def update_auto_archive(request: AutoArchiveConfig):
 
 @app.post("/api/auto-archive/run", response_model=AutoArchiveSnapshot)
 async def run_auto_archive_now():
-    """立即执行一次检查；即使定时开关关闭也可手动运行。"""
+    """立即检查并归档低分 Kernel。"""
     manager: AutoArchiveManager = app.state.auto_archive
     try:
         return await manager.run_now(trigger="manual")
@@ -551,10 +619,11 @@ async def run_auto_archive_now():
 
 
 @app.get(
-    "/api/auto-archive/logs/{log_id}", response_model=AutoArchiveRunDetail
+    "/api/auto-archive/logs/{log_id}",
+    response_model=AutoArchiveRunDetail,
 )
 async def get_auto_archive_log(log_id: str):
-    """读取一次自动归档检查的完整 Kernel 明细。"""
+    """读取一次自动归档检查的明细。"""
     manager: AutoArchiveManager = app.state.auto_archive
     try:
         detail = await run_in_threadpool(manager.get_run_detail, log_id)
@@ -563,35 +632,6 @@ async def get_auto_archive_log(log_id: str):
     if detail is None:
         raise HTTPException(status_code=404, detail="运行日志不存在。")
     return detail
-
-
-@app.get("/api/notifications", response_model=NotificationSnapshot)
-async def get_notifications():
-    """读取通知配置、凭据状态和后台发送状态。"""
-    manager: NotificationManager = app.state.notifications
-    return manager.snapshot()
-
-
-@app.put("/api/notifications", response_model=NotificationSnapshot)
-async def update_notifications(request: NotificationConfigUpdate):
-    """保存通知配置；敏感字段由加密凭据存储单独处理。"""
-    manager: NotificationManager = app.state.notifications
-    try:
-        return await manager.update_config(request)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"通知凭据保存失败：{exc}")
-
-
-@app.post("/api/notifications/test", response_model=NotificationTestResult)
-async def test_notifications():
-    """向已启用的通知通道发送一条测试消息。"""
-    manager: NotificationManager = app.state.notifications
-    try:
-        return await manager.send_test()
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.get("/api/submission-monitor", response_model=SubmissionMonitorSnapshot)
@@ -637,6 +677,61 @@ async def get_submission_monitor_log(log_id: str):
     if detail is None:
         raise HTTPException(status_code=404, detail="运行日志不存在。")
     return detail
+
+
+# ---------------------------------------------------------------------------
+#  Simulation Monitor Endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/simulation-monitor", response_model=SimulationMonitorSnapshot)
+async def get_simulation_monitor():
+    """读取 Simulation 模拟对战与天梯监控状态。"""
+    manager: SimulationMonitorManager = app.state.simulation_monitor
+    return manager.snapshot()
+
+
+@app.put("/api/simulation-monitor", response_model=SimulationMonitorSnapshot)
+async def update_simulation_monitor(request: SimulationMonitorConfig):
+    """更新 Simulation 模拟对战监控配置。"""
+    manager: SimulationMonitorManager = app.state.simulation_monitor
+    try:
+        return await manager.update_config(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/simulation-monitor/run", response_model=SimulationMonitorSnapshot)
+async def run_simulation_monitor_now():
+    """立即检查一次 Simulation 对战战绩与天梯铜牌线。"""
+    manager: SimulationMonitorManager = app.state.simulation_monitor
+    try:
+        return await manager.run_now(trigger="manual")
+    except SimulationMonitorBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get(
+    "/api/simulation-monitor/logs/{log_id}",
+    response_model=SimulationMonitorRunDetail,
+)
+async def get_simulation_monitor_log(log_id: str):
+    """读取一次 Simulation 对战检查的明细流水。"""
+    manager: SimulationMonitorManager = app.state.simulation_monitor
+    try:
+        detail = await run_in_threadpool(manager.get_run_detail, log_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if detail is None:
+        raise HTTPException(status_code=404, detail="运行日志不存在。")
+    return detail
+
+
+# ---------------------------------------------------------------------------
+#  Archive endpoints
+# ---------------------------------------------------------------------------
 
 
 @app.post("/api/archive", response_model=dict)

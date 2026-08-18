@@ -1871,3 +1871,156 @@ a:hover {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Simulation Monitor Custom Styles */
+.simulation-monitor-modal .ant-modal-content {
+  border-radius: 16px;
+  overflow: hidden;
+  padding: 20px 24px;
+}
+
+.simulation-monitor-modal .sim-control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #f8fafc;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+}
+
+.simulation-monitor-modal .sim-banner-card {
+  background: linear-gradient(135deg, rgba(254, 243, 199, 0.5) 0%, rgba(255, 237, 213, 0.4) 100%);
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  margin-bottom: 18px;
+}
+
+.simulation-monitor-modal .sim-agent-card {
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+  height: 100%;
+}
+
+.simulation-monitor-modal .sim-agent-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+.simulation-monitor-modal .sim-score-box {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.simulation-monitor-modal .sim-score-title {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.simulation-monitor-modal .sim-score-value {
+  font-size: 28px;
+  font-weight: 900;
+  color: #1d4ed8;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.simulation-monitor-modal .sim-rank-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: right;
+}
+
+.simulation-monitor-modal .sim-rank-title {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.simulation-monitor-modal .sim-rank-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.simulation-monitor-modal .sim-cushion-banner-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.simulation-monitor-modal .sim-cushion-banner-danger {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #be123c;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.simulation-monitor-modal .sim-stats-section {
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 12px;
+}
+
+.simulation-monitor-modal .sim-footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #94a3b8;
+  padding-top: 10px;
+  margin-top: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.simulation-monitor-modal .sim-episode-link {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.simulation-monitor-modal .sim-episode-link:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+

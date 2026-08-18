@@ -16,3 +16,5 @@ frontend/dist/
 frontend/*.tsbuildinfo
 harvested_kernels/
 .ace-tool/
+data/
+backend/data/

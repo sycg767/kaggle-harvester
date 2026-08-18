@@ -594,6 +594,88 @@ class NotificationManager:
                 queued += 1
         return queued
 
+    def enqueue_simulation_events(
+        self,
+        *,
+        competition: str,
+        events: list[dict[str, Any]],
+        checked_at: Optional[str] = None,
+    ) -> int:
+        """投递 Simulation 模拟对战事件（新增对局、奖牌线变更等）。"""
+        if not events:
+            return 0
+        queued = 0
+        finished = checked_at or _utc_now_iso()
+        for item in events:
+            sub_id = str(item.get("submission_id") or "").strip()
+            ev_type = item.get("type")
+            desc = str(item.get("description") or "（无描述）")
+            score = item.get("public_score")
+            score_str = f"{score:.1f}" if isinstance(score, (int, float)) else "—"
+            rank = item.get("rank")
+            rank_str = f"第 {rank} 名" if rank is not None else "未上榜"
+            gap = item.get("bronze_gap_score")
+            gap_str = (
+                f"+{gap:.1f}（安全垫）"
+                if isinstance(gap, (int, float)) and gap >= 0
+                else f"{gap:.1f}（距铜牌）"
+                if isinstance(gap, (int, float))
+                else "—"
+            )
+
+            if ev_type == "new_episodes":
+                new_matches = item.get("new_matches", 1)
+                total = item.get("total_matches", 0)
+                win_rate = item.get("win_rate", 0)
+                wins = item.get("wins", 0)
+                losses = item.get("losses", 0)
+                title = f"Kaggle Harvester：Agent #{sub_id} 完成 {new_matches} 场新对战"
+                lines = [
+                    f"竞赛：{competition}",
+                    f"提交 ID：{sub_id}",
+                    f"描述：{desc}",
+                    f"战绩更新：{wins} 胜 / {losses} 负（胜率 {win_rate:.1f}%，累计 {total} 场）",
+                    f"天梯排位：{rank_str}，当前分数 {score_str}，铜牌差距 {gap_str}",
+                    f"更新时间：{_format_beijing_time(finished)}",
+                ]
+                event_id = f"sim_episodes::{competition}::{sub_id}::{total}::{finished}"
+            elif ev_type == "medal_change":
+                cur_medal = str(item.get("current_medal") or "")
+                prev_medal = str(item.get("previous_medal") or "")
+                medal_labels = {
+                    "gold": "🥇金牌区",
+                    "silver": "🥈银牌区",
+                    "bronze": "🥉铜牌区",
+                    "none": "未入围",
+                }
+                cur_label = medal_labels.get(cur_medal, cur_medal)
+                prev_label = medal_labels.get(prev_medal, prev_medal)
+                title = f"Kaggle Harvester：Agent #{sub_id} 奖牌线变动 [{prev_label} ➔ {cur_label}]"
+                lines = [
+                    f"竞赛：{competition}",
+                    f"提交 ID：{sub_id}",
+                    f"描述：{desc}",
+                    f"奖牌状态：从 {prev_label} 变为 {cur_label}",
+                    f"天梯排位：{rank_str}，当前分数 {score_str}，铜牌分差 {gap_str}",
+                    f"更新时间：{_format_beijing_time(finished)}",
+                ]
+                event_id = f"sim_medal::{competition}::{sub_id}::{cur_medal}::{finished}"
+            else:
+                continue
+
+            if self.enqueue_event(
+                event_id,
+                event_type="simulation_update",
+                title=title,
+                text="\n".join(lines),
+                competition=competition,
+                created_at=finished,
+                summary=item,
+                require_score_switch=False,
+            ):
+                queued += 1
+        return queued
+
     @staticmethod
     def _enabled_channels(config: NotificationConfig) -> list[str]:
         channels: list[str] = []
