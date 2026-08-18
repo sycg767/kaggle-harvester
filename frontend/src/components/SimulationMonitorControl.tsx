@@ -45,6 +45,7 @@ import { Swords, Award, Flame, MessageCircle, Bot, Zap } from 'lucide-react';
 import {
   api,
   type SimulationAgentStats,
+  type SimulationClawbotTestResult,
   type SimulationEpisode,
   type SimulationMedalThresholds,
   type SimulationMonitorConfig,
@@ -166,6 +167,26 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [logDetail, setLogDetail] = useState<SimulationMonitorRunDetail | null>(null);
   const [logDetailLoading, setLogDetailLoading] = useState(false);
   const [clawbotOpen, setClawbotOpen] = useState(false);
+  const [testingClawbot, setTestingClawbot] = useState(false);
+  const [clawbotTestResult, setClawbotTestResult] = useState<SimulationClawbotTestResult | null>(null);
+
+  const handleTestClawbot = async () => {
+    setTestingClawbot(true);
+    try {
+      const res = await api.testClawbot();
+      setClawbotTestResult(res);
+      if (res.success) {
+        message.success(res.message);
+      } else {
+        message.warning(res.message);
+      }
+      await fetchSnapshot(true);
+    } catch (err: any) {
+      message.error(`网关探测失败: ${err.message}`);
+    } finally {
+      setTestingClawbot(false);
+    }
+  };
 
   const [form] = Form.useForm<SimulationMonitorConfig>();
   const isMounted = useRef(true);
@@ -441,19 +462,30 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             <div className="sim-control-bar">
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      width: 10,
-                      height: 10,
-                      borderRadius: '50%',
-                      background: status?.running ? '#10b981' : '#94a3b8',
-                      boxShadow: status?.running ? '0 0 0 3px rgba(16, 185, 129, 0.2)' : 'none',
-                    }}
-                  />
-                  <Text strong style={{ fontSize: 13 }}>
-                    {status?.running ? '后台调度监控中' : '监控已暂停'}
-                  </Text>
+                  {(() => {
+                    const isMonitoringActive = Boolean(snapshot?.config?.enabled || status?.scheduler_alive);
+                    return (
+                      <>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            background: isMonitoringActive ? '#10b981' : '#94a3b8',
+                            boxShadow: isMonitoringActive ? '0 0 0 3px rgba(16, 185, 129, 0.2)' : 'none',
+                          }}
+                        />
+                        <Text strong style={{ fontSize: 13 }}>
+                          {isMonitoringActive
+                            ? status?.running
+                              ? '正在执行检查中...'
+                              : `后台调度监控中 (${snapshot?.config?.interval_minutes || 10} 分钟/次)`
+                            : '监控已暂停'}
+                        </Text>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <Tooltip title="点击查看微信 ClawBot 智能体状态与指令指南">
@@ -933,6 +965,14 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         onCancel={() => setClawbotOpen(false)}
         width={560}
         footer={[
+          <Button
+            key="test"
+            icon={<ReloadOutlined spin={testingClawbot} />}
+            loading={testingClawbot}
+            onClick={() => void handleTestClawbot()}
+          >
+            探测网关连通性
+          </Button>,
           <Button key="close" type="primary" onClick={() => setClawbotOpen(false)}>
             我知道了
           </Button>,
@@ -940,13 +980,13 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       >
         <div style={{ paddingTop: 8 }}>
           <Alert
-            message={status?.clawbot?.is_online ? '微信智能体双向交互已就绪' : status?.clawbot?.configured ? '微信智能体已配置，但网关离线' : '微信智能体未配置'}
+            message={status?.clawbot?.is_online ? '微信智能体双向交互已就绪' : status?.clawbot?.configured ? '微信智能体已配置，但网关离线' : '微信智能体未就绪'}
             description={
               status?.clawbot?.is_online
                 ? '您可以在手机微信中随时发送指令给当前机器人，直接获取最新天梯战报与排名数据，或触发后台实时刷新。'
                 : status?.clawbot?.configured
-                ? '已读取到 LLM 配置文件，但当前未检测到正在监听的 OpenClaw 网关（端口 18789）。请确保已启动 openclaw gateway run。'
-                : '未检测到 OpenClaw 配置文件或环境变量。请参考 setup_openclaw.py 进行一键配置。'
+                ? '已读取到 LLM 配置文件，但当前未探测到正在运行的 OpenClaw 网关（端口 18789）。若在 Docker 中运行，请确保已配置 OPENCLAW_GATEWAY_URL。'
+                : '未检测到 OpenClaw 配置文件或环境变量。请在 .env.deploy 中配置 OPENCLAW_LLM_API_KEY 与 OPENCLAW_GATEWAY_URL。'
             }
             type={status?.clawbot?.is_online ? 'success' : status?.clawbot?.configured ? 'warning' : 'info'}
             showIcon
@@ -959,11 +999,11 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 <Text type="secondary" style={{ fontSize: 12 }}>网关活跃状态</Text>
                 <div style={{ marginTop: 2 }}>
                   {status?.clawbot?.is_online ? (
-                    <Tag color="success" style={{ fontWeight: 700 }}>🟢 端口 18789 活跃</Tag>
+                    <Tag color="success" style={{ fontWeight: 700 }}>端口 18789 活跃</Tag>
                   ) : status?.clawbot?.configured ? (
-                    <Tag color="warning">🟡 已配置 · 网关离线</Tag>
+                    <Tag color="warning">已配置 · 网关离线</Tag>
                   ) : (
-                    <Tag color="default">⚪ 未检测到配置</Tag>
+                    <Tag color="default">未就绪</Tag>
                   )}
                 </div>
               </Col>
@@ -980,12 +1020,30 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 </div>
               </Col>
               <Col span={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>网关连接目标</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>当前连接网关</Text>
                 <div style={{ marginTop: 2, color: '#334155', fontSize: 12, wordBreak: 'break-all' }}>
                   {status?.clawbot?.gateway_url || 'http://127.0.0.1:18789'}
                 </div>
               </Col>
             </Row>
+
+            {clawbotTestResult && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: clawbotTestResult.success ? '#166534' : '#b45309' }}>
+                  诊断详情：{clawbotTestResult.message}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {clawbotTestResult.candidates.map((c) => (
+                    <div key={c.target} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, background: '#fff', padding: '3px 8px', borderRadius: 4, border: '1px solid #f1f5f9' }}>
+                      <Text code style={{ fontSize: 11 }}>{c.target}</Text>
+                      <Tag color={c.reachable ? 'success' : 'default'} style={{ margin: 0, fontSize: 11, padding: '0 4px' }}>
+                        {c.detail}
+                      </Tag>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Card>
 
           <Title level={5} style={{ fontSize: 14, marginBottom: 8 }}>

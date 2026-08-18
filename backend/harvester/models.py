@@ -708,6 +708,25 @@ class SimulationClawbotStatus(BaseModel):
     updated_at: Optional[str] = None
 
 
+class SimulationClawbotTestCandidate(BaseModel):
+    target: str
+    reachable: bool
+    latency_ms: Optional[float] = None
+    detail: str
+
+
+class SimulationClawbotTestResult(BaseModel):
+    success: bool
+    message: str
+    active_url: Optional[str] = None
+    latency_ms: Optional[float] = None
+    configured: bool = False
+    config_file_found: Optional[str] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    candidates: list[SimulationClawbotTestCandidate] = Field(default_factory=list)
+
+
 class SimulationMonitorStatus(BaseModel):
     """Simulation 监控器的实时运行状态。"""
 

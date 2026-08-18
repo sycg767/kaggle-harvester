@@ -441,6 +441,25 @@ export interface SimulationClawbotStatus {
   updated_at?: string;
 }
 
+export interface SimulationClawbotTestCandidate {
+  target: string;
+  reachable: boolean;
+  latency_ms?: number;
+  detail: string;
+}
+
+export interface SimulationClawbotTestResult {
+  success: boolean;
+  message: string;
+  active_url?: string;
+  latency_ms?: number;
+  configured: boolean;
+  config_file_found?: string;
+  model?: string;
+  provider?: string;
+  candidates: SimulationClawbotTestCandidate[];
+}
+
 export interface SimulationMonitorStatus {
   running: boolean;
   scheduler_alive: boolean;
@@ -778,6 +797,10 @@ export const api = {
 
   getSimulationMonitorLog(logId: string): Promise<SimulationMonitorRunDetail> {
     return request(`/simulation-monitor/logs/${encodeURIComponent(logId)}`);
+  },
+
+  testClawbot(): Promise<SimulationClawbotTestResult> {
+    return request('/simulation-monitor/clawbot/test', { method: 'POST' });
   },
 
   health(): Promise<HealthStatus> {

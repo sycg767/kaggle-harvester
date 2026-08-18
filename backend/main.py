@@ -47,6 +47,7 @@ from harvester.models import (
     NotificationTestResult,
     ScoredKernel,
     ScoreDirection,
+    SimulationClawbotTestResult,
     SimulationMonitorConfig,
     SimulationMonitorRunDetail,
     SimulationMonitorSnapshot,
@@ -727,6 +728,16 @@ async def get_simulation_monitor_log(log_id: str):
     if detail is None:
         raise HTTPException(status_code=404, detail="运行日志不存在。")
     return detail
+
+
+@app.post(
+    "/api/simulation-monitor/clawbot/test",
+    response_model=SimulationClawbotTestResult,
+)
+async def test_simulation_clawbot():
+    """探测 OpenClaw 微信智能体网关连通性。"""
+    manager: SimulationMonitorManager = app.state.simulation_monitor
+    return await run_in_threadpool(manager.test_clawbot)
 
 
 # ---------------------------------------------------------------------------

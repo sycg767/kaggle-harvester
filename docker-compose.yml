@@ -3,6 +3,8 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       HOST: 0.0.0.0
       PORT: 8000
@@ -15,6 +17,11 @@ services:
       HARVESTER_ALLOW_OPEN_FOLDER: "false"
       HARVESTER_NOTIFICATION_WEBHOOK_URL: ${HARVESTER_NOTIFICATION_WEBHOOK_URL:-}
       HARVESTER_NOTIFICATION_SMTP_PASSWORD: ${HARVESTER_NOTIFICATION_SMTP_PASSWORD:-}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
+      OPENCLAW_LLM_API_KEY: ${OPENCLAW_LLM_API_KEY:-}
+      OPENCLAW_LLM_BASE_URL: ${OPENCLAW_LLM_BASE_URL:-https://tokenrhythm.studio/v1}
+      OPENCLAW_LLM_MODEL: ${OPENCLAW_LLM_MODEL:-deepseek-v4-flash-0731}
+      OPENCLAW_CONFIG_PATH: ${OPENCLAW_CONFIG_PATH:-}
     volumes:
       - ./harvested_kernels:/data/harvested_kernels
     expose:

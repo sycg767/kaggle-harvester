@@ -17,6 +17,8 @@ from .notifications import NotificationManager
 from .models import (
     SimulationAgentStats,
     SimulationClawbotStatus,
+    SimulationClawbotTestCandidate,
+    SimulationClawbotTestResult,
     SimulationEpisode,
     SimulationHistoryPoint,
     SimulationMedalThresholds,
@@ -159,6 +161,19 @@ class SimulationMonitorManager:
         except (socket.timeout, ConnectionRefusedError, OSError):
             return False
 
+    @staticmethod
+    def _get_docker_host_ip() -> str | None:
+        try:
+            with open("/proc/net/route", "r", encoding="utf-8") as f:
+                for line in f:
+                    fields = line.strip().split()
+                    if len(fields) >= 3 and fields[1] == "00000000":
+                        val = int(fields[2], 16)
+                        return f"{val & 0xFF}.{(val >> 8) & 0xFF}.{(val >> 16) & 0xFF}.{(val >> 24) & 0xFF}"
+        except Exception:
+            pass
+        return None
+
     @classmethod
     def _get_clawbot_status(cls) -> SimulationClawbotStatus:
         # 1. 尝试定位 openclaw.json 配置文件（支持自定义路径、标准路径及容器内路径）
@@ -240,17 +255,16 @@ class SimulationMonitorManager:
                 pass
 
         if not is_online:
-            # 候选网关探测（包括本地回路、Docker 宿主别名与 Linux 默认网桥）
-            candidates = [
-                ("127.0.0.1", gateway_port),
-                ("localhost", gateway_port),
-                ("host.docker.internal", gateway_port),
-                ("172.17.0.1", gateway_port),
-            ]
-            for host, port in candidates:
-                if cls._probe_gateway(host, port):
+            # 候选网关探测（包括本地回路、Docker 宿主别名、Linux 默认网桥及路由网关）
+            candidate_hosts = ["127.0.0.1", "localhost", "host.docker.internal", "172.17.0.1"]
+            docker_host = cls._get_docker_host_ip()
+            if docker_host and docker_host not in candidate_hosts:
+                candidate_hosts.append(docker_host)
+
+            for host in candidate_hosts:
+                if cls._probe_gateway(host, gateway_port):
                     is_online = True
-                    active_gateway = f"http://{host}:{port}"
+                    active_gateway = f"http://{host}:{gateway_port}"
                     break
 
         return SimulationClawbotStatus(
@@ -262,6 +276,82 @@ class SimulationMonitorManager:
             base_url=base_url,
             gateway_url=active_gateway or (gateway_url or f"http://127.0.0.1:{gateway_port}"),
             updated_at=updated_at,
+        )
+
+    @classmethod
+    def test_clawbot(cls) -> SimulationClawbotTestResult:
+        import time
+        status = cls._get_clawbot_status()
+        gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
+        gateway_url = os.getenv("OPENCLAW_GATEWAY_URL")
+
+        targets: list[tuple[str, str, int]] = []
+        if gateway_url:
+            try:
+                parsed = urllib.parse.urlparse(gateway_url)
+                targets.append((gateway_url, parsed.hostname or "127.0.0.1", parsed.port or gateway_port))
+            except Exception:
+                pass
+
+        targets.extend([
+            (f"http://127.0.0.1:{gateway_port}", "127.0.0.1", gateway_port),
+            (f"http://localhost:{gateway_port}", "localhost", gateway_port),
+            (f"http://host.docker.internal:{gateway_port}", "host.docker.internal", gateway_port),
+            (f"http://172.17.0.1:{gateway_port}", "172.17.0.1", gateway_port),
+        ])
+
+        docker_host = cls._get_docker_host_ip()
+        if docker_host and docker_host not in ["127.0.0.1", "172.17.0.1"]:
+            targets.append((f"http://{docker_host}:{gateway_port}", docker_host, gateway_port))
+
+        candidates: list[SimulationClawbotTestCandidate] = []
+        first_success_url: str | None = None
+        first_latency: float | None = None
+
+        seen_targets = set()
+        for display_url, host, port in targets:
+            if display_url in seen_targets:
+                continue
+            seen_targets.add(display_url)
+
+            start = time.perf_counter()
+            reachable = cls._probe_gateway(host, port, timeout=0.5)
+            latency = round((time.perf_counter() - start) * 1000, 1)
+
+            if reachable:
+                detail = f"TCP 端口 {port} 握手成功 ({latency}ms)"
+                if not first_success_url:
+                    first_success_url = display_url
+                    first_latency = latency
+            else:
+                detail = "连接失败 (Connection Refused 或超时)"
+
+            candidates.append(
+                SimulationClawbotTestCandidate(
+                    target=display_url,
+                    reachable=reachable,
+                    latency_ms=latency if reachable else None,
+                    detail=detail,
+                )
+            )
+
+        success = bool(first_success_url)
+        message = (
+            f"成功连接至 OpenClaw 网关 ({first_success_url})，微信长连接已就绪！"
+            if success
+            else "未能连接至任何候选 OpenClaw 网关 (端口 18789)。请确认 OpenClaw 网关是否已在宿主机或容器中运行 (openclaw gateway run)。"
+        )
+
+        return SimulationClawbotTestResult(
+            success=success,
+            message=message,
+            active_url=first_success_url,
+            latency_ms=first_latency,
+            configured=status.configured,
+            config_file_found=os.getenv("OPENCLAW_CONFIG_PATH") or (str(Path.home() / ".openclaw" / "openclaw.json") if (Path.home() / ".openclaw" / "openclaw.json").exists() else None),
+            model=status.model,
+            provider=status.provider,
+            candidates=candidates,
         )
 
     def snapshot(self) -> SimulationMonitorSnapshot:

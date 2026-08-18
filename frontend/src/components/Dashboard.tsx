@@ -52,9 +52,27 @@ export const Dashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [simSnapshot, setSimSnapshot] = useState<SimulationMonitorSnapshot | null>(null);
+  const [testingClawbot, setTestingClawbot] = useState(false);
   const [currentCompetition, setCurrentCompetition] = useState<string>(() => {
     return localStorage.getItem('harvester.competition') || 'pokemon-tcg-ai-battle';
   });
+
+  const handleTestClawbot = async () => {
+    setTestingClawbot(true);
+    try {
+      const res = await api.testClawbot();
+      if (res.success) {
+        message.success(res.message);
+      } else {
+        message.warning(res.message);
+      }
+      await loadDashboardData(true);
+    } catch (err: any) {
+      message.error(`网关探测失败: ${err.message}`);
+    } finally {
+      setTestingClawbot(false);
+    }
+  };
 
   const loadDashboardData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -496,22 +514,33 @@ export const Dashboard: React.FC = () => {
                       </div>
                     </Space>
 
-                    <Tooltip
-                      title={
-                        clawbot?.is_online
-                          ? 'OpenClaw 网关正在运行并保持微信长连接'
-                          : clawbot?.configured
-                          ? '已配置模型与插件，但本地/服务器 18789 端口未检测到 OpenClaw 网关运行'
-                          : '未检测到 OpenClaw 配置文件或 OPENCLAW_LLM_API_KEY 环境变量'
-                      }
-                    >
-                      <Tag
-                        color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
-                        style={{ margin: 0, fontWeight: 700 }}
+                    <Space size={6}>
+                      <Button
+                        size="small"
+                        icon={<RefreshCw size={12} className={testingClawbot ? 'animate-spin' : ''} />}
+                        loading={testingClawbot}
+                        onClick={() => void handleTestClawbot()}
+                        style={{ fontSize: 12 }}
                       >
-                        {clawbot?.is_online ? '在线' : clawbot?.configured ? '离线 (未启动)' : '未就绪'}
-                      </Tag>
-                    </Tooltip>
+                        探测连通性
+                      </Button>
+                      <Tooltip
+                        title={
+                          clawbot?.is_online
+                            ? 'OpenClaw 网关正在运行并保持微信长连接'
+                            : clawbot?.configured
+                            ? '已配置模型与插件，但本地/服务器 18789 端口未检测到 OpenClaw 网关运行'
+                            : '未检测到 OpenClaw 配置文件或 OPENCLAW_LLM_API_KEY 环境变量'
+                        }
+                      >
+                        <Tag
+                          color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
+                          style={{ margin: 0, fontWeight: 700 }}
+                        >
+                          {clawbot?.is_online ? '在线' : clawbot?.configured ? '离线 (未启动)' : '未就绪'}
+                        </Tag>
+                      </Tooltip>
+                    </Space>
                   </div>
 
                   {/* Model & Config Details */}
