@@ -41,7 +41,7 @@ import {
   SettingOutlined,
   TrophyOutlined,
 } from '@ant-design/icons';
-import { Swords, Award, Flame } from 'lucide-react';
+import { Swords, Award, Flame, MessageCircle, Bot, Zap } from 'lucide-react';
 import {
   api,
   type SimulationAgentStats,
@@ -165,6 +165,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
   const [logDetail, setLogDetail] = useState<SimulationMonitorRunDetail | null>(null);
   const [logDetailLoading, setLogDetailLoading] = useState(false);
+  const [clawbotOpen, setClawbotOpen] = useState(false);
 
   const [form] = Form.useForm<SimulationMonitorConfig>();
   const isMounted = useRef(true);
@@ -454,6 +455,26 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                     {status?.running ? '后台调度监控中' : '监控已暂停'}
                   </Text>
                 </div>
+
+                <Tooltip title="点击查看微信 ClawBot 智能体状态与指令指南">
+                  <Tag
+                    color={status?.clawbot?.enabled ? 'success' : (status?.clawbot?.configured ? 'warning' : 'default')}
+                    style={{
+                      cursor: 'pointer',
+                      borderRadius: 12,
+                      padding: '2px 10px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontWeight: 600,
+                      fontSize: 12,
+                    }}
+                    onClick={() => setClawbotOpen(true)}
+                  >
+                    <MessageCircle size={13} />
+                    微信 ClawBot: {status?.clawbot?.enabled ? `已就绪 (${status?.clawbot?.model || 'DeepSeek'})` : (status?.clawbot?.configured ? '未启用' : '未连接')}
+                  </Tag>
+                </Tooltip>
 
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   上次检查: {formatDate(status?.last_checked_at)}
@@ -898,6 +919,93 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             </List.Item>
           )}
         />
+      </Modal>
+
+      {/* WeChat ClawBot Assistant Modal */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MessageCircle size={18} color="#16a34a" />
+            <span style={{ fontWeight: 700 }}>微信 ClawBot 智能对战助手</span>
+          </div>
+        }
+        open={clawbotOpen}
+        onCancel={() => setClawbotOpen(false)}
+        width={560}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setClawbotOpen(false)}>
+            我知道了
+          </Button>,
+        ]}
+      >
+        <div style={{ paddingTop: 8 }}>
+          <Alert
+            message="微信智能体双向交互已打通"
+            description="您可以在手机微信中随时发送指令给当前机器人，直接获取最新天梯战报与排名数据，或触发后台实时刷新。"
+            type={status?.clawbot?.enabled ? 'success' : 'info'}
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+
+          <Card size="small" style={{ marginBottom: 16, background: '#f8fafc' }}>
+            <Row gutter={[12, 10]}>
+              <Col span={12}>
+                <Text type="secondary" style={{ fontSize: 12 }}>机器人运行状态</Text>
+                <div style={{ marginTop: 2 }}>
+                  {status?.clawbot?.enabled ? (
+                    <Tag color="success" style={{ fontWeight: 700 }}>🟢 微信长连接已就绪</Tag>
+                  ) : status?.clawbot?.configured ? (
+                    <Tag color="warning">🟡 已配置但未开启插件</Tag>
+                  ) : (
+                    <Tag color="default">⚪ 未检测到本地配置</Tag>
+                  )}
+                </div>
+              </Col>
+              <Col span={12}>
+                <Text type="secondary" style={{ fontSize: 12 }}>解析大模型引擎</Text>
+                <div style={{ marginTop: 2, fontWeight: 700, color: '#0f172a' }}>
+                  {status?.clawbot?.model || 'deepseek-v4-flash-0731'}
+                </div>
+              </Col>
+              <Col span={12}>
+                <Text type="secondary" style={{ fontSize: 12 }}>模型服务商</Text>
+                <div style={{ marginTop: 2, color: '#334155' }}>
+                  {status?.clawbot?.provider || 'TokenRhythm Studio'}
+                </div>
+              </Col>
+              <Col span={12}>
+                <Text type="secondary" style={{ fontSize: 12 }}>接口网关地址</Text>
+                <div style={{ marginTop: 2, color: '#334155', fontSize: 12, wordBreak: 'break-all' }}>
+                  {status?.clawbot?.base_url || 'https://tokenrhythm.studio/v1'}
+                </div>
+              </Col>
+            </Row>
+          </Card>
+
+          <Title level={5} style={{ fontSize: 14, marginBottom: 8 }}>
+            📱 手机微信常用指令速查
+          </Title>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
+              <Space>
+                <Tag color="blue" style={{ margin: 0, fontWeight: 700 }}>战况 / 查战况</Tag>
+                <Text style={{ fontSize: 13 }}>获取双 Agent 实时积分、排位、胜率及最新一局对战</Text>
+              </Space>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
+              <Space>
+                <Tag color="gold" style={{ margin: 0, fontWeight: 700 }}>分数 / 排名</Tag>
+                <Text style={{ fontSize: 13 }}>快速汇总金银铜牌线切分点与我方安全垫</Text>
+              </Space>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
+              <Space>
+                <Tag color="purple" style={{ margin: 0, fontWeight: 700 }}>刷新 / 立即检查</Tag>
+                <Text style={{ fontSize: 13 }}>触发后端立刻向 Kaggle 同步一次最新对局数据</Text>
+              </Space>
+            </div>
+          </div>
+        </div>
       </Modal>
     </>
   );

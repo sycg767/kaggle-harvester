@@ -13,6 +13,7 @@ from .kaggle_client import KaggleClient, _parse_public_score
 from .notifications import NotificationManager
 from .models import (
     SimulationAgentStats,
+    SimulationClawbotStatus,
     SimulationEpisode,
     SimulationHistoryPoint,
     SimulationMedalThresholds,
@@ -147,6 +148,33 @@ class SimulationMonitorManager:
             )
             temp_path.replace(self._state_path)
 
+    @staticmethod
+    def _get_clawbot_status() -> SimulationClawbotStatus:
+        claw_cfg = Path.home() / ".openclaw" / "openclaw.json"
+        if not claw_cfg.exists():
+            return SimulationClawbotStatus(enabled=False, configured=False)
+        try:
+            with open(claw_cfg, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            plugins = data.get("plugins", {}).get("entries", {})
+            enabled = bool(plugins.get("openclaw-weixin", {}).get("enabled", False))
+            providers = data.get("models", {}).get("providers", {})
+            provider_name = next(iter(providers.keys())) if providers else None
+            base_url = providers.get(provider_name, {}).get("baseUrl") if provider_name else None
+            primary_model = data.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+            model_name = primary_model.split("/")[-1] if primary_model else None
+            updated_at = data.get("meta", {}).get("lastTouchedAt")
+            return SimulationClawbotStatus(
+                enabled=enabled,
+                configured=True,
+                provider=provider_name,
+                model=model_name,
+                base_url=base_url,
+                updated_at=updated_at,
+            )
+        except Exception:
+            return SimulationClawbotStatus(enabled=False, configured=True)
+
     def snapshot(self) -> SimulationMonitorSnapshot:
         with self._state_lock:
             status = self._status.model_copy(deep=True)
@@ -154,6 +182,7 @@ class SimulationMonitorManager:
                 self._task is not None and not self._task.done()
             )
             status.history_points = [item.model_copy(deep=True) for item in self._history_points]
+            status.clawbot = self._get_clawbot_status()
             return SimulationMonitorSnapshot(
                 config=self._config.model_copy(deep=True),
                 status=status,

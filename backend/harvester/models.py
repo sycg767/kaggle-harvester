@@ -693,6 +693,18 @@ class SimulationMonitorConfig(BaseModel):
     notify_on_medal_change: bool = True
 
 
+class SimulationClawbotStatus(BaseModel):
+    """微信 ClawBot 智能体运行状态。"""
+
+    enabled: bool = False
+    configured: bool = False
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    account_id: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 class SimulationMonitorStatus(BaseModel):
     """Simulation 监控器的实时运行状态。"""
 
@@ -712,6 +724,7 @@ class SimulationMonitorStatus(BaseModel):
     total_tracked_episodes: int = 0
     new_episodes_this_run: int = 0
     new_episodes_count: int = 0
+    clawbot: Optional[SimulationClawbotStatus] = None
 
 
 class SimulationMonitorRunLog(BaseModel):

@@ -428,6 +428,16 @@ export interface SimulationMonitorConfig {
   notify_on_medal_change: boolean;
 }
 
+export interface SimulationClawbotStatus {
+  enabled: boolean;
+  configured: boolean;
+  provider?: string;
+  model?: string;
+  base_url?: string;
+  account_id?: string;
+  updated_at?: string;
+}
+
 export interface SimulationMonitorStatus {
   running: boolean;
   scheduler_alive: boolean;
@@ -443,6 +453,7 @@ export interface SimulationMonitorStatus {
   total_tracked_episodes: number;
   new_episodes_this_run: number;
   history: SimulationHistoryPoint[];
+  clawbot?: SimulationClawbotStatus;
 }
 
 export interface SimulationMonitorRunLog {
