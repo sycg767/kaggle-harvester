@@ -10,6 +10,7 @@ import {
   Progress,
   Space,
   Spin,
+  Tooltip,
   App as AntApp,
 } from 'antd';
 import {
@@ -494,9 +495,22 @@ export const Dashboard: React.FC = () => {
                       </div>
                     </Space>
 
-                    <Tag color={clawbot?.enabled ? 'success' : 'default'} style={{ margin: 0, fontWeight: 700 }}>
-                      {clawbot?.enabled ? '🟢 在线' : '⚪ 未就绪'}
-                    </Tag>
+                    <Tooltip
+                      title={
+                        clawbot?.is_online
+                          ? 'OpenClaw 网关正在运行并保持微信长连接'
+                          : clawbot?.configured
+                          ? '已配置模型与插件，但本地/服务器 18789 端口未检测到 OpenClaw 网关运行'
+                          : '未检测到 OpenClaw 配置文件或 OPENCLAW_LLM_API_KEY 环境变量'
+                      }
+                    >
+                      <Tag
+                        color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
+                        style={{ margin: 0, fontWeight: 700 }}
+                      >
+                        {clawbot?.is_online ? '🟢 在线' : clawbot?.configured ? '🟡 离线 (未启动)' : '⚪ 未就绪'}
+                      </Tag>
+                    </Tooltip>
                   </div>
 
                   {/* Model & Config Details */}
@@ -508,6 +522,12 @@ export const Dashboard: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
                       <span style={{ color: '#64748b' }}>服务商:</span>
                       <span style={{ color: '#334155' }}>{clawbot?.provider || 'TokenRhythm Studio'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+                      <span style={{ color: '#64748b' }}>网关探测:</span>
+                      <span style={{ color: clawbot?.is_online ? '#16a34a' : '#d97706', fontWeight: 600 }}>
+                        {clawbot?.is_online ? '活跃 (端口 18789)' : '未连接 (端口 18789)'}
+                      </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                       <span style={{ color: '#64748b' }}>后台巡检:</span>

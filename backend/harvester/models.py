@@ -697,11 +697,14 @@ class SimulationClawbotStatus(BaseModel):
     """微信 ClawBot 智能体运行状态。"""
 
     enabled: bool = False
+    is_online: bool = False
     configured: bool = False
     provider: Optional[str] = None
     model: Optional[str] = None
     base_url: Optional[str] = None
+    gateway_url: Optional[str] = None
     account_id: Optional[str] = None
+    error: Optional[str] = None
     updated_at: Optional[str] = None
 
 

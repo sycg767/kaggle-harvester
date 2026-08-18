@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import socket
 import threading
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -149,31 +152,117 @@ class SimulationMonitorManager:
             temp_path.replace(self._state_path)
 
     @staticmethod
-    def _get_clawbot_status() -> SimulationClawbotStatus:
-        claw_cfg = Path.home() / ".openclaw" / "openclaw.json"
-        if not claw_cfg.exists():
-            return SimulationClawbotStatus(enabled=False, configured=False)
+    def _probe_gateway(host: str, port: int, timeout: float = 0.3) -> bool:
         try:
-            with open(claw_cfg, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            plugins = data.get("plugins", {}).get("entries", {})
-            enabled = bool(plugins.get("openclaw-weixin", {}).get("enabled", False))
-            providers = data.get("models", {}).get("providers", {})
-            provider_name = next(iter(providers.keys())) if providers else None
-            base_url = providers.get(provider_name, {}).get("baseUrl") if provider_name else None
-            primary_model = data.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
-            model_name = primary_model.split("/")[-1] if primary_model else None
-            updated_at = data.get("meta", {}).get("lastTouchedAt")
-            return SimulationClawbotStatus(
-                enabled=enabled,
-                configured=True,
-                provider=provider_name,
-                model=model_name,
-                base_url=base_url,
-                updated_at=updated_at,
-            )
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            return False
+
+    @classmethod
+    def _get_clawbot_status(cls) -> SimulationClawbotStatus:
+        # 1. 尝试定位 openclaw.json 配置文件（支持自定义路径、标准路径及容器内路径）
+        possible_paths: list[Path] = []
+        custom_cfg = os.getenv("OPENCLAW_CONFIG_PATH")
+        if custom_cfg:
+            possible_paths.append(Path(custom_cfg))
+        openclaw_home = os.getenv("OPENCLAW_HOME")
+        if openclaw_home:
+            possible_paths.append(Path(openclaw_home) / "openclaw.json")
+        try:
+            possible_paths.append(Path.home() / ".openclaw" / "openclaw.json")
         except Exception:
-            return SimulationClawbotStatus(enabled=False, configured=True)
+            pass
+        possible_paths.extend([
+            Path("/root/.openclaw/openclaw.json"),
+            Path("/app/.openclaw/openclaw.json"),
+            Path("data/.openclaw/openclaw.json"),
+        ])
+
+        cfg_data: dict[str, Any] | None = None
+        for p in possible_paths:
+            if p.is_file():
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        cfg_data = json.load(f)
+                    break
+                except Exception:
+                    pass
+
+        # 2. 提取配置信息（支持文件配置与环境变量混合）
+        provider_name = None
+        base_url = os.getenv("OPENCLAW_LLM_BASE_URL")
+        model_name = os.getenv("OPENCLAW_LLM_MODEL")
+        updated_at = None
+        gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
+        gateway_url = os.getenv("OPENCLAW_GATEWAY_URL")
+        configured = bool(os.getenv("OPENCLAW_LLM_API_KEY") or cfg_data)
+
+        if cfg_data:
+            providers = cfg_data.get("models", {}).get("providers", {})
+            if providers:
+                provider_name = next(iter(providers.keys()))
+                if not base_url:
+                    base_url = providers.get(provider_name, {}).get("baseUrl")
+            primary_model = cfg_data.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+            if primary_model and not model_name:
+                model_name = primary_model.split("/")[-1]
+            updated_at = cfg_data.get("meta", {}).get("lastTouchedAt")
+            gw = cfg_data.get("gateway", {})
+            if "port" in gw and not os.getenv("OPENCLAW_GATEWAY_PORT"):
+                try:
+                    gateway_port = int(gw["port"])
+                except (ValueError, TypeError):
+                    pass
+
+        if not provider_name:
+            if base_url and "tokenrhythm" in base_url.lower():
+                provider_name = "TokenRhythm Studio"
+            elif base_url:
+                provider_name = "Custom Provider"
+
+        if not model_name and configured:
+            model_name = "deepseek-v4-flash-0731"
+
+        # 3. 真实在线探测 (Real-time Live Online Probing)
+        is_online = False
+        active_gateway = None
+
+        if gateway_url:
+            try:
+                parsed = urllib.parse.urlparse(gateway_url)
+                host = parsed.hostname or "127.0.0.1"
+                port = parsed.port or gateway_port
+                if cls._probe_gateway(host, port):
+                    is_online = True
+                    active_gateway = gateway_url
+            except Exception:
+                pass
+
+        if not is_online:
+            # 候选网关探测（包括本地回路、Docker 宿主别名与 Linux 默认网桥）
+            candidates = [
+                ("127.0.0.1", gateway_port),
+                ("localhost", gateway_port),
+                ("host.docker.internal", gateway_port),
+                ("172.17.0.1", gateway_port),
+            ]
+            for host, port in candidates:
+                if cls._probe_gateway(host, port):
+                    is_online = True
+                    active_gateway = f"http://{host}:{port}"
+                    break
+
+        return SimulationClawbotStatus(
+            enabled=is_online,
+            is_online=is_online,
+            configured=configured,
+            provider=provider_name,
+            model=model_name,
+            base_url=base_url,
+            gateway_url=active_gateway or (gateway_url or f"http://127.0.0.1:{gateway_port}"),
+            updated_at=updated_at,
+        )
 
     def snapshot(self) -> SimulationMonitorSnapshot:
         with self._state_lock:

@@ -458,7 +458,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
 
                 <Tooltip title="点击查看微信 ClawBot 智能体状态与指令指南">
                   <Tag
-                    color={status?.clawbot?.enabled ? 'success' : (status?.clawbot?.configured ? 'warning' : 'default')}
+                    color={status?.clawbot?.is_online ? 'success' : (status?.clawbot?.configured ? 'warning' : 'default')}
                     style={{
                       cursor: 'pointer',
                       borderRadius: 12,
@@ -472,7 +472,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                     onClick={() => setClawbotOpen(true)}
                   >
                     <MessageCircle size={13} />
-                    微信 ClawBot: {status?.clawbot?.enabled ? `已就绪 (${status?.clawbot?.model || 'DeepSeek'})` : (status?.clawbot?.configured ? '未启用' : '未连接')}
+                    微信 ClawBot: {status?.clawbot?.is_online ? `在线 (${status?.clawbot?.model || 'DeepSeek'})` : (status?.clawbot?.configured ? '离线 (未启动)' : '未连接')}
                   </Tag>
                 </Tooltip>
 
@@ -940,9 +940,15 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       >
         <div style={{ paddingTop: 8 }}>
           <Alert
-            message="微信智能体双向交互已打通"
-            description="您可以在手机微信中随时发送指令给当前机器人，直接获取最新天梯战报与排名数据，或触发后台实时刷新。"
-            type={status?.clawbot?.enabled ? 'success' : 'info'}
+            message={status?.clawbot?.is_online ? '微信智能体双向交互已就绪' : status?.clawbot?.configured ? '微信智能体已配置，但网关离线' : '微信智能体未配置'}
+            description={
+              status?.clawbot?.is_online
+                ? '您可以在手机微信中随时发送指令给当前机器人，直接获取最新天梯战报与排名数据，或触发后台实时刷新。'
+                : status?.clawbot?.configured
+                ? '已读取到 LLM 配置文件，但当前未检测到正在监听的 OpenClaw 网关（端口 18789）。请确保已启动 openclaw gateway run。'
+                : '未检测到 OpenClaw 配置文件或环境变量。请参考 setup_openclaw.py 进行一键配置。'
+            }
+            type={status?.clawbot?.is_online ? 'success' : status?.clawbot?.configured ? 'warning' : 'info'}
             showIcon
             style={{ marginBottom: 16 }}
           />
@@ -950,14 +956,14 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
           <Card size="small" style={{ marginBottom: 16, background: '#f8fafc' }}>
             <Row gutter={[12, 10]}>
               <Col span={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>机器人运行状态</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>网关活跃状态</Text>
                 <div style={{ marginTop: 2 }}>
-                  {status?.clawbot?.enabled ? (
-                    <Tag color="success" style={{ fontWeight: 700 }}>🟢 微信长连接已就绪</Tag>
+                  {status?.clawbot?.is_online ? (
+                    <Tag color="success" style={{ fontWeight: 700 }}>🟢 端口 18789 活跃</Tag>
                   ) : status?.clawbot?.configured ? (
-                    <Tag color="warning">🟡 已配置但未开启插件</Tag>
+                    <Tag color="warning">🟡 已配置 · 网关离线</Tag>
                   ) : (
-                    <Tag color="default">⚪ 未检测到本地配置</Tag>
+                    <Tag color="default">⚪ 未检测到配置</Tag>
                   )}
                 </div>
               </Col>
@@ -974,9 +980,9 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 </div>
               </Col>
               <Col span={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>接口网关地址</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>网关连接目标</Text>
                 <div style={{ marginTop: 2, color: '#334155', fontSize: 12, wordBreak: 'break-all' }}>
-                  {status?.clawbot?.base_url || 'https://tokenrhythm.studio/v1'}
+                  {status?.clawbot?.gateway_url || 'http://127.0.0.1:18789'}
                 </div>
               </Col>
             </Row>

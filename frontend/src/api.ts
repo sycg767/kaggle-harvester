@@ -430,11 +430,14 @@ export interface SimulationMonitorConfig {
 
 export interface SimulationClawbotStatus {
   enabled: boolean;
+  is_online?: boolean;
   configured: boolean;
   provider?: string;
   model?: string;
   base_url?: string;
+  gateway_url?: string;
   account_id?: string;
+  error?: string;
   updated_at?: string;
 }
 
