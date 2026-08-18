@@ -52,12 +52,16 @@ if ! grep -qE '(^|[[:space:]])frontend($|[[:space:]])' <<< "$running_services"; 
   fail 'frontend 容器没有进入 running 状态。'
 fi
 
-log '同步 OpenClaw 使用的微信辅助脚本'
+log '同步 OpenClaw 使用的微信辅助脚本与配置'
 TARGET_SCRIPT="$OPENCLAW_REPO_DIR/backend/harvester/wechat_bot.py"
 install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 755 "$(dirname "$TARGET_SCRIPT")"
 install -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 644 \
   "$REPO_DIR/backend/harvester/wechat_bot.py" \
   "$TARGET_SCRIPT"
+
+if [[ -f "$REPO_DIR/scripts/setup_openclaw.py" ]]; then
+  python3 "$REPO_DIR/scripts/setup_openclaw.py" || true
+fi
 
 log '部署完成'
 docker compose --env-file "$COMPOSE_ENV_FILE" ps
