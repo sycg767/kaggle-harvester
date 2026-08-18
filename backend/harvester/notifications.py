@@ -335,10 +335,11 @@ class NotificationManager:
         webhook_url: str,
         smtp_password: str,
     ) -> None:
-        if (config.webhook_enabled or config.email_enabled) and not (
+        if (config.wechat_enabled or config.webhook_enabled or config.email_enabled) and not (
             config.notify_on_archive
             or config.notify_on_failure
             or config.notify_on_score
+            or config.notify_on_simulation
         ):
             raise ValueError("至少选择一种通知事件。")
         if config.webhook_enabled:
@@ -385,6 +386,8 @@ class NotificationManager:
             "notify_on_archive",
             "notify_on_failure",
             "notify_on_score",
+            "notify_on_simulation",
+            "wechat_enabled",
             "webhook_enabled",
             "webhook_format",
             "email_enabled",

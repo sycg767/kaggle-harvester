@@ -581,11 +581,13 @@ async def update_notifications(request: NotificationConfigUpdate):
 
 
 @app.post("/api/notifications/test", response_model=NotificationTestResult)
-async def test_notifications(request: NotificationConfigUpdate):
+async def test_notifications(request: Optional[NotificationConfigUpdate] = None):
     """测试当前提供/已保存的通知通道。"""
     manager: NotificationManager = app.state.notifications
     try:
-        return await manager.test_channels(request)
+        if request is not None and request.model_dump(exclude_unset=True):
+            await manager.update_config(request)
+        return await manager.send_test()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

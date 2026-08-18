@@ -761,8 +761,11 @@ export const api = {
     });
   },
 
-  testNotifications(): Promise<NotificationTestResult> {
-    return request('/notifications/test', { method: 'POST' });
+  testNotifications(payload?: NotificationConfigUpdate): Promise<NotificationTestResult> {
+    return request('/notifications/test', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
   },
 
   getSubmissionMonitor(): Promise<SubmissionMonitorSnapshot> {
