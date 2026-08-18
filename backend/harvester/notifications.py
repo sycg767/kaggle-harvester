@@ -623,21 +623,39 @@ class NotificationManager:
                 else "—"
             )
 
+            agent_alias = "p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"#{sub_id}")
+
             if ev_type == "new_episodes":
                 new_matches = item.get("new_matches", 1)
                 total = item.get("total_matches", 0)
                 win_rate = item.get("win_rate", 0)
                 wins = item.get("wins", 0)
                 losses = item.get("losses", 0)
-                title = f"Kaggle Harvester：Agent #{sub_id} 完成 {new_matches} 场新对战"
+                opp_name = item.get("opponent_name")
+                opp_score = item.get("opponent_score")
+                opp_str = f"vs {opp_name}" if opp_name else ""
+                if opp_score is not None:
+                    opp_str += f" ({opp_score:.0f}分)"
+                res_code = item.get("result")
+                res_str = "胜利" if res_code == "win" else ("战败" if res_code == "loss" else ("平局" if res_code == "tie" else ""))
+                delta = item.get("score_delta")
+                delta_str = f"{delta:+.1f}分" if delta is not None else ""
+                
+                match_summary = f"{opp_str} {res_str} {delta_str}".strip()
+
+                title = f"🏆 Kaggle Harvester：Agent {agent_alias} 完成 {new_matches} 场新对战"
                 lines = [
                     f"竞赛：{competition}",
-                    f"提交 ID：{sub_id}",
-                    f"描述：{desc}",
-                    f"战绩更新：{wins} 胜 / {losses} 负（胜率 {win_rate:.1f}%，累计 {total} 场）",
-                    f"天梯排位：{rank_str}，当前分数 {score_str}，铜牌差距 {gap_str}",
-                    f"更新时间：{_format_beijing_time(finished)}",
+                    f"代理：Agent {agent_alias} (Sub #{sub_id})",
                 ]
+                if match_summary:
+                    lines.append(f"最新对局：{match_summary}")
+                lines.extend([
+                    f"当前天梯：{score_str}（{rank_str}）",
+                    f"铜牌分差：{gap_str}",
+                    f"战绩统计：{wins} 胜 / {losses} 负（胜率 {win_rate:.1f}%，累计 {total} 场）",
+                    f"结算时间：{_format_beijing_time(finished)}",
+                ])
                 event_id = f"sim_episodes::{competition}::{sub_id}::{total}::{finished}"
             elif ev_type == "medal_change":
                 cur_medal = str(item.get("current_medal") or "")
@@ -650,14 +668,14 @@ class NotificationManager:
                 }
                 cur_label = medal_labels.get(cur_medal, cur_medal)
                 prev_label = medal_labels.get(prev_medal, prev_medal)
-                title = f"Kaggle Harvester：Agent #{sub_id} 奖牌线变动 [{prev_label} ➔ {cur_label}]"
+                title = f"🎖️ Kaggle Harvester：Agent {agent_alias} 奖牌线变动 [{prev_label} ➔ {cur_label}]"
                 lines = [
                     f"竞赛：{competition}",
-                    f"提交 ID：{sub_id}",
-                    f"描述：{desc}",
+                    f"代理：Agent {agent_alias} (Sub #{sub_id})",
                     f"奖牌状态：从 {prev_label} 变为 {cur_label}",
-                    f"天梯排位：{rank_str}，当前分数 {score_str}，铜牌分差 {gap_str}",
-                    f"更新时间：{_format_beijing_time(finished)}",
+                    f"当前天梯：{score_str}（{rank_str}）",
+                    f"铜牌分差：{gap_str}",
+                    f"结算时间：{_format_beijing_time(finished)}",
                 ]
                 event_id = f"sim_medal::{competition}::{sub_id}::{cur_medal}::{finished}"
             else:

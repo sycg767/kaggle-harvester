@@ -592,6 +592,7 @@ class SimulationMonitorManager:
                 new_cnt = total - prev_cnt
                 new_episodes_total += new_cnt
                 if config.notify_on_new_matches or config.notify_on_new_episodes:
+                    latest_ep = episodes[0] if episodes else None
                     events_to_notify.append({
                         "type": "new_episodes",
                         "submission_id": sub_id,
@@ -604,6 +605,10 @@ class SimulationMonitorManager:
                         "public_score": score,
                         "rank": rank,
                         "bronze_gap_score": bronze_gap_score,
+                        "opponent_name": latest_ep.opponent_team_name if latest_ep else None,
+                        "opponent_score": latest_ep.opponent_score if latest_ep else None,
+                        "result": latest_ep.result if latest_ep else None,
+                        "score_delta": latest_ep.score_delta if latest_ep else None,
                     })
 
             if prev_tier is not None and prev_tier != medal_tier and medal_tier != "unknown":
