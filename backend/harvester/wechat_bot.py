@@ -47,7 +47,7 @@ def format_message(data: dict) -> str:
     silver_rank = thresholds.get("silver_cutoff_rank", 340)
     bronze_rank = thresholds.get("bronze_cutoff_rank", 680)
 
-    lines = ["【Pokemon TCG AI 对战实时战报】", ""]
+    lines = ["📊 Pokemon TCG AI 实时战报", ""]
 
     for idx, a in enumerate(agents):
         sub_id = a.get("submission_id")
@@ -55,9 +55,10 @@ def format_message(data: dict) -> str:
         score = a.get("score") or a.get("public_score") or 0.0
         rank = a.get("rank") or "—"
         tier = a.get("medal_tier", "none")
-        tier_label = "金牌线内" if tier == "gold" else ("银牌线内" if tier == "silver" else ("铜牌线内" if tier == "bronze" else "暂无奖牌"))
+        tier_icon = "🥇" if tier == "gold" else ("🥈" if tier == "silver" else ("🥉" if tier == "bronze" else "⚪"))
+        tier_label = "金牌区" if tier == "gold" else ("银牌区" if tier == "silver" else ("铜牌区" if tier == "bronze" else "暂无奖牌"))
         gap = a.get("bronze_gap_score")
-        gap_str = f"高于铜牌线 +{gap}分" if (gap is not None and gap >= 0) else (f"距铜牌线还差 {gap}分" if gap is not None else "")
+        gap_str = f"高于铜牌线 +{gap:.1f}分" if (gap is not None and gap >= 0) else (f"距铜牌线还差 {gap:.1f}分" if gap is not None else "")
         
         wins = a.get("wins", 0)
         losses = a.get("losses", 0)
@@ -71,23 +72,21 @@ def format_message(data: dict) -> str:
             opp_score = latest.get("opponent_score")
             opp_score_str = f" ({opp_score:.0f}分)" if opp_score else ""
             delta = latest.get("score_delta")
-            res = "胜利" if latest.get("result") == "win" else ("战败" if latest.get("result") == "loss" else "平局")
+            res = "胜利 🎉" if latest.get("result") == "win" else ("战败 ❌" if latest.get("result") == "loss" else "平局")
             delta_str = f"{delta:+.1f}分" if delta is not None else ""
-            last_ep_str = f"最新战况: vs {opp}{opp_score_str} {res} {delta_str}"
+            last_ep_str = f"最新: vs {opp}{opp_score_str} {res} {delta_str}"
 
-        lines.append(f"Agent {label} (Sub #{sub_id})")
-        lines.append(f"• 天梯积分: {score:.1f} 分 (第 {rank} 名 | {tier_label})")
+        lines.append(f"【Agent {label}】(Sub #{sub_id})")
+        lines.append(f"• 积分: {score:.1f} 分 | 第 {rank} 名 | {tier_icon} {tier_label}")
         if gap_str:
-            lines.append(f"• 铜牌安全垫: {gap_str}")
-        lines.append(f"• 战绩胜率: {win_rate:.1f}% ({wins}胜 / {losses}负)")
+            lines.append(f"• 安全垫: {gap_str}")
+        lines.append(f"• 战绩: {win_rate:.1f}% ({wins}胜 / {losses}负)")
         if last_ep_str:
             lines.append(f"• {last_ep_str}")
         lines.append("")
 
-    lines.append(f"奖牌线切分（总参赛队伍: {total_teams} 队）")
-    lines.append(f"• 金牌线: {gold_score:.1f} 分 (Top {gold_rank})")
-    lines.append(f"• 银牌线: {silver_score:.1f} 分 (Top {silver_rank})")
-    lines.append(f"• 铜牌线: {bronze_score:.1f} 分 (Top {bronze_rank})")
+    lines.append(f"【奖牌线】(总参赛 {total_teams} 队)")
+    lines.append(f"• 金牌: {gold_score:.1f} 分 | 银牌: {silver_score:.1f} 分 | 铜牌: {bronze_score:.1f} 分")
     
     return "\n".join(lines)
 
