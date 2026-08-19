@@ -326,68 +326,172 @@ export const Dashboard: React.FC = () => {
                 <Row gutter={[14, 14]} style={{ marginBottom: 16 }}>
                   {/* Agent p46 */}
                   <Col xs={24} sm={12}>
-                    <div
-                      style={{
-                        background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
-                        border: '1px solid #bbf7d0',
-                        borderRadius: 10,
-                        padding: '14px 16px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <Tag color="green" style={{ fontWeight: 700, margin: 0 }}>
-                          Agent p46 (#55565346)
-                        </Tag>
-                        <Tag color="orange" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>
-                          🥉 铜牌线内
-                        </Tag>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontSize: 26, fontWeight: 900, color: '#166534' }}>
-                          {formatScore(p46?.score || p46?.public_score)}
-                        </span>
-                        <span style={{ fontSize: 12, color: '#15803d' }}>
-                          分 (第 {p46?.rank || 580} 名)
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: '#166534', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
-                        <span>胜率: {p46?.win_rate?.toFixed(1) || '52.9'}% ({p46?.wins || 37}胜/{p46?.losses || 33}负)</span>
-                        <span style={{ fontWeight: 700 }}>安全垫: +{p46?.bronze_gap_score ?? '19.0'}分</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const scoreVal = p46?.score ?? p46?.public_score;
+                      const gap = p46?.bronze_gap_score;
+                      const isAboveBronze = (gap !== undefined && gap !== null && gap >= 0)
+                        || p46?.medal_tier === 'bronze'
+                        || p46?.medal_tier === 'silver'
+                        || p46?.medal_tier === 'gold';
+                      const ep = p46?.recent_episodes?.[0];
+                      const opp = ep?.opponent_team_name || '';
+                      const res = ep?.result === 'win' ? '胜' : (ep?.result === 'loss' ? '负' : (ep?.result === 'tie' ? '平' : ''));
+                      const resColor = ep?.result === 'win' ? '#16a34a' : (ep?.result === 'loss' ? '#e11d48' : '#64748b');
+                      const delta = ep?.score_delta !== undefined ? (ep.score_delta >= 0 ? `+${ep.score_delta.toFixed(1)}` : ep.score_delta.toFixed(1)) : '';
+
+                      return (
+                        <div
+                          style={{
+                            background: isAboveBronze
+                              ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
+                              : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                            border: isAboveBronze ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
+                            borderRadius: 10,
+                            padding: '14px 16px',
+                            height: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                              <Tag color="green" style={{ fontWeight: 700, margin: 0 }}>
+                                Agent p46 {p46 ? `(#${p46.submission_id})` : '(#55565346)'}
+                              </Tag>
+                              {p46?.medal_tier === 'gold' ? (
+                                <Tag color="gold" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>🥇 金牌区</Tag>
+                              ) : p46?.medal_tier === 'silver' ? (
+                                <Tag color="cyan" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>🥈 银牌区</Tag>
+                              ) : isAboveBronze ? (
+                                <Tag color="orange" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>🥉 铜牌线内</Tag>
+                              ) : gap !== undefined && gap !== null ? (
+                                <Tag color="default">距铜牌 {gap.toFixed(1)}分</Tag>
+                              ) : (
+                                <Tag color="default">未入围</Tag>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                              <span style={{ fontSize: 26, fontWeight: 900, color: isAboveBronze ? '#166534' : '#334155' }}>
+                                {formatScore(scoreVal)}
+                              </span>
+                              <span style={{ fontSize: 12, color: isAboveBronze ? '#15803d' : '#64748b' }}>
+                                分 ({p46?.rank ? `第 ${p46.rank} 名` : '未上榜'})
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 12, color: isAboveBronze ? '#166534' : '#475569', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span>胜率: {p46?.win_rate !== undefined ? p46.win_rate.toFixed(1) : '—'}% ({p46?.wins ?? 0}胜/{p46?.losses ?? 0}负)</span>
+                              {gap !== undefined && gap !== null ? (
+                                gap >= 0 ? (
+                                  <span style={{ fontWeight: 700, color: '#16a34a' }}>安全垫: +{gap.toFixed(1)}分</span>
+                                ) : (
+                                  <span style={{ fontWeight: 700, color: '#e11d48' }}>距铜牌: {gap.toFixed(1)}分</span>
+                                )
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>安全垫: —</span>
+                              )}
+                            </div>
+                            <div style={{ borderTop: isAboveBronze ? '1px solid rgba(22, 101, 52, 0.1)' : '1px solid #e2e8f0', paddingTop: 4 }}>
+                              {ep ? (
+                                <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>
+                                  最新: vs {opp.length > 12 ? opp.slice(0, 12) + '..' : opp} <span style={{ color: resColor }}>{res} {delta}</span>
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 12, color: '#94a3b8' }}>暂无近期对局记录</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </Col>
 
                   {/* Agent p31 */}
                   <Col xs={24} sm={12}>
-                    <div
-                      style={{
-                        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: 10,
-                        padding: '14px 16px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <Tag color="purple" style={{ fontWeight: 700, margin: 0 }}>
-                          Agent p31 (#55555162)
-                        </Tag>
-                        <Tag color="default">
-                          距铜牌 -62.4分
-                        </Tag>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontSize: 26, fontWeight: 900, color: '#334155' }}>
-                          {formatScore(p31?.score || p31?.public_score)}
-                        </span>
-                        <span style={{ fontSize: 12, color: '#64748b' }}>
-                          分 (第 {p31?.rank || 580} 名)
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: '#475569', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
-                        <span>胜率: {p31?.win_rate?.toFixed(1) || '57.4'}% ({p31?.wins || 35}胜/{p31?.losses || 26}负)</span>
-                        <span style={{ color: '#0284c7', fontWeight: 600 }}>最新: vs DaoHe Liu 胜 +3.9</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const scoreVal = p31?.score ?? p31?.public_score;
+                      const gap = p31?.bronze_gap_score;
+                      const isAboveBronze = (gap !== undefined && gap !== null && gap >= 0)
+                        || p31?.medal_tier === 'bronze'
+                        || p31?.medal_tier === 'silver'
+                        || p31?.medal_tier === 'gold';
+                      const ep = p31?.recent_episodes?.[0];
+                      const opp = ep?.opponent_team_name || '';
+                      const res = ep?.result === 'win' ? '胜' : (ep?.result === 'loss' ? '负' : (ep?.result === 'tie' ? '平' : ''));
+                      const resColor = ep?.result === 'win' ? '#16a34a' : (ep?.result === 'loss' ? '#e11d48' : '#64748b');
+                      const delta = ep?.score_delta !== undefined ? (ep.score_delta >= 0 ? `+${ep.score_delta.toFixed(1)}` : ep.score_delta.toFixed(1)) : '';
+
+                      return (
+                        <div
+                          style={{
+                            background: isAboveBronze
+                              ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
+                              : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                            border: isAboveBronze ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
+                            borderRadius: 10,
+                            padding: '14px 16px',
+                            height: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                              <Tag color="purple" style={{ fontWeight: 700, margin: 0 }}>
+                                Agent p31 {p31 ? `(#${p31.submission_id})` : '(#55555162)'}
+                              </Tag>
+                              {p31?.medal_tier === 'gold' ? (
+                                <Tag color="gold" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>🥇 金牌区</Tag>
+                              ) : p31?.medal_tier === 'silver' ? (
+                                <Tag color="cyan" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>🥈 银牌区</Tag>
+                              ) : isAboveBronze ? (
+                                <Tag color="orange" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>🥉 铜牌线内</Tag>
+                              ) : gap !== undefined && gap !== null ? (
+                                <Tag color="default">距铜牌 {gap.toFixed(1)}分</Tag>
+                              ) : (
+                                <Tag color="default">未入围</Tag>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                              <span style={{ fontSize: 26, fontWeight: 900, color: isAboveBronze ? '#166534' : '#334155' }}>
+                                {formatScore(scoreVal)}
+                              </span>
+                              <span style={{ fontSize: 12, color: isAboveBronze ? '#15803d' : '#64748b' }}>
+                                分 ({p31?.rank ? `第 ${p31.rank} 名` : '未上榜'})
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 12, color: isAboveBronze ? '#166534' : '#475569', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span>胜率: {p31?.win_rate !== undefined ? p31.win_rate.toFixed(1) : '—'}% ({p31?.wins ?? 0}胜/{p31?.losses ?? 0}负)</span>
+                              {gap !== undefined && gap !== null ? (
+                                gap >= 0 ? (
+                                  <span style={{ fontWeight: 700, color: '#16a34a' }}>安全垫: +{gap.toFixed(1)}分</span>
+                                ) : (
+                                  <span style={{ fontWeight: 700, color: '#e11d48' }}>距铜牌: {gap.toFixed(1)}分</span>
+                                )
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>安全垫: —</span>
+                              )}
+                            </div>
+                            <div style={{ borderTop: isAboveBronze ? '1px solid rgba(22, 101, 52, 0.1)' : '1px solid #e2e8f0', paddingTop: 4 }}>
+                              {ep ? (
+                                <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>
+                                  最新: vs {opp.length > 12 ? opp.slice(0, 12) + '..' : opp} <span style={{ color: resColor }}>{res} {delta}</span>
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 12, color: '#94a3b8' }}>暂无近期对局记录</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </Col>
                 </Row>
 
@@ -402,7 +506,11 @@ export const Dashboard: React.FC = () => {
                     </Space>
                   </div>
                   <Progress
-                    percent={88}
+                    percent={(() => {
+                      const topScore = Math.max(p46?.score || p46?.public_score || 0, p31?.score || p31?.public_score || 0);
+                      const goldCutoff = thresholds?.gold_cutoff_score || 1131.9;
+                      return goldCutoff > 0 ? Math.min(100, Math.max(0, Math.round((topScore / goldCutoff) * 100))) : 0;
+                    })()}
                     showInfo={false}
                     strokeColor={{
                       '0%': '#3b82f6',
