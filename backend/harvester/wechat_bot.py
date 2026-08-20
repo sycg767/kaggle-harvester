@@ -65,7 +65,7 @@ def format_beijing_time(raw_time):
     except Exception:
         return ""
 
-def get_status_text(show_history=False):
+def get_status_text(history_only=False):
     # 1. 优先尝试从运行中的 FastAPI 接口获取实时快照
     try:
         headers = {}
@@ -74,7 +74,7 @@ def get_status_text(show_history=False):
         r = httpx.get(HARVESTER_API_URL, headers=headers, timeout=5.0)
         if r.status_code == 200:
             data = r.json()
-            return format_message(data, show_history=show_history)
+            return format_message(data, history_only=history_only)
     except Exception:
         pass
 
@@ -86,11 +86,11 @@ def get_status_text(show_history=False):
         data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
         mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
         snap = mgr.snapshot()
-        return format_message(snap.model_dump(), show_history=show_history)
+        return format_message(snap.model_dump(), history_only=history_only)
     except Exception as e:
         return f"战报获取失败: {str(e)[:200]}"
 
-def format_message(data, show_history=False):
+def format_message(data, history_only=False):
     status = data.get("status", {})
     agents = status.get("agents", [])
     thresholds = status.get("thresholds") or status.get("medal_thresholds") or {}
@@ -108,7 +108,7 @@ def format_message(data, show_history=False):
         except Exception:
             now_bj = datetime.now().strftime("%H:%M")
 
-    if show_history:
+    if history_only:
         lines = [f"📋 最近对局流水时间一览 (北京时间 {now_bj})", ""]
         for a in agents:
             sub_id = a.get("submission_id")
@@ -144,30 +144,26 @@ def format_message(data, show_history=False):
         win_rate = a.get("win_rate", 0.0)
         
         eps = a.get("recent_episodes", [])
-        last_ep_str = ""
-        if eps:
-            latest = eps[0]
-            opp = latest.get("opponent_team_name") or "对手"
-            opp_score = latest.get("opponent_score")
-            opp_score_str = f" ({opp_score:.0f}分)" if opp_score else ""
-            delta = latest.get("score_delta")
-            res = "胜利 🎉" if latest.get("result") == "win" else ("战败 ❌" if latest.get("result") == "loss" else "平局")
-            delta_str = f"{delta:+.1f}分" if delta is not None else ""
-            
-            # 格式化对局完成的北京时间
-            ep_time_raw = latest.get("end_time") or latest.get("create_time")
-            ep_time_bj = format_beijing_time(ep_time_raw)
-            time_tag = f"[{ep_time_bj} 完赛] " if ep_time_bj else ""
-
-            last_ep_str = f"最新: {time_tag}vs {opp}{opp_score_str} {res} {delta_str}"
 
         lines.append(f"【Agent {label}】(Sub #{sub_id})")
         lines.append(f"• 积分: {score:.1f} 分 | 第 {rank} 名 | {tier_icon} {tier_label}")
         if gap_str:
             lines.append(f"• 安全垫: {gap_str}")
         lines.append(f"• 战绩: {win_rate:.1f}% ({wins}胜 / {losses}负)")
-        if last_ep_str:
-            lines.append(f"• {last_ep_str}")
+        
+        if eps:
+            lines.append("• 近期对局 (北京时间):")
+            for ep in eps[:5]:
+                opp = ep.get("opponent_team_name") or "对手"
+                opp_score = ep.get("opponent_score")
+                opp_score_str = f"({opp_score:.0f}分)" if opp_score else ""
+                delta = ep.get("score_delta")
+                res = "胜" if ep.get("result") == "win" else ("负" if ep.get("result") == "loss" else "平")
+                delta_str = f"{delta:+.1f}分" if delta is not None else ""
+                ep_time_raw = ep.get("end_time") or ep.get("create_time")
+                ep_time_bj = format_beijing_time(ep_time_raw) or "--:--"
+                lines.append(f"  - [{ep_time_bj}] {res} vs {opp} {opp_score_str} {delta_str}".rstrip())
+
         lines.append("")
 
     lines.append(f"【奖牌线】(总参赛 {total_teams} 队)")
@@ -176,5 +172,5 @@ def format_message(data, show_history=False):
     return "\n".join(lines)
 
 if __name__ == "__main__":
-    is_history = any(arg in sys.argv for arg in ["--history", "history", "--all", "-h", "time", "对局", "时间"])
-    print(get_status_text(show_history=is_history))
+    is_history_only = any(arg in sys.argv for arg in ["--history-only", "--only-history"])
+    print(get_status_text(history_only=is_history_only))

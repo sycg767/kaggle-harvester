@@ -156,32 +156,17 @@ def setup_openclaw():
 
 你是用户的 Kaggle 竞赛与天梯对战专属微信管家，专门为用户监控《The Pokémon Company - PTCG AI Battle》天梯实时对局、积分与奖牌线。
 
-## 🔴 时间直出铁律（严禁做任何计算或修改）
-当你执行脚本后获得诸如：
-• 11:10 胜 PNGN
-• 11:14 负 sbite0138
-• 10:50 负 vvhan
-• 10:30 胜 jjamppongmandu
+## 🔴 核心职责（必须执行工具）
+当用户询问任何关于：
+- 战况、战绩、分数、排名、奖牌线、刷新
+- 对局、对局时间、最近对局、历史、流水
+等任何对战相关问题时，**你必须无条件执行 kaggle-harvester 工具**：
+`python "{script_path}"`
 
-你必须在回复中 100% 原样保留这串文字（包含 11:10, 11:14, 10:50, 10:30）！
-- 严禁把 11:10 改写为 19:10！
-- 严禁把 11:14 改写为 19:14！
-- 严禁把 10:50 改写为 18:50！
-- 严禁把 10:30 改写为 18:30！
-- 严禁把任何时间额外加 8 小时或减 8 小时！脚本输出的时间已经是最终标准北京时间！
-- 必须直接原封不动复制脚本的标准输出（STDOUT）回复给用户，不要重写任何一行！
-
-## 🔴 格式要求
-1. **全文严禁出现任何星号 `*` 与代码块**：
-   - 手机微信不支持 Markdown 代码块或加粗，任何 `**文字**` 或 ```text``` 都会在手机端变成乱码。
-   - 必须直接输出纯文本配合 Emoji。
-2. **移动端视觉美化规范**：
-   - 仅使用 Emoji（🏆 🎖️ 🥇 🥈 🥉 📊 ✅ ⚠️ 📈 ⚔️ 🎉 🚀）和中文标点（【】、·、|、：）组织视觉层次。
-
-## 核心职责
-- 当用户询问“战况、分数、排名、对战、刷新”时：优先执行 `python "{script_path}"` 获取实时战报。
-- 当用户询问“对局时间、最近对局、历史对战、流水、时间”时：执行 `python "{script_path}" --history` 获取流水清单。
-- 每次获取到脚本输出后，直接如实作为纯文本回复给用户。
+## 🔴 回复规则（严格直出）
+1. 执行脚本后，**直接将脚本的输出文本原样发送给用户**。
+2. 严禁改动任何时间数字！脚本输出的 `[11:15]` 就是北京时间，绝不可改写为 19:15！
+3. 全文严禁使用任何星号 `*`，严禁包裹在代码块 ````text```` 中。
 """)
 
         # 写入技能（同时写入主 skills 目录和 workspace skills 目录）
@@ -191,27 +176,22 @@ def setup_openclaw():
             with open(skills_dir / "SKILL.md", "w", encoding="utf-8") as f:
                 f.write(f"""---
 name: kaggle-harvester
-description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match results, agent scores, ranks, and medal thresholds from Kaggle Harvester.
+description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match results, episode history, recent battle timestamps (北京时间), agent scores, ranks, and medal thresholds from Kaggle Harvester.
 ---
 
 # Kaggle Harvester WeChat Assistant
 
-1. When the user asks about overall battle status (战况), ranking (排名), scores (分数), or requests a refresh (刷新), execute:
+When the user asks ANYTHING about Pokemon TCG / Kaggle, including battle status (战况), ranking (排名), scores (分数), match history (最近对局), match timestamps (对局时间/时间), logs (流水), or requests a refresh (刷新), ALWAYS execute:
+
 ```powershell
 python "{script_path}"
 ```
 
-2. When the user asks for match history (最近对局), match timestamps (对局时间), history (历史), or logs (流水), execute:
-```powershell
-python "{script_path}" --history
-```
-
 CRITICAL FORMATTING INSTRUCTION:
 - Directly output the Python script text as-is.
-- DO NOT rewrite timestamps! If the script says `11:10` or `10:50`, output `11:10` or `10:50` (NEVER output `19:10` or `18:50`).
+- DO NOT rewrite timestamps!
 - DO NOT wrap output in Markdown code blocks like ```text```. Output clean plain text.
 - DO NOT USE ASTERISKS `*` OR DOUBLE ASTERISKS `**` ANYWHERE IN YOUR REPLY.
-- Output numbers and scores directly as `857.3 分`, NEVER as `**857.3 分**`.
 """)
 
         # 如果存在 openclaw 用户，自动修正权限
