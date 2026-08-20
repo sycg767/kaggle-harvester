@@ -83,6 +83,15 @@ def setup_openclaw():
             }
         }
 
+        # 清理此前可能遗留的非标准键
+        cfg.pop("timezone", None)
+        if "agents" in cfg and "defaults" in cfg["agents"]:
+            cfg["agents"]["defaults"].pop("userTimezone", None)
+        if "skills" in cfg and "entries" in cfg["skills"]:
+            cfg["skills"]["entries"].pop("kaggle-harvester", None)
+            if not cfg["skills"]["entries"]:
+                cfg.pop("skills", None)
+
         if "plugins" not in cfg:
             cfg["plugins"] = {"entries": {}}
         if "entries" not in cfg["plugins"]:
@@ -92,12 +101,12 @@ def setup_openclaw():
             "enabled": True
         }
 
-        if "tools" not in cfg:
-            cfg["tools"] = {}
-        cfg["tools"]["profile"] = "coding"
-        cfg["tools"]["alsoAllow"] = [
-            "group:messaging"
-        ]
+        cfg["tools"] = {
+            "profile": "coding",
+            "alsoAllow": [
+                "group:messaging"
+            ]
+        }
             
         cfg["gateway"] = {
             "mode": "local",

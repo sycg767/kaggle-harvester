@@ -64,6 +64,9 @@ if [[ -f "$REPO_DIR/scripts/setup_openclaw.py" ]]; then
   python3 "$REPO_DIR/scripts/setup_openclaw.py" || true
 fi
 
+# 自动修复并对齐 OpenClaw 配置
+su - "$OPENCLAW_USER" -c "openclaw doctor --fix" 2>/dev/null || true
+
 log '重启 OpenClaw 进程以热加载最新配置与提示词'
 pkill -u "$OPENCLAW_USER" -f openclaw || true
 for _ in {1..10}; do
