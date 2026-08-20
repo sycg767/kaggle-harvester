@@ -65,6 +65,16 @@ fi
 
 log '重启 OpenClaw 进程以热加载最新配置与提示词'
 sudo -u "$OPENCLAW_USER" systemctl --user restart openclaw 2>/dev/null || pkill -u "$OPENCLAW_USER" -f openclaw || true
+sleep 1
+if ! pgrep -u "$OPENCLAW_USER" -f "openclaw" >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node || echo '/usr/local/lib/nodejs/node-v24.19.0-linux-x64/bin/node')"
+  OPENCLAW_JS="/usr/local/lib/nodejs/node-v24.19.0-linux-x64/lib/node_modules/openclaw/dist/index.js"
+  if [[ -f "$OPENCLAW_JS" ]]; then
+    sudo -u "$OPENCLAW_USER" nohup "$NODE_BIN" "$OPENCLAW_JS" gateway --port 18789 > /home/"$OPENCLAW_USER"/.openclaw/gateway.log 2>&1 &
+  elif command -v openclaw >/dev/null 2>&1; then
+    sudo -u "$OPENCLAW_USER" nohup openclaw gateway --port 18789 > /home/"$OPENCLAW_USER"/.openclaw/gateway.log 2>&1 &
+  fi
+fi
 
 log '部署完成'
 docker compose --env-file "$COMPOSE_ENV_FILE" ps
