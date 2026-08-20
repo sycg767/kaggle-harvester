@@ -88,9 +88,7 @@ def setup_openclaw():
             cfg["plugins"]["entries"] = {}
 
         cfg["plugins"]["entries"]["openclaw-weixin"] = {
-            "enabled": True,
-            "autoForwardNotify": True,
-            "defaultNotifyTarget": "last_active_user"
+            "enabled": True
         }
             
         cfg["gateway"] = {
@@ -99,11 +97,6 @@ def setup_openclaw():
             "auth": {
                 "mode": "token",
                 "token": "kaggle-harvester-claw-token"
-            },
-            "notify": {
-                "defaultTarget": "last_active_user",
-                "channel": "openclaw-weixin",
-                "autoForwardToWeixin": True
             }
         }
 
