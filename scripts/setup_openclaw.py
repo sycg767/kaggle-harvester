@@ -90,6 +90,26 @@ def setup_openclaw():
         cfg["plugins"]["entries"]["openclaw-weixin"] = {
             "enabled": True
         }
+
+        if "skills" not in cfg:
+            cfg["skills"] = {"entries": {}}
+        if "entries" not in cfg["skills"]:
+            cfg["skills"]["entries"] = {}
+        cfg["skills"]["entries"]["kaggle-harvester"] = {
+            "enabled": True
+        }
+
+        if "tools" not in cfg:
+            cfg["tools"] = {}
+        cfg["tools"]["profile"] = "coding"
+        cfg["tools"]["alsoAllow"] = [
+            "group:messaging",
+            "group:terminal",
+            "group:fs",
+            "bash",
+            "process",
+            "kaggle-harvester"
+        ]
             
         cfg["gateway"] = {
             "mode": "local",
@@ -108,10 +128,20 @@ def setup_openclaw():
         workspace_dir = openclaw_dir / "workspace"
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
-        # 移除出厂引导文件
-        bootstrap_file = workspace_dir / "BOOTSTRAP.md"
-        if bootstrap_file.exists():
-            bootstrap_file.unlink()
+        # 清理旧的幻觉记忆文件
+        for mem_file in [workspace_dir / "MEMORY.md", workspace_dir / "BOOTSTRAP.md"]:
+            if mem_file.exists():
+                try:
+                    mem_file.unlink()
+                except Exception:
+                    pass
+        for mem_dir in [workspace_dir / "memory", openclaw_dir / "memory", openclaw_dir / "sessions"]:
+            if mem_dir.exists():
+                try:
+                    import shutil
+                    shutil.rmtree(mem_dir, ignore_errors=True)
+                except Exception:
+                    pass
 
         # 写入身份设定
         with open(workspace_dir / "IDENTITY.md", "w", encoding="utf-8") as f:
@@ -154,11 +184,12 @@ def setup_openclaw():
 - 每次获取到脚本输出后，直接如实作为纯文本回复给用户。
 """)
 
-        # 写入技能
-        skills_dir = openclaw_dir / "skills" / "kaggle-harvester"
-        skills_dir.mkdir(parents=True, exist_ok=True)
-        with open(skills_dir / "SKILL.md", "w", encoding="utf-8") as f:
-            f.write(f"""---
+        # 写入技能（同时写入主 skills 目录和 workspace skills 目录）
+        for base_skill_dir in [openclaw_dir / "skills", workspace_dir / "skills"]:
+            skills_dir = base_skill_dir / "kaggle-harvester"
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            with open(skills_dir / "SKILL.md", "w", encoding="utf-8") as f:
+                f.write(f"""---
 name: kaggle-harvester
 description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match results, agent scores, ranks, and medal thresholds from Kaggle Harvester.
 ---
@@ -172,7 +203,7 @@ python "{script_path}"
 
 2. When the user asks for match history (最近对局), match timestamps (对局时间), history (历史), or logs (流水), execute:
 ```powershell
-python "{script_path} --history"
+python "{script_path}" --history
 ```
 
 CRITICAL FORMATTING INSTRUCTION:
