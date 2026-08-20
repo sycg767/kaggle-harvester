@@ -744,29 +744,59 @@ async def test_simulation_clawbot():
 
 @app.get("/api/simulation-monitor/submissions")
 async def list_simulation_submissions(competition: Optional[str] = Query(None)):
-    """读取当前竞赛下本人全部历史提交，供前端配置界面快捷勾选选择。"""
+    """读取当前竞赛下可供监控的 Agent 提交（含当前团队追踪的 Agent 以及个人提交记录）。"""
     client: KaggleClient = app.state.kaggle_client
+    manager: SimulationMonitorManager = app.state.simulation_monitor
     comp = competition or "pokemon-tcg-ai-battle"
+
+    results: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+
+    # 1. 优先放入当前团队已配置或已在天梯战斗的 Agent
+    snap = manager.snapshot()
+    for idx, agent in enumerate(snap.status.agents or []):
+        sub_id = int(agent.submission_id)
+        if sub_id not in seen_ids:
+            seen_ids.add(sub_id)
+            desc_label = agent.description or f"Agent #{idx + 1}"
+            if "p46" in str(sub_id) or sub_id == 55565346:
+                desc_label = "Agent #1 (p46)"
+            elif "p31" in str(sub_id) or sub_id == 55555162:
+                desc_label = "Agent #2 (p31)"
+            results.append({
+                "submission_id": sub_id,
+                "description": desc_label,
+                "file_name": "",
+                "date": "",
+                "status": "complete",
+                "public_score": agent.score if agent.score is not None else agent.public_score,
+                "team_name": "Team Active Agent",
+            })
+
+    # 2. 拉取 Kaggle 账号名下的历史提交
     try:
         submissions = await run_in_threadpool(
             client.list_competition_submissions,
             competition=comp,
             page_size=50,
         )
-        return [
-            {
-                "submission_id": int(str(s.ref)),
-                "description": s.description or s.file_name or f"提交 #{s.ref}",
-                "file_name": s.file_name,
-                "date": s.date,
-                "status": s.status,
-                "public_score": s.public_score,
-                "team_name": s.team_name,
-            }
-            for s in submissions
-        ]
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        for s in submissions:
+            sub_id = int(str(s.ref))
+            if sub_id not in seen_ids:
+                seen_ids.add(sub_id)
+                results.append({
+                    "submission_id": sub_id,
+                    "description": s.description or s.file_name or f"提交 #{s.ref}",
+                    "file_name": s.file_name,
+                    "date": s.date,
+                    "status": s.status,
+                    "public_score": s.public_score,
+                    "team_name": s.team_name,
+                })
+    except Exception:
+        pass
+
+    return results
 
 
 # ---------------------------------------------------------------------------

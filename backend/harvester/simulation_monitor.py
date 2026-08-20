@@ -613,14 +613,36 @@ class SimulationMonitorManager:
         if not submissions:
             raise RuntimeError(f"未能在竞赛 {comp} 下找到任何提交记录。")
 
-        # 确定监控的目标 Submission IDs
+        # 确定监控的目标 Submission IDs (支持团队中任意成员提交的 Agent 编号)
         target_submissions = []
         target_ids_list = config.target_submission_ids or config.submission_ids
         if target_ids_list:
-            target_ids = {int(str(tid)) for tid in target_ids_list}
-            target_submissions = [
-                s for s in submissions if int(str(s.ref)) in target_ids
-            ]
+            sub_map = {int(str(s.ref)): s for s in submissions}
+            for tid in target_ids_list:
+                try:
+                    tid_int = int(str(tid).strip())
+                except (ValueError, TypeError):
+                    continue
+                if tid_int in sub_map:
+                    target_submissions.append(sub_map[tid_int])
+                else:
+                    # 团队其他成员提交的 Agent (不在当前账号个人提交列表内)
+                    target_submissions.append(
+                        CompetitionSubmission(
+                            ref=tid_int,
+                            total_teams=0,
+                            date="",
+                            description=f"Team Agent #{tid_int}",
+                            error_description=None,
+                            file_name="",
+                            public_score=None,
+                            private_score=None,
+                            status="complete",
+                            submitted_by=None,
+                            team_name=None,
+                            url=None,
+                        )
+                    )
         if not target_submissions:
             # 默认取前 2 个完成的有效提交
             for s in submissions:

@@ -895,14 +895,14 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             name="target_submission_ids"
             label={
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                <span>🎯 监控的提交 ID (可下拉勾选或手动输入)</span>
+                <span>🎯 监控的目标 Agent 提交 ID (支持团队成员提交)</span>
               </div>
             }
-            tooltip="为空时将自动抓取该竞赛下全部 COMPLETE 状态的本人最新提交"
+            tooltip="可直接勾选团队已识别的 Agent，或直接输入/粘贴团队成员提交的 8 位 Submission ID (如 55565346, 55555162)"
           >
             <Select
               mode="tags"
-              placeholder={loadingSubmissions ? "正在同步该竞赛的可用提交列表..." : "点击下拉直接勾选，或输入提交 ID"}
+              placeholder={loadingSubmissions ? "正在同步可用 Agent 列表..." : "点击下拉勾选 Agent，或直接输入团队提交 ID"}
               tokenSeparators={[',', ' ']}
               loading={loadingSubmissions}
               style={{ width: '100%' }}
@@ -911,7 +911,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 const scoreText = sub.public_score !== undefined && sub.public_score !== null ? ` · ${sub.public_score.toFixed(1)}分` : '';
                 return {
                   value: sub.submission_id,
-                  label: `#${sub.submission_id} (${desc}${scoreText})`,
+                  label: `#${sub.submission_id} · ${desc}${scoreText}`,
                 };
               })}
             />
