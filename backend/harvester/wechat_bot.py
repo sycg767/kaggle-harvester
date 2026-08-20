@@ -1,8 +1,10 @@
+from __future__ import annotations
 import os
 import sys
 import json
 import httpx
 from datetime import datetime, timezone, timedelta
+from typing import Optional, Any, Dict
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -13,7 +15,7 @@ HARVESTER_API_KEY = os.getenv("HARVESTER_API_KEY", "")
 
 BEIJING_TZ = timezone(timedelta(hours=8))
 
-def format_beijing_time(raw_time: str | None) -> str:
+def format_beijing_time(raw_time: Optional[str]) -> str:
     if not raw_time:
         return ""
     try:
