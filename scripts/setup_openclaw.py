@@ -92,24 +92,11 @@ def setup_openclaw():
             "enabled": True
         }
 
-        if "skills" not in cfg:
-            cfg["skills"] = {"entries": {}}
-        if "entries" not in cfg["skills"]:
-            cfg["skills"]["entries"] = {}
-        cfg["skills"]["entries"]["kaggle-harvester"] = {
-            "enabled": True
-        }
-
         if "tools" not in cfg:
             cfg["tools"] = {}
         cfg["tools"]["profile"] = "coding"
         cfg["tools"]["alsoAllow"] = [
-            "group:messaging",
-            "group:terminal",
-            "group:fs",
-            "bash",
-            "process",
-            "kaggle-harvester"
+            "group:messaging"
         ]
             
         cfg["gateway"] = {
