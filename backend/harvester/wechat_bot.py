@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import httpx
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -9,6 +10,29 @@ if hasattr(sys.stdout, "reconfigure"):
 
 HARVESTER_API_URL = os.getenv("HARVESTER_API_URL", "http://127.0.0.1:8000/api/simulation-monitor")
 HARVESTER_API_KEY = os.getenv("HARVESTER_API_KEY", "")
+
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+def format_beijing_time(raw_time: str | None) -> str:
+    if not raw_time:
+        return ""
+    try:
+        clean = str(raw_time).strip().replace("Z", "+00:00")
+        if "." in clean and "+" in clean:
+            b, tz = clean.split("+", 1)
+            s, f = b.split(".", 1)
+            clean = f"{s}.{f[:6]}+{tz}"
+        elif "." in clean and "-" in clean[10:]:
+            b, tz = clean.rsplit("-", 1)
+            s, f = b.split(".", 1)
+            clean = f"{s}.{f[:6]}-{tz}"
+        dt = datetime.fromisoformat(clean)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        bj_dt = dt.astimezone(BEIJING_TZ)
+        return bj_dt.strftime("%H:%M")
+    except Exception:
+        return ""
 
 def get_status_text() -> str:
     # 尝试从运行中的 FastAPI 接口获取
@@ -43,11 +67,9 @@ def format_message(data: dict) -> str:
     gold_score = thresholds.get("gold_cutoff_score", 1131.9)
     silver_score = thresholds.get("silver_cutoff_score", 917.4)
     bronze_score = thresholds.get("bronze_cutoff_score", 839.1)
-    gold_rank = thresholds.get("gold_cutoff_rank", 23)
-    silver_rank = thresholds.get("silver_cutoff_rank", 340)
-    bronze_rank = thresholds.get("bronze_cutoff_rank", 680)
 
-    lines = ["📊 Pokemon TCG AI 实时战报", ""]
+    now_bj = datetime.now(BEIJING_TZ).strftime("%H:%M")
+    lines = [f"📊 Pokemon TCG AI 实时战报 ({now_bj} 北京时间)", ""]
 
     for idx, a in enumerate(agents):
         sub_id = a.get("submission_id")
@@ -74,7 +96,13 @@ def format_message(data: dict) -> str:
             delta = latest.get("score_delta")
             res = "胜利 🎉" if latest.get("result") == "win" else ("战败 ❌" if latest.get("result") == "loss" else "平局")
             delta_str = f"{delta:+.1f}分" if delta is not None else ""
-            last_ep_str = f"最新: vs {opp}{opp_score_str} {res} {delta_str}"
+            
+            # 格式化对局完成的北京时间
+            ep_time_raw = latest.get("end_time") or latest.get("create_time")
+            ep_time_bj = format_beijing_time(ep_time_raw)
+            time_tag = f"[{ep_time_bj} 完赛] " if ep_time_bj else ""
+
+            last_ep_str = f"最新: {time_tag}vs {opp}{opp_score_str} {res} {delta_str}"
 
         lines.append(f"【Agent {label}】(Sub #{sub_id})")
         lines.append(f"• 积分: {score:.1f} 分 | 第 {rank} 名 | {tier_icon} {tier_label}")
