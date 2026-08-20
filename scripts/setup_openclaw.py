@@ -151,6 +151,8 @@ def setup_openclaw():
         skills_dir.mkdir(parents=True, exist_ok=True)
         with open(skills_dir / "SKILL.md", "w", encoding="utf-8") as f:
             script_path = (Path(__file__).resolve().parent.parent / "backend" / "harvester" / "wechat_bot.py").resolve()
+            if "openclaw" in str(openclaw_dir) or Path("/home/openclaw").exists():
+                script_path = Path("/home/openclaw/kaggle-harvester/backend/harvester/wechat_bot.py")
             f.write(f"""---
 name: kaggle-harvester
 description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match results, agent scores, ranks, and medal thresholds from Kaggle Harvester.
@@ -165,8 +167,8 @@ python "{script_path}"
 ```
 
 CRITICAL FORMATTING INSTRUCTION:
-- Return clean plain text only.
-- All times must strictly reflect China Beijing Time (UTC+8). The Python script output times are already in Beijing Time, do not add or subtract hours.
+- Directly output the Python script text as-is.
+- All times in the script (e.g. `[10:06 完赛]`, `10:34 北京时间`) are ALREADY in China Beijing Time (UTC+8). DO NOT add or subtract hours.
 - DO NOT USE ASTERISKS `*` OR DOUBLE ASTERISKS `**` ANYWHERE IN YOUR REPLY.
 - Output numbers and scores directly as `857.3 分`, NEVER as `**857.3 分**`.
 """)

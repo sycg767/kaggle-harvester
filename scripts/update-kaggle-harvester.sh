@@ -63,6 +63,9 @@ if [[ -f "$REPO_DIR/scripts/setup_openclaw.py" ]]; then
   python3 "$REPO_DIR/scripts/setup_openclaw.py" || true
 fi
 
+log '重启 OpenClaw 进程以热加载最新配置与提示词'
+sudo -u "$OPENCLAW_USER" systemctl --user restart openclaw 2>/dev/null || pkill -u "$OPENCLAW_USER" -f openclaw || true
+
 log '部署完成'
 docker compose --env-file "$COMPOSE_ENV_FILE" ps
 printf 'OpenClaw 辅助脚本：%s\n' "$TARGET_SCRIPT"
