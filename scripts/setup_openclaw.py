@@ -79,11 +79,9 @@ def setup_openclaw():
             "defaults": {
                 "model": {
                     "primary": f"{provider_id}/{model_name}"
-                },
-                "userTimezone": "Asia/Shanghai"
+                }
             }
         }
-        cfg["timezone"] = "Asia/Shanghai"
 
         if "plugins" not in cfg:
             cfg["plugins"] = {"entries": {}}
