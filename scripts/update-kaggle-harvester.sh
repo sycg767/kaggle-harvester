@@ -26,7 +26,8 @@ id "$OPENCLAW_USER" >/dev/null 2>&1 || fail "用户不存在：$OPENCLAW_USER"
 cd "$REPO_DIR"
 
 log '拉取最新代码'
-git pull --ff-only
+git checkout -f scripts/update-kaggle-harvester.sh 2>/dev/null || true
+git pull origin main
 
 log '构建并启动 Docker Compose 服务'
 docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build
