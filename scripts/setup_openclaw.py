@@ -171,6 +171,7 @@ def setup_openclaw():
 2. 严禁改动任何时间数字！
 3. 全文严禁使用任何星号 `*`，严禁包裹在代码块 ````text```` 中。
 4. 如果命令退出码非零、STDOUT 为空或 STDERR 包含“战报获取失败”，只报告工具失败，严禁猜测或补写任何战报数据。
+5. 只允许执行上面列出的两个固定命令。严禁创建或执行 `/tmp` 临时脚本，严禁用 `curl`、内联 Python 或其他命令重新读取、解析、换算战报数据。
 """)
 
         # 写入技能（同时写入主 skills 目录和 workspace skills 目录）
@@ -203,6 +204,7 @@ CRITICAL FORMATTING INSTRUCTION:
 - DO NOT wrap output in Markdown code blocks like ```text```. Output clean plain text.
 - DO NOT USE ASTERISKS `*` OR DOUBLE ASTERISKS `**` ANYWHERE IN YOUR REPLY.
 - If the command exits non-zero, STDOUT is empty, or STDERR contains `战报获取失败`, report only that the tool failed. NEVER invent, infer, or reconstruct battle data.
+- These are the ONLY allowed commands for battle data. NEVER create or execute temporary scripts, use `curl`, run inline Python, query the raw API, or recalculate timestamps.
 """)
 
         # 如果存在 openclaw 用户，自动修正权限

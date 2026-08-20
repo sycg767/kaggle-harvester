@@ -118,9 +118,22 @@ for _ in {1..10}; do
   sleep 1
 done
 
-# 清理旧会话上下文缓存，避免大模型继续沿用上轮历史里的旧时间
-rm -rf /home/"$OPENCLAW_USER"/.openclaw/sessions/* 2>/dev/null || true
-rm -rf /home/"$OPENCLAW_USER"/.openclaw/workspace/sessions/* 2>/dev/null || true
+# OpenClaw 的真实会话位于 agents/main/sessions。停机后移入备份，避免模型继续
+# 执行旧会话中自行创建的临时脚本；使用移动而非删除，便于需要时审计恢复。
+OPENCLAW_SESSION_DIR="/home/${OPENCLAW_USER}/.openclaw/agents/main/sessions"
+OPENCLAW_SESSION_BACKUP="/home/${OPENCLAW_USER}/.openclaw/session-backups/$(date '+%Y%m%d-%H%M%S')"
+if [[ -d "$OPENCLAW_SESSION_DIR" ]] && \
+   find "$OPENCLAW_SESSION_DIR" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+  install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 700 "$OPENCLAW_SESSION_BACKUP"
+  find "$OPENCLAW_SESSION_DIR" -mindepth 1 -maxdepth 1 \
+    -exec mv -t "$OPENCLAW_SESSION_BACKUP" -- {} +
+fi
+
+if [[ -f /tmp/recent.py ]]; then
+  install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 700 "$OPENCLAW_SESSION_BACKUP"
+  mv /tmp/recent.py "$OPENCLAW_SESSION_BACKUP/generated-recent.py"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_SESSION_BACKUP/generated-recent.py"
+fi
 
 if [[ -f "$OPENCLAW_JS" ]]; then
   LAUNCHER_TMP="$(mktemp /tmp/kaggle-harvester-launcher.XXXXXX)"
