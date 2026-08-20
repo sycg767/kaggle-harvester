@@ -155,22 +155,21 @@ docker compose --env-file .env.deploy up -d --build
 
 ## 八、日常更新
 
-首次在服务器安装更新命令：
+首次在服务器建立动态软链接（永久动态生效，仓库更新后命令自动更新）：
 
 ```bash
-sudo install -o root -g root -m 750 \
-  scripts/update-kaggle-harvester.sh \
-  /usr/local/sbin/update-kaggle-harvester
+cd /opt/kaggle-harvester || cd ~/kaggle-harvester
+sudo ln -sf "$(pwd)/scripts/update-kaggle-harvester.sh" /usr/local/sbin/update-kaggle-harvester
+sudo chmod +x "$(pwd)/scripts/update-kaggle-harvester.sh"
 ```
 
-以后本地完成 `commit` 和 `push` 后，服务器只需执行：
+以后本地完成 `commit` 和 `push` 后，服务器只需无脑执行：
 
 ```bash
 sudo /usr/local/sbin/update-kaggle-harvester
 ```
 
-脚本会依次执行 `git pull --ff-only`、Docker Compose 构建与启动，并同步
-`wechat_bot.py` 到 OpenClaw 用户目录。它不会重装 OpenClaw、修改 Gateway 配置或重新绑定微信。
+脚本会依次执行 `git pull --ff-only`、Docker Compose 构建与启动、同步 `wechat_bot.py`、更新 OpenClaw 提示词并热重启 OpenClaw 进程。
 
 如果服务器仓库不在 `~/kaggle-harvester`，可以在安装前指定：
 
