@@ -16,10 +16,10 @@ for d in [backend_dir, repo_dir, Path("/opt/kaggle-harvester/backend"), Path("/h
     if d.exists() and str(d) not in sys.path:
         sys.path.insert(0, str(d))
 
-def load_api_key():
-    key = os.getenv("HARVESTER_API_KEY", "").strip()
-    if key:
-        return key
+def load_config_value(name):
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
     search_paths = [
         Path(".env.deploy"),
         Path(".env"),
@@ -29,18 +29,18 @@ def load_api_key():
         Path("/home/openclaw/kaggle-harvester/.env.deploy"),
     ]
     for p in search_paths:
-        if p.exists():
-            try:
-                with open(p, "r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        if line.startswith("HARVESTER_API_KEY="):
-                            return line.split("=", 1)[1].strip().strip("'\"")
-            except Exception:
-                pass
+        try:
+            with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith(name + "="):
+                        return line.split("=", 1)[1].strip().strip("'\"")
+        except (IOError, OSError):
+            # OpenClaw 可能从无权访问的工作目录启动，跳过该候选配置文件。
+            continue
     return ""
 
-HARVESTER_API_URL = os.getenv("HARVESTER_API_URL", "http://127.0.0.1:8000/api/simulation-monitor")
-HARVESTER_API_KEY = load_api_key()
+HARVESTER_API_URL = load_config_value("HARVESTER_API_URL") or "http://127.0.0.1:8000/api/simulation-monitor"
+HARVESTER_API_KEY = load_config_value("HARVESTER_API_KEY")
 
 def format_beijing_time(raw_time):
     if not raw_time:
@@ -53,7 +53,8 @@ def format_beijing_time(raw_time):
         elif "Z" in clean or "+00:00" in clean or "+0000" in clean:
             tz_offset = 0
         else:
-            tz_offset = 0
+            # 无时区字符串没有足够信息进行换算，保持上游给出的钟表时间。
+            tz_offset = 8
         clean = clean.replace("Z", "").replace("+08:00", "").replace("+0800", "").replace("+00:00", "").replace("+0000", "")
         if "T" in clean:
             date_part, time_part = clean.split("T", 1)
@@ -67,6 +68,7 @@ def format_beijing_time(raw_time):
 
 def get_status_text(history_only=False):
     # 1. 优先尝试从运行中的 FastAPI 接口获取实时快照
+    api_error = None
     try:
         headers = {}
         if HARVESTER_API_KEY:
@@ -76,8 +78,8 @@ def get_status_text(history_only=False):
             if response.status == 200:
                 data = json.loads(response.read().decode('utf-8'))
                 return format_message(data, history_only=history_only)
-    except Exception:
-        pass
+    except Exception as exc:
+        api_error = exc
 
     # 2. 若 HTTP 请求未通，直接调用 Python 原生模块解析
     try:
@@ -88,8 +90,15 @@ def get_status_text(history_only=False):
         mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
         snap = mgr.snapshot()
         return format_message(snap.model_dump(), history_only=history_only)
-    except Exception as e:
-        return f"战报获取失败: {str(e)[:200]}"
+    except Exception as fallback_error:
+        api_detail = str(api_error)[:160] if api_error is not None else "未知错误"
+        fallback_detail = str(fallback_error)[:160]
+        raise RuntimeError(
+            "战报获取失败；API 请求失败: {0}；本地回退失败: {1}".format(
+                api_detail,
+                fallback_detail,
+            )
+        )
 
 def format_message(data, history_only=False):
     status = data.get("status", {})
@@ -174,4 +183,8 @@ def format_message(data, history_only=False):
 
 if __name__ == "__main__":
     is_history_only = any(arg in sys.argv for arg in ["--history-only", "--only-history"])
-    print(get_status_text(history_only=is_history_only))
+    try:
+        print(get_status_text(history_only=is_history_only))
+    except Exception as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)

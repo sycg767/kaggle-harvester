@@ -97,8 +97,7 @@ python3 scripts/setup_openclaw.py
 
 ## 五、打通微信机器人与后端 API
 
-`wechat_bot.py` 通过 HTTP 请求后端，且不会自动读取 `.env.deploy`。
-必须在 OpenClaw 运行环境中注入以下两个变量：
+`wechat_bot.py` 通过 HTTP 请求后端。必须在 OpenClaw 运行环境中注入以下两个变量：
 
 ```dotenv
 HARVESTER_API_URL=https://你的域名/api/simulation-monitor
@@ -114,15 +113,10 @@ Environment=HARVESTER_API_KEY=你的API密钥
 
 - 使用容器运行 OpenClaw 时，通过 `-e HARVESTER_API_URL=... -e HARVESTER_API_KEY=...`
   传入，或写入其容器编排的环境变量。
-
-同时确保 OpenClaw 使用的 Python 环境已安装 `httpx`：
-
-```bash
-python3 -m pip install httpx
-```
-
-否则 `wechat_bot.py` 请求 API 时会失败，并回退到本地 `harvester` 导入逻辑，
-云服务器上的 OpenClaw 环境一般不具备该依赖和仓库路径。
+- 使用本仓库的 `scripts/update-kaggle-harvester.sh` 时，脚本会从 `.env.deploy`
+  提取这两个变量，写入权限为 `600` 的 OpenClaw 专用环境文件，并在网关启动时加载。
+- `wechat_bot.py` 只使用 Python 标准库，不需要安装 `httpx`。API 与本地回退均失败时，
+  命令会以非零状态退出，避免模型把失败结果误当成真实战报。
 
 ## 六、让网页显示 ClawBot 状态（可选但推荐）
 

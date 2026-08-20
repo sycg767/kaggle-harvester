@@ -162,15 +162,15 @@ def setup_openclaw():
 
 ## 🔴 核心职责（优先执行工具）
 当用户询问任何关于：
-- 战况、战绩、分数、排名、奖牌线、刷新
-- 对局、对局时间、最近对局、历史、流水
-等任何对战相关问题时，**你必须无条件执行 kaggle-harvester 工具**：
-`python "{script_path}"`
+- 战况、战绩、分数、排名、奖牌线、刷新：执行 `python "{script_path}"`
+- 对局时间、最近对局、历史、流水：执行 `python "{script_path}" --history-only`
+等任何对战相关问题时，**你必须无条件执行 kaggle-harvester 工具**。
 
 ## 🔴 回复规则（严格直出）
 1. 执行脚本后，**直接将脚本的标准输出文本（STDOUT）原样发送给用户**。
 2. 严禁改动任何时间数字！
 3. 全文严禁使用任何星号 `*`，严禁包裹在代码块 ````text```` 中。
+4. 如果命令退出码非零、STDOUT 为空或 STDERR 包含“战报获取失败”，只报告工具失败，严禁猜测或补写任何战报数据。
 """)
 
         # 写入技能（同时写入主 skills 目录和 workspace skills 目录）
@@ -185,10 +185,16 @@ description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match
 
 # Kaggle Harvester WeChat Assistant
 
-When the user asks ANYTHING about Pokemon TCG / Kaggle, including battle status (战况), ranking (排名), scores (分数), match history (最近对局), match timestamps (对局时间/时间), logs (流水), or requests a refresh (刷新), ALWAYS execute:
+For battle status (战况), ranking (排名), scores (分数), medal thresholds (奖牌线), or refresh (刷新), execute:
 
-```powershell
+```bash
 python "{script_path}"
+```
+
+For match history (最近对局), match timestamps (对局时间/时间), or logs (流水), execute:
+
+```bash
+python "{script_path}" --history-only
 ```
 
 CRITICAL FORMATTING INSTRUCTION:
@@ -196,6 +202,7 @@ CRITICAL FORMATTING INSTRUCTION:
 - DO NOT rewrite timestamps!
 - DO NOT wrap output in Markdown code blocks like ```text```. Output clean plain text.
 - DO NOT USE ASTERISKS `*` OR DOUBLE ASTERISKS `**` ANYWHERE IN YOUR REPLY.
+- If the command exits non-zero, STDOUT is empty, or STDERR contains `战报获取失败`, report only that the tool failed. NEVER invent, infer, or reconstruct battle data.
 """)
 
         # 如果存在 openclaw 用户，自动修正权限
