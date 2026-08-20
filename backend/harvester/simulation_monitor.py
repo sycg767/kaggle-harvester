@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import socket
@@ -620,16 +621,35 @@ class SimulationMonitorManager:
         if not target_submissions:
             target_submissions = submissions[:2]
 
-        # 2. 拉取全量天梯榜单与奖牌线
+        # 2. 并行拉取全量天梯榜单与目标提交对局数据（大幅降低网络等待时间）
         thresholds: SimulationMedalThresholds | None = None
         leaderboard_rows: list[dict[str, Any]] = []
-        try:
-            thresholds, leaderboard_rows = self._kaggle.get_simulation_leaderboard(
-                competition=comp,
-                bronze_percentile=config.bronze_percentile,
-            )
-        except Exception as exc:
-            errors.append(f"天梯榜单读取失败: {str(exc)[:200]}")
+        episodes_map: dict[int, list[SimulationEpisode]] = {}
+
+        def _fetch_leaderboard():
+            nonlocal thresholds, leaderboard_rows
+            try:
+                thresholds, leaderboard_rows = self._kaggle.get_simulation_leaderboard(
+                    competition=comp,
+                    bronze_percentile=config.bronze_percentile,
+                )
+            except Exception as exc:
+                errors.append(f"天梯榜单读取失败: {str(exc)[:200]}")
+
+        def _fetch_sub_episodes(target_sub_id: int):
+            try:
+                episodes_map[target_sub_id] = self._kaggle.list_simulation_episodes(
+                    submission_id=target_sub_id, competition=comp
+                )
+            except Exception as exc:
+                errors.append(f"提交 #{target_sub_id} 对局流水读取失败: {str(exc)[:200]}")
+                episodes_map[target_sub_id] = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(3, len(target_submissions) + 1)) as executor:
+            futures = [executor.submit(_fetch_leaderboard)]
+            for sub in target_submissions:
+                futures.append(executor.submit(_fetch_sub_episodes, int(str(sub.ref))))
+            concurrent.futures.wait(futures)
 
         # 构建 team_id/team_name 到 rank/score 的索引
         team_ranks: dict[str, int] = {}
@@ -648,7 +668,7 @@ class SimulationMonitorManager:
                 if row_score is not None:
                     team_scores[t_name] = row_score
 
-        # 3. 逐个拉取 Episodes 并统计战绩
+        # 3. 统计战绩并匹配天梯名次
         agents_stats: list[SimulationAgentStats] = []
         new_episodes_total = 0
         new_history_points: list[SimulationHistoryPoint] = []
@@ -661,13 +681,7 @@ class SimulationMonitorManager:
 
         for sub in target_submissions:
             sub_id = int(str(sub.ref))
-            episodes: list[SimulationEpisode] = []
-            try:
-                episodes = self._kaggle.list_simulation_episodes(
-                    submission_id=sub_id, competition=comp
-                )
-            except Exception as exc:
-                errors.append(f"提交 #{sub_id} 对局流水读取失败: {str(exc)[:200]}")
+            episodes: list[SimulationEpisode] = episodes_map.get(sub_id, [])
 
             wins = sum(1 for ep in episodes if ep.result == "win")
             losses = sum(1 for ep in episodes if ep.result == "loss")

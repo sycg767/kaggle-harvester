@@ -553,16 +553,16 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 className="sim-banner-card"
                 bodyStyle={{ padding: '12px 18px' }}
               >
-                <Row gutter={[16, 8]} align="middle">
-                  <Col xs={24} sm={6}>
+                <Row gutter={[12, 12]} align="middle">
+                  <Col xs={12} sm={6}>
                     <Statistic
                       title={<span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>天梯总参赛队伍</span>}
                       value={thresholds.total_teams}
                       suffix={<span style={{ fontSize: 12, color: '#94a3b8' }}>队</span>}
-                      valueStyle={{ fontWeight: 700, fontSize: 20 }}
+                      valueStyle={{ fontWeight: 700, fontSize: 18 }}
                     />
                   </Col>
-                  <Col xs={24} sm={6}>
+                  <Col xs={12} sm={6}>
                     <Statistic
                       title={
                         <span style={{ fontSize: 12, fontWeight: 600, color: '#ca8a04', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -571,43 +571,43 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       }
                       value={thresholds.gold_cutoff_score ?? '—'}
                       suffix={
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
                           (第 {thresholds.gold_cutoff_rank} 名)
                         </span>
                       }
-                      valueStyle={{ color: '#ca8a04', fontWeight: 800, fontSize: 20 }}
+                      valueStyle={{ color: '#ca8a04', fontWeight: 800, fontSize: 18 }}
                     />
                   </Col>
-                  <Col xs={24} sm={6}>
+                  <Col xs={12} sm={6}>
                     <Statistic
                       title={
                         <span style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <TrophyOutlined style={{ fontSize: 13, color: '#64748b' }} /> 银牌线 (Top 5%)
+                          <TrophyOutlined style={{ fontSize: 13, color: '#64748b' }} /> 银牌线
                         </span>
                       }
                       value={thresholds.silver_cutoff_score ?? '—'}
                       suffix={
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
                           (第 {thresholds.silver_cutoff_rank} 名)
                         </span>
                       }
-                      valueStyle={{ color: '#475569', fontWeight: 800, fontSize: 20 }}
+                      valueStyle={{ color: '#475569', fontWeight: 800, fontSize: 18 }}
                     />
                   </Col>
-                  <Col xs={24} sm={6}>
+                  <Col xs={12} sm={6}>
                     <Statistic
                       title={
                         <span style={{ fontSize: 12, fontWeight: 600, color: '#d97706', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <TrophyOutlined style={{ fontSize: 13, color: '#d97706' }} /> 铜牌线 (Top {(thresholds.bronze_percentile * 100).toFixed(0)}%)
+                          <TrophyOutlined style={{ fontSize: 13, color: '#d97706' }} /> 铜牌线
                         </span>
                       }
                       value={thresholds.bronze_cutoff_score ?? '—'}
                       suffix={
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
                           (第 {thresholds.bronze_cutoff_rank} 名)
                         </span>
                       }
-                      valueStyle={{ color: '#d97706', fontWeight: 800, fontSize: 20 }}
+                      valueStyle={{ color: '#d97706', fontWeight: 800, fontSize: 18 }}
                     />
                   </Col>
                 </Row>
@@ -757,6 +757,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       dataSource={agent1Episodes}
                       rowKey="id"
                       size="small"
+                      scroll={{ x: 380 }}
                       pagination={{ pageSize: 6, showSizeChanger: false, size: 'small' }}
                       bordered
                     />
@@ -785,6 +786,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       dataSource={agent2Episodes}
                       rowKey="id"
                       size="small"
+                      scroll={{ x: 380 }}
                       pagination={{ pageSize: 6, showSizeChanger: false, size: 'small' }}
                       bordered
                     />
@@ -800,7 +802,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       <Drawer
         title="模拟对战监控设置"
         placement="right"
-        width={420}
+        width="min(420px, 100vw)"
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         extra={
