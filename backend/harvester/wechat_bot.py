@@ -1,10 +1,8 @@
-from __future__ import annotations
 import os
 import sys
 import json
 import httpx
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Any, Dict
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -13,30 +11,30 @@ if hasattr(sys.stdout, "reconfigure"):
 HARVESTER_API_URL = os.getenv("HARVESTER_API_URL", "http://127.0.0.1:8000/api/simulation-monitor")
 HARVESTER_API_KEY = os.getenv("HARVESTER_API_KEY", "")
 
-BEIJING_TZ = timezone(timedelta(hours=8))
-
-def format_beijing_time(raw_time: Optional[str]) -> str:
+def format_beijing_time(raw_time):
     if not raw_time:
         return ""
     try:
-        clean = str(raw_time).strip().replace("Z", "+00:00")
-        if "." in clean and "+" in clean:
-            b, tz = clean.split("+", 1)
-            s, f = b.split(".", 1)
-            clean = f"{s}.{f[:6]}+{tz}"
-        elif "." in clean and "-" in clean[10:]:
-            b, tz = clean.rsplit("-", 1)
-            s, f = b.split(".", 1)
-            clean = f"{s}.{f[:6]}-{tz}"
-        dt = datetime.fromisoformat(clean)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        bj_dt = dt.astimezone(BEIJING_TZ)
-        return bj_dt.strftime("%H:%M")
+        clean = str(raw_time).strip()
+        tz_offset = 0
+        if "+08:00" in clean or "+0800" in clean:
+            tz_offset = 8
+        elif "Z" in clean or "+00:00" in clean or "+0000" in clean:
+            tz_offset = 0
+        else:
+            tz_offset = 0
+        clean = clean.replace("Z", "").replace("+08:00", "").replace("+0800", "").replace("+00:00", "").replace("+0000", "")
+        if "T" in clean:
+            date_part, time_part = clean.split("T", 1)
+            time_hms = time_part.split(".")[0]
+            dt_base = datetime.strptime(f"{date_part} {time_hms}", "%Y-%m-%d %H:%M:%S")
+            dt_bj = dt_base + timedelta(hours=(8 - tz_offset))
+            return dt_bj.strftime("%H:%M")
+        return ""
     except Exception:
         return ""
 
-def get_status_text() -> str:
+def get_status_text():
     # 尝试从运行中的 FastAPI 接口获取
     try:
         headers = {}
@@ -60,7 +58,7 @@ def get_status_text() -> str:
     except Exception as e:
         return f"战报获取失败: {str(e)[:200]}"
 
-def format_message(data: dict) -> str:
+def format_message(data):
     status = data.get("status", {})
     agents = status.get("agents", [])
     thresholds = status.get("thresholds") or status.get("medal_thresholds") or {}
@@ -70,7 +68,10 @@ def format_message(data: dict) -> str:
     silver_score = thresholds.get("silver_cutoff_score", 917.4)
     bronze_score = thresholds.get("bronze_cutoff_score", 839.1)
 
-    now_bj = datetime.now(BEIJING_TZ).strftime("%H:%M")
+    try:
+        now_bj = (datetime.utcnow() + timedelta(hours=8)).strftime("%H:%M")
+    except Exception:
+        now_bj = datetime.now().strftime("%H:%M")
     lines = [f"📊 Pokemon TCG AI 实时战报 ({now_bj} 北京时间)", ""]
 
     for idx, a in enumerate(agents):
