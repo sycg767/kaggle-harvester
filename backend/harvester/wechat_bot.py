@@ -1,7 +1,7 @@
 import os
 import sys
 import json
-import httpx
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -71,10 +71,11 @@ def get_status_text(history_only=False):
         headers = {}
         if HARVESTER_API_KEY:
             headers["X-Harvester-Key"] = HARVESTER_API_KEY
-        r = httpx.get(HARVESTER_API_URL, headers=headers, timeout=5.0)
-        if r.status_code == 200:
-            data = r.json()
-            return format_message(data, history_only=history_only)
+        req = urllib.request.Request(HARVESTER_API_URL, headers=headers)
+        with urllib.request.urlopen(req, timeout=5.0) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode('utf-8'))
+                return format_message(data, history_only=history_only)
     except Exception:
         pass
 
