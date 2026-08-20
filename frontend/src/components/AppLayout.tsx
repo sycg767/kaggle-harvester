@@ -136,8 +136,12 @@ const AppLayout: React.FC = () => {
       setArchiveStats(status.archive);
       const activeCompetition =
         localStorage.getItem('harvester.competition') || status.default_competition;
-      const comp = await api.getCompetition(activeCompetition).catch(() => null);
-      if (comp) setCompetitionInfo(comp);
+      void api
+        .getCompetition(activeCompetition)
+        .then((comp) => {
+          if (comp) setCompetitionInfo(comp);
+        })
+        .catch(() => null);
     } catch {
       setBackendOnline(false);
       setHealth(null);

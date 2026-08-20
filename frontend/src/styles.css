@@ -1857,6 +1857,17 @@ a:hover {
   .ant-drawer-right .ant-drawer-content-wrapper {
     max-width: 100vw !important;
   }
+
+  /* 解决移动端/触摸屏点击后黑色 Tooltip 提示框残留悬浮的问题 */
+  .ant-tooltip {
+    display: none !important;
+  }
+}
+
+@media (hover: none) {
+  .ant-tooltip {
+    display: none !important;
+  }
 }
 
 @media (max-width: 390px) {

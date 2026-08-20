@@ -418,7 +418,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   return (
     <>
       {/* Top Bar Trigger Button */}
-      <Tooltip title="Pokemon TCG 对战天梯与双代理战绩监控">
+      <Tooltip title="Pokemon TCG 对战天梯与双代理战绩监控" open={open ? false : undefined}>
         <Button
           type="default"
           icon={<Swords size={15} className="text-amber-500" strokeWidth={2} />}
