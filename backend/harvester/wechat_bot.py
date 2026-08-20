@@ -65,7 +65,7 @@ def format_beijing_time(raw_time):
     except Exception:
         return ""
 
-def get_status_text():
+def get_status_text(show_history=False):
     # 1. 优先尝试从运行中的 FastAPI 接口获取实时快照
     try:
         headers = {}
@@ -74,7 +74,7 @@ def get_status_text():
         r = httpx.get(HARVESTER_API_URL, headers=headers, timeout=5.0)
         if r.status_code == 200:
             data = r.json()
-            return format_message(data)
+            return format_message(data, show_history=show_history)
     except Exception:
         pass
 
@@ -86,11 +86,11 @@ def get_status_text():
         data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
         mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
         snap = mgr.snapshot()
-        return format_message(snap.model_dump())
+        return format_message(snap.model_dump(), show_history=show_history)
     except Exception as e:
         return f"战报获取失败: {str(e)[:200]}"
 
-def format_message(data):
+def format_message(data, show_history=False):
     status = data.get("status", {})
     agents = status.get("agents", [])
     thresholds = status.get("thresholds") or status.get("medal_thresholds") or {}
@@ -107,6 +107,25 @@ def format_message(data):
             now_bj = (datetime.utcnow() + timedelta(hours=8)).strftime("%H:%M")
         except Exception:
             now_bj = datetime.now().strftime("%H:%M")
+
+    if show_history:
+        lines = [f"📋 最近对局流水时间一览 (北京时间 {now_bj})", ""]
+        for a in agents:
+            sub_id = a.get("submission_id")
+            label = "p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"Agent #{sub_id}")
+            eps = a.get("recent_episodes", [])[:15]
+            lines.append(f"【{label}】最近 {len(eps)} 场对局 (最新在上):")
+            for ep in eps:
+                opp = ep.get("opponent_team_name") or "对手"
+                delta = ep.get("score_delta")
+                res = "胜" if ep.get("result") == "win" else ("负" if ep.get("result") == "loss" else "平")
+                delta_str = f" {delta:+.1f}分" if delta is not None else ""
+                ep_time_raw = ep.get("end_time") or ep.get("create_time")
+                ep_time_bj = format_beijing_time(ep_time_raw) or "--:--"
+                lines.append(f"• {ep_time_bj} {res} {opp}{delta_str}")
+            lines.append("")
+        return "\n".join(lines)
+
     lines = [f"📊 Pokemon TCG AI 实时战报 ({now_bj} 北京时间)", ""]
 
     for idx, a in enumerate(agents):
@@ -157,4 +176,5 @@ def format_message(data):
     return "\n".join(lines)
 
 if __name__ == "__main__":
-    print(get_status_text())
+    is_history = any(arg in sys.argv for arg in ["--history", "history", "--all", "-h", "time", "对局", "时间"])
+    print(get_status_text(show_history=is_history))
