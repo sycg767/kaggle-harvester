@@ -80,9 +80,9 @@ rm -rf /home/"$OPENCLAW_USER"/.openclaw/workspace/sessions/* 2>/dev/null || true
 NODE_BIN="$(command -v node || echo '/usr/local/lib/nodejs/node-v24.19.0-linux-x64/bin/node')"
 OPENCLAW_JS="/usr/local/lib/nodejs/node-v24.19.0-linux-x64/lib/node_modules/openclaw/dist/index.js"
 if [[ -f "$OPENCLAW_JS" ]]; then
-  su - "$OPENCLAW_USER" -c "nohup $NODE_BIN $OPENCLAW_JS gateway --port 18789 > ~/.openclaw/gateway.log 2>&1 &"
+  su - "$OPENCLAW_USER" -c "nohup env TZ=Asia/Shanghai $NODE_BIN $OPENCLAW_JS gateway --port 18789 > ~/.openclaw/gateway.log 2>&1 &"
 elif command -v openclaw >/dev/null 2>&1; then
-  su - "$OPENCLAW_USER" -c "nohup openclaw gateway --port 18789 > ~/.openclaw/gateway.log 2>&1 &"
+  su - "$OPENCLAW_USER" -c "nohup env TZ=Asia/Shanghai openclaw gateway --port 18789 > ~/.openclaw/gateway.log 2>&1 &"
 fi
 
 log '部署完成'
