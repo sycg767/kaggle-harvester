@@ -810,6 +810,19 @@ export const api = {
     return request('/simulation-monitor/clawbot/test', { method: 'POST' });
   },
 
+  listSimulationSubmissions(competition?: string): Promise<Array<{
+    submission_id: number;
+    description: string;
+    file_name: string;
+    date: string;
+    status: string;
+    public_score?: number | null;
+    team_name?: string;
+  }>> {
+    const q = competition ? `?competition=${encodeURIComponent(competition)}` : '';
+    return request(`/simulation-monitor/submissions${q}`);
+  },
+
   health(): Promise<HealthStatus> {
     return request('/health');
   },

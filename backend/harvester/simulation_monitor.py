@@ -824,7 +824,7 @@ class SimulationMonitorManager:
             if prev_cnt is not None and total > prev_cnt:
                 new_cnt = total - prev_cnt
                 new_episodes_total += new_cnt
-                if config.notify_on_new_matches or config.notify_on_new_episodes:
+                if config.notify_on_new_matches:
                     latest_ep = episodes[0] if episodes else None
                     events_to_notify.append({
                         "type": "new_episodes",

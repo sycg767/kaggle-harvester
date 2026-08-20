@@ -742,6 +742,33 @@ async def test_simulation_clawbot():
     return await run_in_threadpool(manager.test_clawbot)
 
 
+@app.get("/api/simulation-monitor/submissions")
+async def list_simulation_submissions(competition: Optional[str] = Query(None)):
+    """读取当前竞赛下本人全部历史提交，供前端配置界面快捷勾选选择。"""
+    client: KaggleClient = app.state.kaggle_client
+    comp = competition or "pokemon-tcg-ai-battle"
+    try:
+        submissions = await run_in_threadpool(
+            client.list_competition_submissions,
+            competition=comp,
+            page_size=50,
+        )
+        return [
+            {
+                "submission_id": int(str(s.ref)),
+                "description": s.description or s.file_name or f"提交 #{s.ref}",
+                "file_name": s.file_name,
+                "date": s.date,
+                "status": s.status,
+                "public_score": s.public_score,
+                "team_name": s.team_name,
+            }
+            for s in submissions
+        ]
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
 # ---------------------------------------------------------------------------
 #  Archive endpoints
 # ---------------------------------------------------------------------------

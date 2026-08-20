@@ -169,6 +169,34 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [clawbotOpen, setClawbotOpen] = useState(false);
   const [testingClawbot, setTestingClawbot] = useState(false);
   const [clawbotTestResult, setClawbotTestResult] = useState<SimulationClawbotTestResult | null>(null);
+  const [availableSubmissions, setAvailableSubmissions] = useState<Array<{
+    submission_id: number;
+    description: string;
+    file_name: string;
+    date: string;
+    status: string;
+    public_score?: number | null;
+    team_name?: string;
+  }>>([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+
+  const fetchAvailableSubmissions = useCallback(async (comp?: string) => {
+    setLoadingSubmissions(true);
+    try {
+      const subs = await api.listSimulationSubmissions(comp || currentCompetition);
+      if (isMounted.current) setAvailableSubmissions(subs);
+    } catch {
+      // quiet failback
+    } finally {
+      if (isMounted.current) setLoadingSubmissions(false);
+    }
+  }, [currentCompetition]);
+
+  useEffect(() => {
+    if (settingsOpen) {
+      void fetchAvailableSubmissions(snapshot?.config?.competition);
+    }
+  }, [settingsOpen, fetchAvailableSubmissions, snapshot?.config?.competition]);
 
   const handleTestClawbot = async () => {
     setTestingClawbot(true);
@@ -255,6 +283,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
     try {
       const updated = await api.updateSimulationMonitor({
         ...values,
+        notify_on_new_episodes: values.notify_on_new_matches,
         target_submission_ids: (values.target_submission_ids || []).map((v: any) => Number(v)),
       });
       setSnapshot(updated);
@@ -864,16 +893,61 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
 
           <Form.Item
             name="target_submission_ids"
-            label="监控的提交 ID 列表 (例如 55565346, 55555162)"
-            tooltip="为空时将自动抓取该竞赛下全部 COMPLETE 状态的本人提交"
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span>🎯 监控的提交 ID (可下拉勾选或手动输入)</span>
+              </div>
+            }
+            tooltip="为空时将自动抓取该竞赛下全部 COMPLETE 状态的本人最新提交"
           >
             <Select
               mode="tags"
-              placeholder="输入提交 ID 并按回车"
+              placeholder={loadingSubmissions ? "正在同步该竞赛的可用提交列表..." : "点击下拉直接勾选，或输入提交 ID"}
               tokenSeparators={[',', ' ']}
+              loading={loadingSubmissions}
               style={{ width: '100%' }}
+              options={availableSubmissions.map((sub) => {
+                const desc = sub.description || sub.file_name || `提交 #${sub.submission_id}`;
+                const scoreText = sub.public_score !== undefined && sub.public_score !== null ? ` · ${sub.public_score.toFixed(1)}分` : '';
+                return {
+                  value: sub.submission_id,
+                  label: `#${sub.submission_id} (${desc}${scoreText})`,
+                };
+              })}
             />
           </Form.Item>
+
+          <div style={{ marginTop: -14, marginBottom: 16, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <Button
+              size="small"
+              type="dashed"
+              loading={loadingSubmissions}
+              onClick={() => {
+                if (availableSubmissions.length > 0) {
+                  const latestTwo = availableSubmissions
+                    .filter((s) => s.status?.toLowerCase().includes('complete') || s.status?.toLowerCase().includes('success'))
+                    .slice(0, 2)
+                    .map((s) => s.submission_id);
+                  form.setFieldsValue({
+                    target_submission_ids: latestTwo.length > 0 ? latestTwo : availableSubmissions.slice(0, 2).map((s) => s.submission_id),
+                  });
+                } else {
+                  void fetchAvailableSubmissions().then(() => {
+                    message.info('正在拉取提交列表，请再次点击');
+                  });
+                }
+              }}
+            >
+              ⚡ 快捷填入最新 2 个有效提交
+            </Button>
+            <Button
+              size="small"
+              type="text"
+              onClick={() => form.setFieldsValue({ target_submission_ids: [] })}
+            >
+              清空 (全自动模式)
+            </Button>
+          </div>
 
           <div style={{ paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
             <Form.Item

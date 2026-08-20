@@ -693,7 +693,7 @@ class SimulationMonitorConfig(BaseModel):
     submission_ids: list[int] = Field(default_factory=list, max_length=10)
     bronze_percentile: float = Field(default=0.10, ge=0.01, le=0.50)
     notify_on_new_matches: bool = True
-    notify_on_new_episodes: bool = True
+    notify_on_new_episodes: Optional[bool] = None
     notify_on_medal_change: bool = True
 
 
