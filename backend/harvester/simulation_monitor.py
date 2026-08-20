@@ -154,8 +154,10 @@ class SimulationMonitorManager:
             )
             temp_path.replace(self._state_path)
 
+    _clawbot_status_cache: tuple[float, SimulationClawbotStatus] | None = None
+
     @staticmethod
-    def _probe_gateway(host: str, port: int, timeout: float = 0.3) -> bool:
+    def _probe_gateway(host: str, port: int, timeout: float = 0.05) -> bool:
         try:
             with socket.create_connection((host, port), timeout=timeout):
                 return True
@@ -176,7 +178,14 @@ class SimulationMonitorManager:
         return None
 
     @classmethod
-    def _get_clawbot_status(cls) -> SimulationClawbotStatus:
+    def _get_clawbot_status(cls, force: bool = False) -> SimulationClawbotStatus:
+        import time
+        now = time.time()
+        if not force and cls._clawbot_status_cache is not None:
+            cached_time, cached_status = cls._clawbot_status_cache
+            if now - cached_time < 30.0:
+                return cached_status
+
         # 1. 尝试定位 openclaw.json 配置文件（支持自定义路径、标准路径及容器内路径）
         possible_paths: list[Path] = []
         custom_cfg = os.getenv("OPENCLAW_CONFIG_PATH")
@@ -268,7 +277,7 @@ class SimulationMonitorManager:
                     active_gateway = f"http://{host}:{gateway_port}"
                     break
 
-        return SimulationClawbotStatus(
+        res = SimulationClawbotStatus(
             enabled=is_online,
             is_online=is_online,
             configured=configured,
@@ -278,6 +287,8 @@ class SimulationMonitorManager:
             gateway_url=active_gateway or (gateway_url or f"http://127.0.0.1:{gateway_port}"),
             updated_at=updated_at,
         )
+        cls._clawbot_status_cache = (now, res)
+        return res
 
     @classmethod
     def test_clawbot(cls) -> SimulationClawbotTestResult:

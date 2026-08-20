@@ -234,7 +234,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
 
   const handleOpen = () => {
     setOpen(true);
-    fetchSnapshot();
+    fetchSnapshot(true);
   };
 
   const handleRunNow = async () => {
@@ -456,7 +456,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         )}
         className="simulation-monitor-modal"
       >
-        <Spin spinning={loading}>
+        <Spin spinning={loading && !snapshot}>
           <div style={{ paddingTop: 4 }}>
             {/* Header Control Bar */}
             <div className="sim-control-bar">
