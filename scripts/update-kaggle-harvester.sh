@@ -73,6 +73,10 @@ for _ in {1..10}; do
   sleep 1
 done
 
+# 清理旧会话上下文缓存，避免大模型继续沿用上轮历史里的旧时间
+rm -rf /home/"$OPENCLAW_USER"/.openclaw/sessions/* 2>/dev/null || true
+rm -rf /home/"$OPENCLAW_USER"/.openclaw/workspace/sessions/* 2>/dev/null || true
+
 NODE_BIN="$(command -v node || echo '/usr/local/lib/nodejs/node-v24.19.0-linux-x64/bin/node')"
 OPENCLAW_JS="/usr/local/lib/nodejs/node-v24.19.0-linux-x64/lib/node_modules/openclaw/dist/index.js"
 if [[ -f "$OPENCLAW_JS" ]]; then
