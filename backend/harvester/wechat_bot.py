@@ -8,8 +8,39 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+# 确保 backend 目录加入 sys.path，支持离线回退导入
+current_file = Path(__file__).resolve()
+backend_dir = current_file.parent.parent
+repo_dir = backend_dir.parent
+for d in [backend_dir, repo_dir, Path("/opt/kaggle-harvester/backend"), Path("/home/openclaw/kaggle-harvester/backend")]:
+    if d.exists() and str(d) not in sys.path:
+        sys.path.insert(0, str(d))
+
+def load_api_key():
+    key = os.getenv("HARVESTER_API_KEY", "").strip()
+    if key:
+        return key
+    search_paths = [
+        Path(".env.deploy"),
+        Path(".env"),
+        backend_dir / ".env",
+        repo_dir / ".env.deploy",
+        Path("/opt/kaggle-harvester/.env.deploy"),
+        Path("/home/openclaw/kaggle-harvester/.env.deploy"),
+    ]
+    for p in search_paths:
+        if p.exists():
+            try:
+                with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        if line.startswith("HARVESTER_API_KEY="):
+                            return line.split("=", 1)[1].strip().strip("'\"")
+            except Exception:
+                pass
+    return ""
+
 HARVESTER_API_URL = os.getenv("HARVESTER_API_URL", "http://127.0.0.1:8000/api/simulation-monitor")
-HARVESTER_API_KEY = os.getenv("HARVESTER_API_KEY", "")
+HARVESTER_API_KEY = load_api_key()
 
 def format_beijing_time(raw_time):
     if not raw_time:
@@ -35,7 +66,7 @@ def format_beijing_time(raw_time):
         return ""
 
 def get_status_text():
-    # 尝试从运行中的 FastAPI 接口获取
+    # 1. 优先尝试从运行中的 FastAPI 接口获取实时快照
     try:
         headers = {}
         if HARVESTER_API_KEY:
@@ -47,12 +78,13 @@ def get_status_text():
     except Exception:
         pass
 
-    # 若本地服务未启动，直接调用 Python 监控管理器快速生成
+    # 2. 若 HTTP 请求未通，直接调用 Python 原生模块解析
     try:
         from harvester.kaggle_client import KaggleClient
         from harvester.simulation_monitor import SimulationMonitorManager
         k = KaggleClient()
-        mgr = SimulationMonitorManager(k, harvest_root=Path("data"), default_competition="pokemon-tcg-ai-battle")
+        data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
+        mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
         snap = mgr.snapshot()
         return format_message(snap.model_dump())
     except Exception as e:
@@ -69,9 +101,12 @@ def format_message(data):
     bronze_score = thresholds.get("bronze_cutoff_score", 839.1)
 
     try:
-        now_bj = (datetime.utcnow() + timedelta(hours=8)).strftime("%H:%M")
+        now_bj = datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
     except Exception:
-        now_bj = datetime.now().strftime("%H:%M")
+        try:
+            now_bj = (datetime.utcnow() + timedelta(hours=8)).strftime("%H:%M")
+        except Exception:
+            now_bj = datetime.now().strftime("%H:%M")
     lines = [f"📊 Pokemon TCG AI 实时战报 ({now_bj} 北京时间)", ""]
 
     for idx, a in enumerate(agents):
