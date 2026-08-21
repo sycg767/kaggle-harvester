@@ -224,19 +224,29 @@ def get_chart_image(output_path=None):
         candidate_urls.append(base_url + "/chart.png")
     else:
         candidate_urls.append(base_url + "/api/simulation-monitor/chart.png")
+
+    app_port = load_config_value("APP_PORT") or "8000"
     candidate_urls.extend([
+        f"http://127.0.0.1:{app_port}/api/simulation-monitor/chart.png",
         "http://127.0.0.1:8000/api/simulation-monitor/chart.png",
         "http://127.0.0.1:8080/api/simulation-monitor/chart.png",
         "http://127.0.0.1:80/api/simulation-monitor/chart.png",
     ])
 
-    for url in candidate_urls:
+    seen_urls = set()
+    deduped_urls = []
+    for u in candidate_urls:
+        if u not in seen_urls:
+            seen_urls.add(u)
+            deduped_urls.append(u)
+
+    for url in deduped_urls:
         try:
-            headers = {}
+            headers = {"User-Agent": "KaggleHarvesterWechatBot/1.0"}
             if HARVESTER_API_KEY:
                 headers["X-Harvester-Key"] = HARVESTER_API_KEY
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=3.0) as response:
+            with urllib.request.urlopen(req, timeout=4.0) as response:
                 if response.status == 200:
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     output_path.write_bytes(response.read())
@@ -244,30 +254,37 @@ def get_chart_image(output_path=None):
         except Exception:
             continue
 
-    # 2. 回退本地 Python 渲染
-    snap_data = None
+    # 2. 回退本地 Python 渲染 (若宿主机环境安装了 matplotlib)
     try:
-        headers = {}
-        if HARVESTER_API_KEY:
-            headers["X-Harvester-Key"] = HARVESTER_API_KEY
-        req = urllib.request.Request(HARVESTER_API_URL, headers=headers)
-        with urllib.request.urlopen(req, timeout=5.0) as response:
-            if response.status == 200:
-                snap_data = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        pass
+        from harvester.chart_renderer import render_trajectory_chart
+        snap_data = None
+        for u in [HARVESTER_API_URL, f"http://127.0.0.1:{app_port}/api/simulation-monitor", "http://127.0.0.1:8000/api/simulation-monitor"]:
+            try:
+                headers = {}
+                if HARVESTER_API_KEY:
+                    headers["X-Harvester-Key"] = HARVESTER_API_KEY
+                req = urllib.request.Request(u, headers=headers)
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    if resp.status == 200:
+                        snap_data = json.loads(resp.read().decode("utf-8"))
+                        break
+            except Exception:
+                continue
 
-    if not snap_data:
-        from harvester.kaggle_client import KaggleClient
-        from harvester.simulation_monitor import SimulationMonitorManager
-        k = KaggleClient()
-        data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
-        mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
-        snap_data = mgr.snapshot().model_dump()
+        if not snap_data:
+            from harvester.kaggle_client import KaggleClient
+            from harvester.simulation_monitor import SimulationMonitorManager
+            k = KaggleClient()
+            data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
+            mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
+            snap_data = mgr.snapshot().model_dump()
 
-    from harvester.chart_renderer import render_trajectory_chart
-    render_trajectory_chart(snap_data, output_path=output_path)
-    return str(output_path.resolve())
+        render_trajectory_chart(snap_data, output_path=output_path)
+        return str(output_path.resolve())
+    except ImportError as ie:
+        raise RuntimeError(
+            f"走势图获取失败：后端 API 请求未能连接，且宿主机 Python 环境未安装绘图库 ({ie})。请检查 Docker 后端服务状态。"
+        )
 
 
 if __name__ == "__main__":

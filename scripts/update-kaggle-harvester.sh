@@ -70,6 +70,7 @@ if ! grep -qE '(^|[[:space:]])frontend($|[[:space:]])' <<< "$running_services"; 
 fi
 
 log '同步 OpenClaw 使用的微信辅助脚本与配置'
+TARGET_SCRIPT="$OPENCLAW_REPO_DIR/backend/harvester/wechat_bot.py"
 install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 755 "$OPENCLAW_REPO_DIR/backend/harvester"
 cp -r "$REPO_DIR/backend/harvester/"* "$OPENCLAW_REPO_DIR/backend/harvester/"
 chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_REPO_DIR/backend/harvester"
