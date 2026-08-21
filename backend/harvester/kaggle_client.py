@@ -1804,34 +1804,40 @@ class KaggleClient:
             if now - cached_time < cache_ttl_seconds:
                 return cached_th, cached_rows
 
-        from kaggle.api.kaggle_api_extended import KaggleApi
+        try:
+            from kaggle.api.kaggle_api_extended import KaggleApi
 
-        api = KaggleApi()
-        api.authenticate()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            api.competition_leaderboard_download(comp, path=temp_dir)
-            for item in Path(temp_dir).iterdir():
-                if item.suffix.lower() == ".zip":
-                    with zipfile.ZipFile(item) as z:
-                        z.extractall(temp_dir)
-            csv_path: Path | None = None
-            for item in Path(temp_dir).iterdir():
-                if item.suffix.lower() == ".csv":
-                    csv_path = item
-                    break
+            api = KaggleApi()
+            api.authenticate()
+            with tempfile.TemporaryDirectory() as temp_dir:
+                api.competition_leaderboard_download(comp, path=temp_dir)
+                for item in Path(temp_dir).iterdir():
+                    if item.suffix.lower() == ".zip":
+                        with zipfile.ZipFile(item) as z:
+                            z.extractall(temp_dir)
+                csv_path: Path | None = None
+                for item in Path(temp_dir).iterdir():
+                    if item.suffix.lower() == ".csv":
+                        csv_path = item
+                        break
 
-            if csv_path is None or not csv_path.exists():
-                raise RuntimeError(f"未能下载竞赛 {comp} 的天梯排行榜。")
+                if csv_path is None or not csv_path.exists():
+                    raise RuntimeError(f"未能下载竞赛 {comp} 的天梯排行榜。")
 
-            rows: list[dict[str, Any]] = []
-            with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-                reader = csv.DictReader(f)
-                for r in reader:
-                    cleaned_row: dict[str, Any] = {}
-                    for k, v in r.items():
-                        norm_key = k.lstrip("\ufeff").strip() if k else ""
-                        cleaned_row[norm_key] = v
-                    rows.append(cleaned_row)
+                rows: list[dict[str, Any]] = []
+                with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                    reader = csv.DictReader(f)
+                    for r in reader:
+                        cleaned_row: dict[str, Any] = {}
+                        for k, v in r.items():
+                            norm_key = k.lstrip("\ufeff").strip() if k else ""
+                            cleaned_row[norm_key] = v
+                        rows.append(cleaned_row)
+        except Exception as exc:
+            if comp in self._sim_leaderboard_cache:
+                _, cached_th, cached_rows = self._sim_leaderboard_cache[comp]
+                return cached_th, cached_rows
+            raise exc
 
         total_teams = len(rows)
         if total_teams == 0:

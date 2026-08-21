@@ -97,12 +97,15 @@ class SimulationMonitorManager:
             return
         try:
             data = json.loads(self._state_path.read_text(encoding="utf-8"))
+            was_running = bool(data.get("status", {}).get("running", False))
             self._config = SimulationMonitorConfig(**data.get("config", {}))
             self._status = SimulationMonitorStatus(**data.get("status", {}))
             self._status.running = False
             self._status.scheduler_alive = False
             self._status.service_started_at = self._service_started_at
             self._status.scheduler_heartbeat_at = self._service_started_at
+            if was_running:
+                self._save_state()
             self._known_episode_counts = {
                 str(k): int(v)
                 for k, v in data.get("known_episode_counts", {}).items()
@@ -479,116 +482,133 @@ class SimulationMonitorManager:
                 self._save_state()
                 config = self._config.model_copy(deep=True)
 
+            status: SimulationMonitorStatus | None = None
+            agents: list[SimulationAgentStats] = []
+            thresholds: SimulationMedalThresholds | None = None
+            new_episodes_total = 0
+            new_history_points: list[SimulationHistoryPoint] = []
+            events_to_notify: list[dict[str, Any]] = []
+
             try:
-                (
-                    status,
-                    agents,
-                    thresholds,
-                    new_episodes_total,
-                    new_history_points,
-                    events_to_notify,
-                ) = await asyncio.to_thread(self._run_once_sync, config)
-            except Exception as exc:
-                status = SimulationMonitorStatus(
-                    competition=config.competition,
-                    last_checked_at=_utc_now().isoformat(),
-                    last_error=str(exc)[:500],
-                )
-                agents = []
-                thresholds = None
-                new_episodes_total = 0
-                new_history_points = []
-                events_to_notify = []
-
-            with self._state_lock:
-                finished_at = _utc_now()
-                status.running = False
-                status.scheduler_alive = True
-                status.service_started_at = self._service_started_at
-                status.scheduler_heartbeat_at = _utc_now().isoformat()
-                status.next_run_at = (
-                    (
-                        _utc_now()
-                        + timedelta(minutes=self._config.interval_minutes)
-                    ).isoformat()
-                    if self._config.enabled
-                    else None
-                )
-                if new_history_points:
-                    self._history_points.extend(new_history_points)
-                    self._history_points = self._history_points[-self.MAX_HISTORY_POINTS :]
-                status.history = list(self._history_points)
-                status.history_points = list(self._history_points)
-                self._status = status
-
-                for agent in agents:
-                    self._known_episode_counts[str(agent.submission_id)] = agent.total_episodes
-                    self._known_medal_tiers[str(agent.submission_id)] = agent.medal_tier
-
-                outcome: Literal["success", "partial", "failed"] = (
-                    "failed"
-                    if not agents and status.last_error
-                    else "partial"
-                    if status.last_error
-                    else "success"
-                )
-
-                agents_summary = [
-                    {
-                        "submission_id": a.submission_id,
-                        "description": a.description,
-                        "public_score": a.public_score,
-                        "score": a.score,
-                        "rank": a.rank,
-                        "wins": a.wins,
-                        "losses": a.losses,
-                        "ties": a.ties,
-                        "win_rate": a.win_rate,
-                        "bronze_gap_score": a.bronze_gap_score,
-                        "medal_tier": a.medal_tier,
-                    }
-                    for a in agents
-                ]
-
-                log = SimulationMonitorRunLog(
-                    id=uuid.uuid4().hex,
-                    trigger=trigger,
-                    outcome=outcome,
-                    started_at=started_at.isoformat(),
-                    finished_at=finished_at.isoformat(),
-                    duration_seconds=round(
-                        (finished_at - started_at).total_seconds(), 3
-                    ),
-                    competition=config.competition,
-                    agent_count=len(agents),
-                    total_episodes_found=status.total_tracked_episodes,
-                    new_episodes_found=new_episodes_total,
-                    total_teams=thresholds.total_teams if thresholds else 0,
-                    bronze_cutoff_score=thresholds.bronze_cutoff_score if thresholds else None,
-                    agents_summary=agents_summary,
-                    new_episodes_count=new_episodes_total,
-                    error=status.last_error,
-                    details_available=bool(agents),
-                )
-                if agents:
-                    try:
-                        self._save_run_detail(log, agents, thresholds)
-                    except (OSError, ValueError, TypeError):
-                        log.details_available = False
-                self._logs.insert(0, log)
-                self._logs = self._logs[: self.MAX_RUN_LOGS]
-                self._save_state()
-
-            # Enqueue notifications if any
-            if self._notifications is not None and events_to_notify:
                 try:
-                    self._notifications.enqueue_simulation_events(
-                        competition=config.competition,
-                        events=events_to_notify,
-                        checked_at=status.last_checked_at,
+                    (
+                        status,
+                        agents,
+                        thresholds,
+                        new_episodes_total,
+                        new_history_points,
+                        events_to_notify,
+                    ) = await asyncio.wait_for(
+                        asyncio.to_thread(self._run_once_sync, config),
+                        timeout=25.0,
                     )
-                except Exception:
-                    pass
+                except asyncio.TimeoutError:
+                    status = SimulationMonitorStatus(
+                        competition=config.competition,
+                        last_checked_at=_utc_now().isoformat(),
+                        last_error="Kaggle 网络请求超时 (25秒)，本次检查已安全中止。",
+                    )
+                except Exception as exc:
+                    status = SimulationMonitorStatus(
+                        competition=config.competition,
+                        last_checked_at=_utc_now().isoformat(),
+                        last_error=str(exc)[:500],
+                    )
+
+                with self._state_lock:
+                    finished_at = _utc_now()
+                    status.running = False
+                    status.scheduler_alive = True
+                    status.service_started_at = self._service_started_at
+                    status.scheduler_heartbeat_at = _utc_now().isoformat()
+                    status.next_run_at = (
+                        (
+                            _utc_now()
+                            + timedelta(minutes=self._config.interval_minutes)
+                        ).isoformat()
+                        if self._config.enabled
+                        else None
+                    )
+                    if new_history_points:
+                        self._history_points.extend(new_history_points)
+                        self._history_points = self._history_points[-self.MAX_HISTORY_POINTS :]
+                    status.history = list(self._history_points)
+                    status.history_points = list(self._history_points)
+                    self._status = status
+
+                    for agent in agents:
+                        self._known_episode_counts[str(agent.submission_id)] = agent.total_episodes
+                        self._known_medal_tiers[str(agent.submission_id)] = agent.medal_tier
+
+                    outcome: Literal["success", "partial", "failed"] = (
+                        "failed"
+                        if not agents and status.last_error
+                        else "partial"
+                        if status.last_error
+                        else "success"
+                    )
+
+                    agents_summary = [
+                        {
+                            "submission_id": a.submission_id,
+                            "description": a.description,
+                            "public_score": a.public_score,
+                            "score": a.score,
+                            "rank": a.rank,
+                            "wins": a.wins,
+                            "losses": a.losses,
+                            "ties": a.ties,
+                            "win_rate": a.win_rate,
+                            "bronze_gap_score": a.bronze_gap_score,
+                            "medal_tier": a.medal_tier,
+                        }
+                        for a in agents
+                    ]
+
+                    log = SimulationMonitorRunLog(
+                        id=uuid.uuid4().hex,
+                        trigger=trigger,
+                        outcome=outcome,
+                        started_at=started_at.isoformat(),
+                        finished_at=finished_at.isoformat(),
+                        duration_seconds=round(
+                            (finished_at - started_at).total_seconds(), 3
+                        ),
+                        competition=config.competition,
+                        agent_count=len(agents),
+                        total_episodes_found=status.total_tracked_episodes,
+                        new_episodes_found=new_episodes_total,
+                        total_teams=thresholds.total_teams if thresholds else 0,
+                        bronze_cutoff_score=thresholds.bronze_cutoff_score if thresholds else None,
+                        agents_summary=agents_summary,
+                        new_episodes_count=new_episodes_total,
+                        error=status.last_error,
+                        details_available=bool(agents),
+                    )
+                    if agents:
+                        try:
+                            self._save_run_detail(log, agents, thresholds)
+                        except (OSError, ValueError, TypeError):
+                            log.details_available = False
+                    self._logs.insert(0, log)
+                    self._logs = self._logs[: self.MAX_RUN_LOGS]
+                    self._save_state()
+
+                # Enqueue notifications if any
+                if self._notifications is not None and events_to_notify:
+                    try:
+                        self._notifications.enqueue_simulation_events(
+                            competition=config.competition,
+                            events=events_to_notify,
+                            checked_at=status.last_checked_at,
+                        )
+                    except Exception:
+                        pass
+
+            finally:
+                with self._state_lock:
+                    self._status.running = False
+                    self._save_state()
 
             self._wake_event.set()
             return self.snapshot()
@@ -606,53 +626,80 @@ class SimulationMonitorManager:
         comp = config.competition.strip()
         errors: list[str] = []
 
-        # 1. 获取提交列表
-        submissions = self._kaggle.list_competition_submissions(
-            competition=comp, page_size=50
-        )
-        if not submissions:
-            raise RuntimeError(f"未能在竞赛 {comp} 下找到任何提交记录。")
-
-        # 确定监控的目标 Submission IDs (支持团队中任意成员提交的 Agent 编号)
+        # 1. 确定监控的目标 Submission IDs (支持团队中任意成员提交的 Agent 编号)
         target_submissions = []
         target_ids_list = config.target_submission_ids or config.submission_ids
         if target_ids_list:
-            sub_map = {int(str(s.ref)): s for s in submissions}
             for tid in target_ids_list:
                 try:
                     tid_int = int(str(tid).strip())
                 except (ValueError, TypeError):
                     continue
-                if tid_int in sub_map:
-                    target_submissions.append(sub_map[tid_int])
-                else:
-                    # 团队其他成员提交的 Agent (不在当前账号个人提交列表内)
-                    target_submissions.append(
-                        CompetitionSubmission(
-                            ref=tid_int,
-                            total_teams=0,
-                            date="",
-                            description=f"Team Agent #{tid_int}",
-                            error_description=None,
-                            file_name="",
-                            public_score=None,
-                            private_score=None,
-                            status="complete",
-                            submitted_by=None,
-                            team_name=None,
-                            url=None,
-                        )
+                target_submissions.append(
+                    CompetitionSubmission(
+                        ref=tid_int,
+                        total_teams=0,
+                        date="",
+                        description=f"Agent #{tid_int}",
+                        error_description=None,
+                        file_name="",
+                        public_score=None,
+                        private_score=None,
+                        status="complete",
+                        submitted_by=None,
+                        team_name=None,
+                        url=None,
                     )
+                )
+        else:
+            # 只有在未指定 target_submission_ids 时，才尝试拉取个人最新提交
+            try:
+                submissions = self._kaggle.list_competition_submissions(
+                    competition=comp, page_size=50
+                )
+                for s in submissions:
+                    norm_status = (s.status or "").lower()
+                    if "error" not in norm_status and "fail" not in norm_status:
+                        target_submissions.append(s)
+                        if len(target_submissions) >= 2:
+                            break
+                if not target_submissions and submissions:
+                    target_submissions = submissions[:2]
+            except Exception as exc:
+                errors.append(f"获取个人提交失败: {str(exc)[:200]}")
+
         if not target_submissions:
-            # 默认取前 2 个完成的有效提交
-            for s in submissions:
-                norm_status = (s.status or "").lower()
-                if "error" not in norm_status and "fail" not in norm_status:
-                    target_submissions.append(s)
-                    if len(target_submissions) >= 2:
-                        break
-        if not target_submissions:
-            target_submissions = submissions[:2]
+            # 最后的默认保底 (p46 与 p31)
+            target_submissions = [
+                CompetitionSubmission(
+                    ref=55565346,
+                    total_teams=0,
+                    date="",
+                    description="Agent #1 (p46)",
+                    error_description=None,
+                    file_name="",
+                    public_score=None,
+                    private_score=None,
+                    status="complete",
+                    submitted_by=None,
+                    team_name=None,
+                    url=None,
+                ),
+                CompetitionSubmission(
+                    ref=55555162,
+                    total_teams=0,
+                    date="",
+                    description="Agent #2 (p31)",
+                    error_description=None,
+                    file_name="",
+                    public_score=None,
+                    private_score=None,
+                    status="complete",
+                    submitted_by=None,
+                    team_name=None,
+                    url=None,
+                ),
+            ]
 
         # 2. 并行拉取全量天梯榜单与目标提交对局数据（大幅降低网络等待时间）
         thresholds: SimulationMedalThresholds | None = None
@@ -682,7 +729,9 @@ class SimulationMonitorManager:
             futures = [executor.submit(_fetch_leaderboard)]
             for sub in target_submissions:
                 futures.append(executor.submit(_fetch_sub_episodes, int(str(sub.ref))))
-            concurrent.futures.wait(futures)
+            done, not_done = concurrent.futures.wait(futures, timeout=18.0)
+            if not_done:
+                errors.append("部分天梯/对局数据拉取超时 (18秒)")
 
         # 构建 team_id/team_name 到 rank/score 的索引
         team_ranks: dict[str, int] = {}
