@@ -1,12 +1,10 @@
 import React, { useMemo } from 'react';
-import { Card, Empty, Typography } from 'antd';
+import { Card, Empty } from 'antd';
 import type {
   SimulationAgentStats,
   SimulationMedalThresholds,
   SimulationRatingPoint,
 } from '../api';
-
-const { Text } = Typography;
 
 interface ScoreTrajectoryChartProps {
   agents: SimulationAgentStats[];
@@ -227,15 +225,14 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
   return (
     <Card
       size="small"
-      title="评分轨迹"
-      extra={<Text type="secondary" style={{ fontSize: 12 }}>每局对战一个点</Text>}
+      title=""
       style={{ marginTop: 16, borderRadius: 10, borderColor: '#e2e8f0' }}
       bodyStyle={{ padding: '10px 14px 14px' }}
     >
       {!hasData ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="完成一次监控检查后显示每局评分轨迹"
+          description="暂无轨迹数据"
           style={{ margin: '24px 0' }}
         />
       ) : (
