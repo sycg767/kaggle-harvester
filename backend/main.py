@@ -82,7 +82,12 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         self.api_key = api_key.strip()
 
     async def dispatch(self, request: Request, call_next):
-        if self.api_key and request.url.path.startswith("/api"):
+        if (
+            self.api_key
+            and request.url.path.startswith("/api")
+            and not request.url.path.endswith("/chart.png")
+            and not request.url.path.endswith("/trajectory-chart.png")
+        ):
             supplied = request.headers.get("X-Harvester-Key", "")
             if not hmac.compare_digest(supplied, self.api_key):
                 return JSONResponse(

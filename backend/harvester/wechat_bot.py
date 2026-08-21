@@ -218,24 +218,31 @@ def get_chart_image(output_path=None):
         output_path = Path(output_path)
 
     # 1. 优先尝试直接从运行中的 FastAPI 接口下载已渲染好的 chart.png (毫秒级响应)
-    chart_api_url = HARVESTER_API_URL.rstrip("/")
-    if chart_api_url.endswith("/simulation-monitor"):
-        chart_api_url += "/chart.png"
+    candidate_urls = []
+    base_url = HARVESTER_API_URL.rstrip("/")
+    if base_url.endswith("/simulation-monitor"):
+        candidate_urls.append(base_url + "/chart.png")
     else:
-        chart_api_url += "/api/simulation-monitor/chart.png"
+        candidate_urls.append(base_url + "/api/simulation-monitor/chart.png")
+    candidate_urls.extend([
+        "http://127.0.0.1:8000/api/simulation-monitor/chart.png",
+        "http://127.0.0.1:8080/api/simulation-monitor/chart.png",
+        "http://127.0.0.1:80/api/simulation-monitor/chart.png",
+    ])
 
-    try:
-        headers = {}
-        if HARVESTER_API_KEY:
-            headers["X-Harvester-Key"] = HARVESTER_API_KEY
-        req = urllib.request.Request(chart_api_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=5.0) as response:
-            if response.status == 200:
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_bytes(response.read())
-                return str(output_path.resolve())
-    except Exception:
-        pass
+    for url in candidate_urls:
+        try:
+            headers = {}
+            if HARVESTER_API_KEY:
+                headers["X-Harvester-Key"] = HARVESTER_API_KEY
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=3.0) as response:
+                if response.status == 200:
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_bytes(response.read())
+                    return str(output_path.resolve())
+        except Exception:
+            continue
 
     # 2. 回退本地 Python 渲染
     snap_data = None

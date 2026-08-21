@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 import io
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import matplotlib
 matplotlib.use("Agg")  # Non-interactive headless backend
@@ -25,7 +23,7 @@ plt.rcParams["axes.unicode_minus"] = False
 COLORS = ["#d14343", "#3478c5", "#8b5cf6", "#0f9d75", "#d97706"]
 
 
-def _label_for_agent(agent_data: dict[str, Any], index: int) -> str:
+def _label_for_agent(agent_data, index):
     sub_id = int(str(agent_data.get("submission_id") or 0))
     if sub_id == 55565346:
         return "p46"
@@ -36,16 +34,13 @@ def _label_for_agent(agent_data: dict[str, Any], index: int) -> str:
         return "p46"
     if "p31" in raw.lower() or "p3plus31" in raw.lower():
         return "p31"
-    return f"Agent #{index + 1}"
+    return "Agent #" + str(index + 1)
 
 
-def render_trajectory_chart(
-    snapshot_data: dict[str, Any],
-    output_path: Optional[Path | str] = None,
-    dpi: int = 150,
-) -> bytes:
+def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
     """
     根据 SimulationMonitor 快照数据，使用 Matplotlib 生成与前端 ScoreTrajectoryChart 1:1 风格的高清评分轨迹折线图。
+    兼容 Python 3.6+ 全版本。
     """
     status = snapshot_data.get("status", {})
     agents = status.get("agents", [])
@@ -59,8 +54,8 @@ def render_trajectory_chart(
     ax.set_facecolor("#ffffff")
 
     # 提取各 Agent 的轨迹数据
-    all_x: list[int] = []
-    all_y: list[float] = []
+    all_x = []
+    all_y = []
     series_list = []
 
     for idx, agent in enumerate(agents):
@@ -133,7 +128,7 @@ def render_trajectory_chart(
         ax.text(
             x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
             silver_cutoff + 3,
-            f"银牌线 {silver_cutoff:.1f}",
+            "银牌线 {:.1f}".format(silver_cutoff),
             color="#64748b",
             fontsize=9.5,
             fontweight="bold",
@@ -154,7 +149,7 @@ def render_trajectory_chart(
         ax.text(
             x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
             bronze_cutoff + 3,
-            f"铜牌线 {bronze_cutoff:.1f}",
+            "铜牌线 {:.1f}".format(bronze_cutoff),
             color="#d97706",
             fontsize=9.5,
             fontweight="bold",
@@ -172,7 +167,7 @@ def render_trajectory_chart(
             linewidth=2.0,
             solid_capstyle="round",
             zorder=3,
-            label=f"{item['label']} · {item['final_score']:.1f} ({item['total_games']}局)",
+            label="{} · {:.1f} ({}局)".format(item["label"], item["final_score"], item["total_games"]),
         )
         legend_elements.append(line)
 
@@ -182,7 +177,7 @@ def render_trajectory_chart(
             last_y = item["y"][-1]
             ax.plot(last_x, last_y, marker="o", markersize=6, color=item["color"], zorder=5)
             ax.annotate(
-                f"{last_y:.1f}",
+                "{:.1f}".format(last_y),
                 xy=(last_x, last_y),
                 xytext=(last_x + 3, last_y - 2),
                 fontsize=9.5,
