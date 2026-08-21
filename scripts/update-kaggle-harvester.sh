@@ -8,6 +8,7 @@ OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-/home/${OPENCLAW_USER}/kaggle-harvester}
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env.deploy}"
 OPENCLAW_RUNTIME_ENV="/home/${OPENCLAW_USER}/.openclaw/kaggle-harvester.env"
 OPENCLAW_LAUNCHER="/home/${OPENCLAW_USER}/.openclaw/start-kaggle-gateway.sh"
+TARGET_SCRIPT="/home/${OPENCLAW_USER}/kaggle-harvester/backend/harvester/wechat_bot.py"
 
 log() {
   printf '[%s] %s\n' "$(date '+%F %T')" "$*"
@@ -44,6 +45,11 @@ cd "$REPO_DIR"
 log '拉取最新代码'
 git checkout -f scripts/update-kaggle-harvester.sh 2>/dev/null || true
 git pull origin main
+
+if [[ -f "$REPO_DIR/scripts/update-kaggle-harvester.sh" && -d "/usr/local/sbin" ]]; then
+  cp -f "$REPO_DIR/scripts/update-kaggle-harvester.sh" "/usr/local/sbin/update-kaggle-harvester" 2>/dev/null || true
+  chmod 755 "/usr/local/sbin/update-kaggle-harvester" 2>/dev/null || true
+fi
 
 log '构建并启动 Docker Compose 服务'
 docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build
