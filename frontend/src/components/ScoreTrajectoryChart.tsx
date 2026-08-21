@@ -267,21 +267,37 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
     );
   };
   const renderLegend = () => {
-    const width = 184;
-    const rowHeight = 20;
+    const width = 198;
+    const rowHeight = 22;
     const height = 12 + chart.series.length * rowHeight;
     const x = VIEWBOX_WIDTH - PLOT.right - width - 8;
     const y = VIEWBOX_HEIGHT - PLOT.bottom - height - 8;
     return (
       <g>
-        <rect x={x} y={y} width={width} height={height} rx="5" fill="#ffffff" fillOpacity="0.92" stroke="#cbd5e1" />
+        <rect x={x} y={y} width={width} height={height} rx="6" fill="#ffffff" fillOpacity="0.94" stroke="#cbd5e1" strokeWidth="1" />
         {chart.series.map((series, index) => {
-          const rowY = y + 16 + index * rowHeight;
+          const rowY = y + 17 + index * rowHeight;
+          const scoreText = series.latest ? series.latest.y.toFixed(1) : '—';
+          const gamesText = `(${series.games} games)`;
           return (
             <g key={`legend-${series.id}`}>
-              <line x1={x + 10} x2={x + 27} y1={rowY - 4} y2={rowY - 4} stroke={series.color} strokeWidth="3" />
-              <text x={x + 34} y={rowY} fontSize="11" fill="#334155">
-                {series.label} · {series.latest?.y.toFixed(1) ?? '—'}（{series.games}局）
+              {/* 颜色标识线 */}
+              <line x1={x + 10} x2={x + 26} y1={rowY - 4} y2={rowY - 4} stroke={series.color} strokeWidth="3" strokeLinecap="round" />
+              {/* 代理代号 (p46 / p31) */}
+              <text x={x + 32} y={rowY} fontSize="11" fontWeight="600" fill="#1e293b">
+                {series.label}
+              </text>
+              {/* 分隔圆点 */}
+              <text x={x + 58} y={rowY} fontSize="11" fill="#94a3b8">
+                ·
+              </text>
+              {/* 积分数值 (严格左对齐在同一 X 坐标) */}
+              <text x={x + 67} y={rowY} fontSize="11" fontWeight="600" fill={series.color}>
+                {scoreText}
+              </text>
+              {/* 场次数值 (严格左对齐在同一 X 坐标) */}
+              <text x={x + 108} y={rowY} fontSize="10.5" fill="#64748b">
+                {gamesText}
               </text>
             </g>
           );
@@ -346,8 +362,8 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
                 );
               })}
 
-              {renderCutoff(chart.silverCutoff, '银牌线', '#64748b')}
-              {renderCutoff(chart.bronzeCutoff, '铜牌线', '#b45309')}
+              {renderCutoff(chart.silverCutoff, 'Silver', '#64748b')}
+              {renderCutoff(chart.bronzeCutoff, 'Bronze', '#d97706')}
 
               {chart.series.map((series) => (
                 <g key={series.id}>
