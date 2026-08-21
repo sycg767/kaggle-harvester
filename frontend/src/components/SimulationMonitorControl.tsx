@@ -443,6 +443,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   ], []);
 
   const totalTrackedCount = (agent1?.total_episodes || 0) + (agent2?.total_episodes || 0);
+  const isMonitoringActive = Boolean(snapshot?.config?.enabled);
 
   return (
     <>
@@ -462,7 +463,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             >
               {(agents[0]?.score ?? agents[0]?.public_score) !== undefined && (agents[0]?.score ?? agents[0]?.public_score) !== null
                 ? `${Number(agents[0]?.score ?? agents[0]?.public_score).toFixed(1)}分`
-                : '活跃'}
+                : isMonitoringActive ? '活跃' : '已暂停'}
             </Tag>
           )}
         </Button>
@@ -491,30 +492,23 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             <div className="sim-control-bar">
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {(() => {
-                    const isMonitoringActive = Boolean(snapshot?.config?.enabled || status?.scheduler_alive);
-                    return (
-                      <>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: 10,
-                            height: 10,
-                            borderRadius: '50%',
-                            background: isMonitoringActive ? '#10b981' : '#94a3b8',
-                            boxShadow: isMonitoringActive ? '0 0 0 3px rgba(16, 185, 129, 0.2)' : 'none',
-                          }}
-                        />
-                        <Text strong style={{ fontSize: 13 }}>
-                          {isMonitoringActive
-                            ? status?.running
-                              ? '正在执行检查中...'
-                              : `后台调度监控中 (${snapshot?.config?.interval_minutes || 10} 分钟/次)`
-                            : '监控已暂停'}
-                        </Text>
-                      </>
-                    );
-                  })()}
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      background: isMonitoringActive ? '#10b981' : '#94a3b8',
+                      boxShadow: isMonitoringActive ? '0 0 0 3px rgba(16, 185, 129, 0.2)' : 'none',
+                    }}
+                  />
+                  <Text strong style={{ fontSize: 13, color: isMonitoringActive ? '#0f172a' : '#64748b' }}>
+                    {isMonitoringActive
+                      ? status?.running
+                        ? '正在执行检查中...'
+                        : `后台调度监控中 (${snapshot?.config?.interval_minutes || 10} 分钟/次)`
+                      : '后台监控已暂停 (定时关闭)'}
+                  </Text>
                 </div>
 
                 <Tooltip title="点击查看微信 ClawBot 智能体状态与指令指南">
@@ -541,7 +535,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                   上次检查: {formatDate(status?.last_checked_at)}
                 </Text>
 
-                {status?.next_run_at && (
+                {isMonitoringActive && status?.next_run_at && (
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     下次检查: {formatDate(status?.next_run_at)}
                   </Text>
