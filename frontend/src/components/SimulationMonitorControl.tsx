@@ -133,21 +133,25 @@ const getMedalTag = (tier?: string) => {
 };
 
 const getShortAgentName = (agent: SimulationAgentStats, defaultIdx: number) => {
+  if (agent.submission_id === 55565346) return 'p46';
+  if (agent.submission_id === 55555162) return 'p31';
   const raw = (agent.description || agent.file_name || '').trim();
-  const match = raw.match(/^(p\d+(?:plus\d+)?|p\d+|[a-zA-Z0-9_\-]+)/i);
+  if (/p46/i.test(raw)) return 'p46';
+  if (/p3plus31|p31/i.test(raw)) return 'p31';
+  const match = raw.match(/^(p\d+(?:plus\d+)?|p\d+)/i);
   if (match) {
     let name = match[1];
     if (/^p3plus31/i.test(name)) name = 'p31';
-    name = name.replace(/[:_\-—]+$/, '');
-    if (name.length <= 14) {
-      return name;
-    }
+    return name;
   }
   const fileMatch = (agent.file_name || '').match(/^(p\d+(?:plus\d+)?|p\d+)/i);
   if (fileMatch) {
     let name = fileMatch[1];
     if (/^p3plus31/i.test(name)) name = 'p31';
     return name;
+  }
+  if (raw && !raw.toLowerCase().startsWith('agent') && raw.length <= 15) {
+    return raw.replace(/[:_\-—]+$/, '');
   }
   return `Agent #${defaultIdx + 1}`;
 };
