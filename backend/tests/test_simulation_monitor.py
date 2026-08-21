@@ -217,6 +217,22 @@ class TestSimulationMonitor(unittest.TestCase):
         self.assertEqual(detail.agents[0].submission_id, 55565346)
         self.assertEqual(len(detail.agents[0].recent_episodes), 5)
 
+    def test_custom_target_submission_ids(self) -> None:
+        manager = SimulationMonitorManager(
+            kaggle_client=self.client,  # type: ignore[arg-type]
+            harvest_root=self.root,
+            default_competition="pokemon-tcg-ai-battle",
+        )
+        config = SimulationMonitorConfig(
+            enabled=True,
+            competition="pokemon-tcg-ai-battle",
+            target_submission_ids=[55565346, 55555162],
+        )
+        status, agents, thresholds, new_eps, hist, notifs = manager._run_once_sync(config)
+        self.assertEqual(len(agents), 2)
+        self.assertEqual(agents[0].submission_id, 55565346)
+        self.assertEqual(agents[1].submission_id, 55555162)
+
 
 if __name__ == "__main__":
     unittest.main()

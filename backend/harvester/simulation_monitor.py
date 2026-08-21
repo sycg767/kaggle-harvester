@@ -16,6 +16,7 @@ from typing import Any, Literal
 from .kaggle_client import KaggleClient, _parse_public_score
 from .notifications import NotificationManager
 from .models import (
+    CompetitionSubmission,
     SimulationAgentStats,
     SimulationClawbotStatus,
     SimulationClawbotTestCandidate,
