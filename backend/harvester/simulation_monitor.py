@@ -105,7 +105,9 @@ class SimulationMonitorManager:
             self._status.scheduler_alive = False
             self._status.service_started_at = self._service_started_at
             self._status.scheduler_heartbeat_at = self._service_started_at
-            if was_running:
+            if self._status.last_error and "CompetitionSubmission" in self._status.last_error:
+                self._status.last_error = None
+            if was_running or (data.get("status", {}).get("last_error") and "CompetitionSubmission" in str(data.get("status", {}).get("last_error"))):
                 self._save_state()
             self._known_episode_counts = {
                 str(k): int(v)
