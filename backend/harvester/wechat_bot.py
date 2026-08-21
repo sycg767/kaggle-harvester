@@ -21,10 +21,13 @@ def load_config_value(name):
     if value:
         return value
     search_paths = [
+        Path("/home/openclaw/.openclaw/kaggle-harvester.env"),
+        Path("/home/openclaw/.openclaw/runtime.env"),
         Path(".env.deploy"),
         Path(".env"),
         backend_dir / ".env",
         repo_dir / ".env.deploy",
+        Path("/root/kaggle-harvester/.env.deploy"),
         Path("/opt/kaggle-harvester/.env.deploy"),
         Path("/home/openclaw/kaggle-harvester/.env.deploy"),
     ]
@@ -35,12 +38,35 @@ def load_config_value(name):
                     if line.startswith(name + "="):
                         return line.split("=", 1)[1].strip().strip("'\"")
         except (IOError, OSError):
-            # OpenClaw 可能从无权访问的工作目录启动，跳过该候选配置文件。
             continue
     return ""
 
-HARVESTER_API_URL = load_config_value("HARVESTER_API_URL") or "http://127.0.0.1:8000/api/simulation-monitor"
+CONFIGURED_API_URL = load_config_value("HARVESTER_API_URL")
 HARVESTER_API_KEY = load_config_value("HARVESTER_API_KEY")
+
+def _resolve_api_url():
+    if CONFIGURED_API_URL:
+        return CONFIGURED_API_URL
+    app_port = load_config_value("APP_PORT")
+    if app_port:
+        return f"http://127.0.0.1:{app_port}/api/simulation-monitor"
+    # 默认候选端口列表 (按常用优先级)
+    candidates = [
+        "http://127.0.0.1:8080/api/simulation-monitor",
+        "http://127.0.0.1:8000/api/simulation-monitor",
+        "http://127.0.0.1:80/api/simulation-monitor",
+    ]
+    for url in candidates:
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                if resp.status == 200:
+                    return url
+        except Exception:
+            continue
+    return candidates[0]
+
+HARVESTER_API_URL = _resolve_api_url()
 
 def format_beijing_time(raw_time):
     if not raw_time:
