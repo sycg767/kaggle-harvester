@@ -6,16 +6,12 @@ import matplotlib
 matplotlib.use("Agg")  # Non-interactive headless backend
 import matplotlib.pyplot as plt
 
-# Configure fonts for Chinese characters and crisp rendering
+# Configure fonts for crisp standard English rendering across all OS/Docker containers
 plt.rcParams["font.sans-serif"] = [
-    "WenQuanYi Micro Hei",
-    "WenQuanYi Zen Hei",
-    "Noto Sans CJK SC",
-    "Source Han Sans SC",
-    "Microsoft YaHei",
-    "SimHei",
-    "PingFang SC",
     "DejaVu Sans",
+    "Helvetica Neue",
+    "Arial",
+    "Liberation Sans",
     "sans-serif",
 ]
 plt.rcParams["axes.unicode_minus"] = False
@@ -40,7 +36,7 @@ def _label_for_agent(agent_data, index):
 def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
     """
     根据 SimulationMonitor 快照数据，使用 Matplotlib 生成与前端 ScoreTrajectoryChart 1:1 风格的高清评分轨迹折线图。
-    兼容 Python 3.6+ 全版本。
+    使用纯英文标签，完美适配任何 Docker 容器与无中文字体环境。
     """
     status = snapshot_data.get("status", {})
     agents = status.get("agents", [])
@@ -128,7 +124,7 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
         ax.text(
             x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
             silver_cutoff + 3,
-            "银牌线 {:.1f}".format(silver_cutoff),
+            "Silver {:.1f}".format(silver_cutoff),
             color="#64748b",
             fontsize=9.5,
             fontweight="bold",
@@ -149,7 +145,7 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
         ax.text(
             x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
             bronze_cutoff + 3,
-            "铜牌线 {:.1f}".format(bronze_cutoff),
+            "Bronze {:.1f}".format(bronze_cutoff),
             color="#d97706",
             fontsize=9.5,
             fontweight="bold",
@@ -167,7 +163,7 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             linewidth=2.0,
             solid_capstyle="round",
             zorder=3,
-            label="{} · {:.1f} ({}局)".format(item["label"], item["final_score"], item["total_games"]),
+            label="{} · {:.1f} ({} games)".format(item["label"], item["final_score"], item["total_games"]),
         )
         legend_elements.append(line)
 
