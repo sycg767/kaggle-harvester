@@ -75,6 +75,11 @@ install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 755 "$(dirname "$TARGET_SC
 install -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 644 \
   "$REPO_DIR/backend/harvester/wechat_bot.py" \
   "$TARGET_SCRIPT"
+if [[ -f "$REPO_DIR/backend/harvester/chart_renderer.py" ]]; then
+  install -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 644 \
+    "$REPO_DIR/backend/harvester/chart_renderer.py" \
+    "$OPENCLAW_REPO_DIR/backend/harvester/chart_renderer.py"
+fi
 
 if [[ -f "$REPO_DIR/scripts/setup_openclaw.py" ]]; then
   python3 "$REPO_DIR/scripts/setup_openclaw.py"

@@ -185,6 +185,33 @@ def format_message(data, history_only=False):
 def get_chart_image(output_path=None):
     """生成评分轨迹图并返回保存的图片文件绝对路径。"""
     import tempfile
+
+    if not output_path:
+        output_path = Path(tempfile.gettempdir()) / "simulation_trajectory.png"
+    else:
+        output_path = Path(output_path)
+
+    # 1. 优先尝试直接从运行中的 FastAPI 接口下载已渲染好的 chart.png (毫秒级响应)
+    chart_api_url = HARVESTER_API_URL.rstrip("/")
+    if chart_api_url.endswith("/simulation-monitor"):
+        chart_api_url += "/chart.png"
+    else:
+        chart_api_url += "/api/simulation-monitor/chart.png"
+
+    try:
+        headers = {}
+        if HARVESTER_API_KEY:
+            headers["X-Harvester-Key"] = HARVESTER_API_KEY
+        req = urllib.request.Request(chart_api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5.0) as response:
+            if response.status == 200:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(response.read())
+                return str(output_path.resolve())
+    except Exception:
+        pass
+
+    # 2. 回退本地 Python 渲染
     snap_data = None
     try:
         headers = {}
@@ -206,11 +233,6 @@ def get_chart_image(output_path=None):
         snap_data = mgr.snapshot().model_dump()
 
     from harvester.chart_renderer import render_trajectory_chart
-    if not output_path:
-        output_path = Path(tempfile.gettempdir()) / "simulation_trajectory.png"
-    else:
-        output_path = Path(output_path)
-
     render_trajectory_chart(snap_data, output_path=output_path)
     return str(output_path.resolve())
 

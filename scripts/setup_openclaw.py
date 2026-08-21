@@ -211,7 +211,17 @@ p31 刚赢一场止跌，但安全垫只有 +0.9 分很极限 ⚠️；p46 近�
 ```
 • 状态回暖，刚打赢 marc_town 止血！
 
-【总结】p46 处于调整期；p31 胜率更稳（60%），但安全垫薄，需要继续连胜拉开差距！
+### 场景 4：用户询问「走势图 / 评分轨迹 / 曲线 / chart / 战报图 / 看图」
+1. 立即执行脚本生成高清走势图：
+```bash
+python "{script_path}" --chart
+```
+该命令会在毫秒级生成全量评分轨迹图并输出 `IMAGE:/tmp/simulation_trajectory.png`。
+2. 输出图片并配以简短教练点评（例如说明 p46 红色曲线与 p31 蓝色曲线最新状态）：
+```text
+📈 最新评分轨迹走势图已生成！红线为 p46，蓝线为 p31，虚线为银牌/铜牌参考线。
+
+IMAGE:/tmp/simulation_trajectory.png
 ```
 """)
 
@@ -222,12 +232,12 @@ p31 刚赢一场止跌，但安全垫只有 +0.9 分很极限 ⚠️；p46 近�
             with open(skills_dir / "SKILL.md", "w", encoding="utf-8") as f:
                 f.write(f"""---
 name: kaggle-harvester
-description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match results, episode history, recent battle timestamps (北京时间), agent scores, ranks, and medal thresholds from Kaggle Harvester.
+description: Query real-time Pokemon TCG AI Battle simulation leaderboard, match results, episode history, recent battle timestamps (北京时间), agent scores, ranks, medal thresholds, and generate rating trajectory charts from Kaggle Harvester.
 ---
 
 # Kaggle Harvester WeChat Assistant
 
-When user asks about battle status, scores, ranks, medal lines, recent matches, or timestamps:
+When user asks about battle status, scores, ranks, medal lines, recent matches, timestamps, or trajectory charts:
 
 1. For status/scores/rankings:
 ```bash
@@ -237,6 +247,11 @@ python "{script_path}"
 2. For episode timestamps / match history:
 ```bash
 python "{script_path}" --history-only
+```
+
+3. For rating trajectory chart / 走势图 / 评分轨迹 / chart:
+```bash
+python "{script_path}" --chart
 ```
 
 Parse the data and reply in the friendly, structured, and insightful WeChat coach format defined in SOUL.md.
