@@ -371,6 +371,15 @@ export interface SimulationEpisode {
   replay_url?: string;
 }
 
+export interface SimulationRatingPoint {
+  episode_id: number;
+  game_number: number;
+  timestamp?: string;
+  score: number;
+  score_delta?: number;
+  result: 'win' | 'loss' | 'tie' | 'unknown';
+}
+
 export interface SimulationAgentStats {
   submission_id: number;
   team_name: string;
@@ -392,6 +401,7 @@ export interface SimulationAgentStats {
   bronze_gap_score?: number;
   bronze_gap_rank?: number;
   recent_episodes: SimulationEpisode[];
+  rating_trajectory: SimulationRatingPoint[];
   last_updated?: string;
 }
 

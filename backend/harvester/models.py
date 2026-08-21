@@ -628,6 +628,17 @@ class SimulationEpisode(BaseModel):
     replay_url: str = ""
 
 
+class SimulationRatingPoint(BaseModel):
+    """单场对局结算后的评分轨迹点。"""
+
+    episode_id: int
+    game_number: int
+    timestamp: Optional[str] = None
+    score: float
+    score_delta: Optional[float] = None
+    result: Literal["win", "loss", "tie", "unknown"] = "unknown"
+
+
 class SimulationAgentStats(BaseModel):
     """单个参赛代理的聚合战绩与天梯排位。"""
 
@@ -647,6 +658,7 @@ class SimulationAgentStats(BaseModel):
     ties: int = 0
     win_rate: float = 0.0
     recent_episodes: list[SimulationEpisode] = Field(default_factory=list)
+    rating_trajectory: list[SimulationRatingPoint] = Field(default_factory=list)
     bronze_gap_score: Optional[float] = None
     bronze_gap_rank: Optional[int] = None
     medal_tier: Literal["gold", "silver", "bronze", "none", "unknown"] = "unknown"

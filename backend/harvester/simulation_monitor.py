@@ -25,6 +25,7 @@ from .models import (
     SimulationHistoryPoint,
     SimulationMedalThresholds,
     SimulationMonitorConfig,
+    SimulationRatingPoint,
     SimulationMonitorRunDetail,
     SimulationMonitorRunLog,
     SimulationMonitorSnapshot,
@@ -847,6 +848,30 @@ class SimulationMonitorManager:
                         delta = -1.0
                     ep.score_delta = delta
 
+            # Kaggle 对局接口按最新在前返回；从当前最终分数反推每局结算后的分数。
+            # 这样每一局都有一个真实/可解释的轨迹点，而不是每次轮询只有一个点。
+            rating_trajectory: list[SimulationRatingPoint] = []
+            if score is not None:
+                chronological_episodes = sorted(
+                    episodes,
+                    key=lambda item: (item.end_time or item.create_time or "", item.id),
+                )
+                score_after = float(score)
+                reversed_points: list[SimulationRatingPoint] = []
+                for game_number, ep in reversed(list(enumerate(chronological_episodes, start=1))):
+                    reversed_points.append(
+                        SimulationRatingPoint(
+                            episode_id=ep.id,
+                            game_number=game_number,
+                            timestamp=ep.end_time or ep.create_time,
+                            score=round(score_after, 1),
+                            score_delta=ep.score_delta,
+                            result=ep.result,
+                        )
+                    )
+                    score_after = round(score_after - (ep.score_delta or 0.0), 1)
+                rating_trajectory = list(reversed(reversed_points))[-500:]
+
             agent_stat = SimulationAgentStats(
                 submission_id=sub_id,
                 file_name=sub.file_name,
@@ -864,6 +889,7 @@ class SimulationMonitorManager:
                 ties=ties,
                 win_rate=win_rate,
                 recent_episodes=episodes[:50],
+                rating_trajectory=rating_trajectory,
                 bronze_gap_score=bronze_gap_score,
                 bronze_gap_rank=bronze_gap_rank,
                 medal_tier=medal_tier,

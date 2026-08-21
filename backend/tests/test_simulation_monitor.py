@@ -188,6 +188,9 @@ class TestSimulationMonitor(unittest.TestCase):
         # Score 862.8 vs Bronze cutoff 840.0 -> Gap = +22.8
         self.assertIsNotNone(agent1.bronze_gap_score)
         self.assertAlmostEqual(agent1.bronze_gap_score, 22.8, places=1)
+        self.assertEqual(len(agent1.rating_trajectory), 5)
+        self.assertEqual([point.game_number for point in agent1.rating_trajectory], [1, 2, 3, 4, 5])
+        self.assertAlmostEqual(agent1.rating_trajectory[-1].score, 862.8, places=1)
         # Medal tier: Rank 1 <= Gold (12) -> Gold
         self.assertEqual(agent1.medal_tier, "gold")
 

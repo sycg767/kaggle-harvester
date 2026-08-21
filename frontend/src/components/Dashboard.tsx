@@ -41,6 +41,7 @@ import NotificationCenter from './NotificationCenter';
 import SubmissionMonitorControl from './SubmissionMonitorControl';
 import SimulationMonitorControl from './SimulationMonitorControl';
 import AutoArchiveControl from './AutoArchiveControl';
+import ScoreTrajectoryChart from './ScoreTrajectoryChart';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -500,7 +501,6 @@ export const Dashboard: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
                     <span style={{ fontWeight: 600 }}>奖牌线切分 (总计 {thresholds?.total_teams || 6807} 支参赛队)</span>
                     <Space size={12}>
-                      <span style={{ color: '#ca8a04', fontWeight: 600 }}>金牌线: {thresholds?.gold_cutoff_score || 1131.9}分</span>
                       <span style={{ color: '#475569', fontWeight: 600 }}>银牌线: {thresholds?.silver_cutoff_score || 917.4}分</span>
                       <span style={{ color: '#d97706', fontWeight: 700 }}>铜牌线: {thresholds?.bronze_cutoff_score || 839.1}分</span>
                     </Space>
@@ -508,19 +508,20 @@ export const Dashboard: React.FC = () => {
                   <Progress
                     percent={(() => {
                       const topScore = Math.max(p46?.score || p46?.public_score || 0, p31?.score || p31?.public_score || 0);
-                      const goldCutoff = thresholds?.gold_cutoff_score || 1131.9;
-                      return goldCutoff > 0 ? Math.min(100, Math.max(0, Math.round((topScore / goldCutoff) * 100))) : 0;
+                      const silverCutoff = thresholds?.silver_cutoff_score || 917.4;
+                      return silverCutoff > 0 ? Math.min(100, Math.max(0, Math.round((topScore / silverCutoff) * 100))) : 0;
                     })()}
                     showInfo={false}
-                    strokeColor={{
-                      '0%': '#3b82f6',
-                      '70%': '#d97706',
-                      '90%': '#eab308',
-                      '100%': '#22c55e',
-                    }}
+                    strokeColor="#94a3b8"
+                    trailColor="#e5e7eb"
                     size={['100%', 8]}
                   />
                 </div>
+
+                <ScoreTrajectoryChart
+                  agents={agents}
+                  thresholds={thresholds}
+                />
               </Card>
             </Col>
 

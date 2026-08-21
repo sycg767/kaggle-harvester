@@ -742,6 +742,18 @@ async def test_simulation_clawbot():
     return await run_in_threadpool(manager.test_clawbot)
 
 
+@app.get("/api/simulation-monitor/chart.png")
+@app.get("/api/simulation-monitor/trajectory-chart.png")
+async def get_simulation_trajectory_chart():
+    """生成并返回评分轨迹高清折线图 (PNG)。"""
+    manager: SimulationMonitorManager = app.state.simulation_monitor
+    snap = manager.snapshot()
+    from harvester.chart_renderer import render_trajectory_chart
+
+    chart_bytes = await run_in_threadpool(render_trajectory_chart, snap.model_dump())
+    return Response(content=chart_bytes, media_type="image/png")
+
+
 @app.get("/api/simulation-monitor/submissions")
 async def list_simulation_submissions(competition: Optional[str] = Query(None)):
     """读取当前竞赛下可供监控的 Agent 提交（含当前团队追踪的 Agent 以及个人提交记录）。"""

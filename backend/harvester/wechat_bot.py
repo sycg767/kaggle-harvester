@@ -181,10 +181,56 @@ def format_message(data, history_only=False):
     
     return "\n".join(lines)
 
-if __name__ == "__main__":
-    is_history_only = any(arg in sys.argv for arg in ["--history-only", "--only-history"])
+
+def get_chart_image(output_path=None):
+    """生成评分轨迹图并返回保存的图片文件绝对路径。"""
+    import tempfile
+    snap_data = None
     try:
-        print(get_status_text(history_only=is_history_only))
+        headers = {}
+        if HARVESTER_API_KEY:
+            headers["X-Harvester-Key"] = HARVESTER_API_KEY
+        req = urllib.request.Request(HARVESTER_API_URL, headers=headers)
+        with urllib.request.urlopen(req, timeout=5.0) as response:
+            if response.status == 200:
+                snap_data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        pass
+
+    if not snap_data:
+        from harvester.kaggle_client import KaggleClient
+        from harvester.simulation_monitor import SimulationMonitorManager
+        k = KaggleClient()
+        data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
+        mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
+        snap_data = mgr.snapshot().model_dump()
+
+    from harvester.chart_renderer import render_trajectory_chart
+    if not output_path:
+        output_path = Path(tempfile.gettempdir()) / "simulation_trajectory.png"
+    else:
+        output_path = Path(output_path)
+
+    render_trajectory_chart(snap_data, output_path=output_path)
+    return str(output_path.resolve())
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    is_chart_only = any(arg in args for arg in ["--chart", "--image", "-c", "--pic", "chart", "image", "pic", "图", "走势", "轨迹", "曲线"])
+    is_with_chart = any(arg in args for arg in ["--with-chart", "--with-image"])
+    is_history_only = any(arg in args for arg in ["--history-only", "--only-history"])
+
+    try:
+        if is_chart_only:
+            chart_path = get_chart_image()
+            print(f"IMAGE:{chart_path}")
+        elif is_with_chart:
+            text = get_status_text(history_only=is_history_only)
+            chart_path = get_chart_image()
+            print(f"{text}\n\nIMAGE:{chart_path}")
+        else:
+            print(get_status_text(history_only=is_history_only))
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
