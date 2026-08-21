@@ -221,27 +221,35 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
     return offsets;
   }, [chart.series, chart.xMin, chart.xMax, chart.yMin, chart.yMax, plotWidth, plotHeight]);
 
-  const renderCutoff = (value: number | undefined, label: string, color: string) => {
+  const renderCutoffLine = (value: number | undefined, color: string) => {
+    if (value === undefined || value < chart.yMin || value > chart.yMax) return null;
+    const y = yScale(value);
+    return (
+      <line
+        key={`cutoff-line-${value}-${color}`}
+        x1={PLOT.left}
+        x2={VIEWBOX_WIDTH - PLOT.right}
+        y1={y}
+        y2={y}
+        stroke={color}
+        strokeDasharray="6 5"
+        strokeWidth="1.5"
+      />
+    );
+  };
+
+  const renderCutoffBadge = (value: number | undefined, label: string, color: string) => {
     if (value === undefined || value < chart.yMin || value > chart.yMax) return null;
     const y = yScale(value);
     const text = `${label} ${formatNumber(value)}`;
-    const badgeWidth = text.length * 7.2 + 16;
+    const badgeWidth = text.length * 7.4 + 16;
     const badgeHeight = 18;
     const badgeX = PLOT.left + 8;
     const badgeY = y - badgeHeight / 2;
 
     return (
-      <g key={label}>
-        <line
-          x1={PLOT.left}
-          x2={VIEWBOX_WIDTH - PLOT.right}
-          y1={y}
-          y2={y}
-          stroke={color}
-          strokeDasharray="6 5"
-          strokeWidth="1.5"
-        />
-        {/* 胶囊背景框，彻底避免与数据折线穿透重叠 */}
+      <g key={`cutoff-badge-${label}`}>
+        {/* 纯白实体胶囊框，浮于折线之上，确保文字 100% 不被线条穿透遮挡 */}
         <rect
           x={badgeX}
           y={badgeY}
@@ -249,9 +257,8 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
           height={badgeHeight}
           rx="4"
           fill="#ffffff"
-          fillOpacity="0.94"
           stroke={color}
-          strokeWidth="0.9"
+          strokeWidth="1"
         />
         <text
           x={badgeX + badgeWidth / 2}
@@ -362,9 +369,11 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
                 );
               })}
 
-              {renderCutoff(chart.silverCutoff, 'Silver', '#64748b')}
-              {renderCutoff(chart.bronzeCutoff, 'Bronze', '#d97706')}
+              {/* 1. 先绘制参考虚线 (背景层) */}
+              {renderCutoffLine(chart.silverCutoff, '#64748b')}
+              {renderCutoffLine(chart.bronzeCutoff, '#d97706')}
 
+              {/* 2. 绘制数据折线与圆点 */}
               {chart.series.map((series) => (
                 <g key={series.id}>
                   <path
@@ -405,6 +414,10 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
                   )}
                 </g>
               ))}
+
+              {/* 3. 在折线之上绘制参考线胶囊徽章 (前景层，实体白色背景完全覆盖穿过的折线) */}
+              {renderCutoffBadge(chart.silverCutoff, 'Silver', '#64748b')}
+              {renderCutoffBadge(chart.bronzeCutoff, 'Bronze', '#d97706')}
 
               {renderLegend()}
 
