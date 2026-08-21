@@ -569,6 +569,18 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
               </Space>
             </div>
 
+            {/* Error or Warning Alert */}
+            {status?.last_error && (
+              <Alert
+                message="对战状态检查提示"
+                description={status.last_error}
+                type="warning"
+                showIcon
+                closable
+                style={{ marginBottom: 14, borderRadius: 8 }}
+              />
+            )}
+
             {/* Medal Thresholds Banner: Ordered Gold -> Silver -> Bronze */}
             {thresholds && (
               <Card

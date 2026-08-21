@@ -627,7 +627,7 @@ class SimulationMonitorManager:
         errors: list[str] = []
 
         # 1. 确定监控的目标 Submission IDs (支持团队中任意成员提交的 Agent 编号)
-        target_submissions = []
+        target_submissions: list[CompetitionSubmission] = []
         target_ids_list = config.target_submission_ids or config.submission_ids
         if target_ids_list:
             for tid in target_ids_list:
@@ -637,18 +637,9 @@ class SimulationMonitorManager:
                     continue
                 target_submissions.append(
                     CompetitionSubmission(
-                        ref=tid_int,
-                        total_teams=0,
-                        date="",
+                        ref=str(tid_int),
                         description=f"Agent #{tid_int}",
-                        error_description=None,
-                        file_name="",
-                        public_score=None,
-                        private_score=None,
                         status="complete",
-                        submitted_by=None,
-                        team_name=None,
-                        url=None,
                     )
                 )
         else:
@@ -672,32 +663,14 @@ class SimulationMonitorManager:
             # 最后的默认保底 (p46 与 p31)
             target_submissions = [
                 CompetitionSubmission(
-                    ref=55565346,
-                    total_teams=0,
-                    date="",
+                    ref="55565346",
                     description="Agent #1 (p46)",
-                    error_description=None,
-                    file_name="",
-                    public_score=None,
-                    private_score=None,
                     status="complete",
-                    submitted_by=None,
-                    team_name=None,
-                    url=None,
                 ),
                 CompetitionSubmission(
-                    ref=55555162,
-                    total_teams=0,
-                    date="",
+                    ref="55555162",
                     description="Agent #2 (p31)",
-                    error_description=None,
-                    file_name="",
-                    public_score=None,
-                    private_score=None,
                     status="complete",
-                    submitted_by=None,
-                    team_name=None,
-                    url=None,
                 ),
             ]
 
