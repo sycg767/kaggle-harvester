@@ -154,17 +154,18 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
     const maxGames = Math.max(...allPoints.map((point) => point.x), ...series.map((item) => item.games));
     const minScore = Math.min(...allPoints.map((point) => point.y), ...cutoffValues);
     const maxScore = Math.max(...allPoints.map((point) => point.y), ...cutoffValues);
-    const xPadding = Math.max(1, (maxGames - minGames) * 0.04);
+    const xPaddingLeft = Math.max(1, (maxGames - minGames) * 0.03);
+    const xPaddingRight = Math.max(18, (maxGames - minGames) * 0.09);
     const scoreRange = Math.max(20, maxScore - minScore);
     const yPadding = Math.max(8, scoreRange * 0.14);
 
     return {
       series,
-      xMin: Math.max(0, minGames - xPadding),
-      xMax: Math.max(minGames + 10, maxGames + xPadding),
+      xMin: Math.max(0, minGames - xPaddingLeft),
+      xMax: Math.max(minGames + 10, maxGames + xPaddingRight),
       yMin: Math.floor((minScore - yPadding) / 10) * 10,
       yMax: Math.ceil((maxScore + yPadding) / 10) * 10,
-      xTicks: integerTicks(Math.max(0, minGames - xPadding), Math.max(minGames + 10, maxGames + xPadding), 5),
+      xTicks: integerTicks(Math.max(0, minGames - xPaddingLeft), Math.max(minGames + 10, maxGames + xPaddingRight), 5),
       yTicks: niceTicks(Math.floor((minScore - yPadding) / 10) * 10, Math.ceil((maxScore + yPadding) / 10) * 10, 5),
       silverCutoff: thresholds?.silver_cutoff_score,
       bronzeCutoff: thresholds?.bronze_cutoff_score,
@@ -178,9 +179,57 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
   const yScale = (value: number) =>
     PLOT.top + (1 - (value - chart.yMin) / (chart.yMax - chart.yMin || 1)) * plotHeight;
   const hasData = chart.series.length > 0;
+
+  // 计算末端分数标签的防重叠垂直偏移
+  const labelOffsets = useMemo(() => {
+    const offsets: Record<number, number> = {};
+    const validSeries = chart.series.filter((s) => s.latest);
+    if (validSeries.length <= 1) {
+      validSeries.forEach((s) => {
+        offsets[s.id] = 4;
+      });
+      return offsets;
+    }
+
+    const items = validSeries.map((s) => ({
+      id: s.id,
+      x: xScale(s.latest!.x),
+      y: yScale(s.latest!.y),
+      score: s.latest!.y,
+    }));
+
+    // 按 Y 坐标从上到下排序（屏幕 Y 越小越靠上）
+    items.sort((a, b) => a.y - b.y);
+
+    for (let i = 0; i < items.length; i += 1) {
+      offsets[items[i].id] = 4; // 默认居中
+    }
+
+    for (let i = 0; i < items.length - 1; i += 1) {
+      const current = items[i];
+      const next = items[i + 1];
+      const dy = next.y - current.y;
+      const dx = Math.abs(next.x - current.x);
+
+      // 如果两个标签垂直距离小于 22px 且水平距离接近
+      if (dy < 22 && dx < 60) {
+        offsets[current.id] = -5; // 上方标签向上微调
+        offsets[next.id] = 13;   // 下方标签向下微调
+      }
+    }
+
+    return offsets;
+  }, [chart.series, chart.xMin, chart.xMax, chart.yMin, chart.yMax, plotWidth, plotHeight]);
+
   const renderCutoff = (value: number | undefined, label: string, color: string) => {
     if (value === undefined || value < chart.yMin || value > chart.yMax) return null;
     const y = yScale(value);
+    const text = `${label} ${formatNumber(value)}`;
+    const badgeWidth = text.length * 7.2 + 16;
+    const badgeHeight = 18;
+    const badgeX = PLOT.left + 8;
+    const badgeY = y - badgeHeight / 2;
+
     return (
       <g key={label}>
         <line
@@ -192,8 +241,27 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
           strokeDasharray="6 5"
           strokeWidth="1.5"
         />
-        <text x={PLOT.left + 8} y={y - 7} fontSize="12" fill={color}>
-          {label} {formatNumber(value)}
+        {/* 胶囊背景框，彻底避免与数据折线穿透重叠 */}
+        <rect
+          x={badgeX}
+          y={badgeY}
+          width={badgeWidth}
+          height={badgeHeight}
+          rx="4"
+          fill="#ffffff"
+          fillOpacity="0.94"
+          stroke={color}
+          strokeWidth="0.9"
+        />
+        <text
+          x={badgeX + badgeWidth / 2}
+          y={y + 3.5}
+          textAnchor="middle"
+          fontSize="11"
+          fontWeight="600"
+          fill={color}
+        >
+          {text}
         </text>
       </g>
     );
@@ -306,11 +374,15 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
                   ))}
                   {series.latest && (
                     <text
-                      x={xScale(series.latest.x) + 8}
-                      y={yScale(series.latest.y) + 4}
+                      x={xScale(series.latest.x) + 7}
+                      y={yScale(series.latest.y) + (labelOffsets[series.id] ?? 4)}
                       fontSize="13"
                       fontWeight="700"
                       fill={series.color}
+                      stroke="#ffffff"
+                      strokeWidth="3.5"
+                      strokeLinejoin="round"
+                      style={{ paintOrder: 'stroke fill' }}
                     >
                       {series.latest.y.toFixed(1)}
                     </text>

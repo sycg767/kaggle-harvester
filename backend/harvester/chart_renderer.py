@@ -100,8 +100,9 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
     if all_x:
         min_x = min(all_x)
         max_x = max(all_x)
-        x_padding = max(2, (max_x - min_x) * 0.04)
-        ax.set_xlim(max(0, min_x - x_padding), max_x + x_padding + 5)
+        x_padding_left = max(2, (max_x - min_x) * 0.03)
+        x_padding_right = max(18, (max_x - min_x) * 0.09)
+        ax.set_xlim(max(0, min_x - x_padding_left), max_x + x_padding_right)
     else:
         ax.set_xlim(0, 100)
         ax.set_ylim(400, 1000)
@@ -110,7 +111,7 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
     ax.grid(True, linestyle="-", linewidth=0.6, color="#f1f5f9", zorder=1)
     ax.set_axisbelow(True)
 
-    # 绘制银牌线与铜牌线虚线
+    # 绘制银牌线与铜牌线虚线 (带胶囊背景，避免与折线穿刺重叠)
     if silver_cutoff is not None:
         ax.axhline(
             y=silver_cutoff,
@@ -123,13 +124,14 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
         x_lims = ax.get_xlim()
         ax.text(
             x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
-            silver_cutoff + 3,
+            silver_cutoff,
             "Silver {:.1f}".format(silver_cutoff),
             color="#64748b",
-            fontsize=9.5,
+            fontsize=9.0,
             fontweight="bold",
-            va="bottom",
+            va="center",
             zorder=4,
+            bbox=dict(boxstyle="round,pad=0.25", facecolor="#ffffff", edgecolor="#64748b", linewidth=0.8, alpha=0.95),
         )
 
     if bronze_cutoff is not None:
@@ -144,17 +146,21 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
         x_lims = ax.get_xlim()
         ax.text(
             x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
-            bronze_cutoff + 3,
+            bronze_cutoff,
             "Bronze {:.1f}".format(bronze_cutoff),
             color="#d97706",
-            fontsize=9.5,
+            fontsize=9.0,
             fontweight="bold",
-            va="bottom",
+            va="center",
             zorder=4,
+            bbox=dict(boxstyle="round,pad=0.25", facecolor="#ffffff", edgecolor="#d97706", linewidth=0.8, alpha=0.95),
         )
+
+    import matplotlib.patheffects as patheffects
 
     # 绘制各 Agent 折线
     legend_elements = []
+    end_points = []
     for item in series_list:
         line, = ax.plot(
             item["x"],
@@ -167,21 +173,37 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
         )
         legend_elements.append(line)
 
-        # 在末端绘制实心圆点与分数标签
         if item["x"] and item["y"]:
-            last_x = item["x"][-1]
-            last_y = item["y"][-1]
-            ax.plot(last_x, last_y, marker="o", markersize=6, color=item["color"], zorder=5)
-            ax.annotate(
-                "{:.1f}".format(last_y),
-                xy=(last_x, last_y),
-                xytext=(last_x + 3, last_y - 2),
-                fontsize=9.5,
-                fontweight="bold",
-                color=item["color"],
-                va="center",
-                zorder=6,
-            )
+            end_points.append({
+                "x": item["x"][-1],
+                "y": item["y"][-1],
+                "color": item["color"],
+                "label": item["label"],
+            })
+
+    # 防重叠智能垂直偏移
+    end_points.sort(key=lambda p: p["y"], reverse=True)
+    y_offsets = [0] * len(end_points)
+    for i in range(len(end_points) - 1):
+        diff = end_points[i]["y"] - end_points[i + 1]["y"]
+        if diff < 15:  # 两点垂直分差很近
+            y_offsets[i] = 4
+            y_offsets[i + 1] = -4
+
+    for idx, pt in enumerate(end_points):
+        ax.plot(pt["x"], pt["y"], marker="o", markersize=6, color=pt["color"], zorder=5)
+        offset_y = y_offsets[idx] if idx < len(y_offsets) else 0
+        ax.annotate(
+            "{:.1f}".format(pt["y"]),
+            xy=(pt["x"], pt["y"]),
+            xytext=(pt["x"] + 3, pt["y"] + offset_y),
+            fontsize=9.5,
+            fontweight="bold",
+            color=pt["color"],
+            va="center",
+            zorder=6,
+            path_effects=[patheffects.withStroke(linewidth=3.5, foreground="#ffffff")],
+        )
 
     # 美化坐标轴
     ax.spines["top"].set_color("#cbd5e1")
