@@ -185,6 +185,8 @@ class SubmissionMonitorManager:
     def snapshot(self) -> SubmissionMonitorSnapshot:
         with self._state_lock:
             status = self._status.model_copy(deep=True)
+            if not self._run_lock.locked():
+                status.running = False
             status.scheduler_alive = bool(
                 self._task is not None and not self._task.done()
             )
@@ -293,9 +295,22 @@ class SubmissionMonitorManager:
                 config = self._config.model_copy(deep=True)
 
             try:
+                # 设定硬超时 35 秒，防止 Kaggle API 挂起死锁
                 status, known_scores, known_scored_at, baselines, new_events = (
-                    await asyncio.to_thread(self._run_once_sync, config)
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self._run_once_sync, config),
+                        timeout=35.0,
+                    )
                 )
+            except asyncio.TimeoutError:
+                status = SubmissionMonitorStatus(
+                    last_checked_at=_utc_now().isoformat(),
+                    last_error="Kaggle 提交列表请求超时（35秒），已自动终止并恢复就绪状态。",
+                )
+                known_scores = None
+                known_scored_at = None
+                baselines = None
+                new_events = []
             except Exception as exc:
                 status = SubmissionMonitorStatus(
                     last_checked_at=_utc_now().isoformat(),
@@ -305,6 +320,12 @@ class SubmissionMonitorManager:
                 known_scored_at = None
                 baselines = None
                 new_events = []
+            finally:
+                with self._state_lock:
+                    self._status.running = False
+                    self._status.scheduler_alive = True
+                    self._status.service_started_at = self._service_started_at
+                    self._status.scheduler_heartbeat_at = _utc_now().isoformat()
 
             with self._state_lock:
                 finished_at = _utc_now()
@@ -368,7 +389,6 @@ class SubmissionMonitorManager:
                     newly_scored_count=status.newly_scored_count,
                     competitions_checked=list(status.competitions_checked),
                     error=status.last_error,
-                    # 必须在落盘前设为 True，否则明细文件里的 log 会把前端读成「仅汇总」。
                     details_available=known_scores is not None,
                 )
                 if known_scores is not None:
@@ -591,7 +611,11 @@ class SubmissionMonitorManager:
 
             if self._stop_event.is_set():
                 break
+
             try:
                 await self.run_now(trigger="scheduled")
-            except (SubmissionMonitorBusyError, ValueError):
-                await asyncio.sleep(0)
+            except SubmissionMonitorBusyError:
+                await asyncio.sleep(1)
+            except Exception as exc:
+                LOGGER.warning("Submission monitor scheduled run failed: %s", exc)
+                await asyncio.sleep(2)
