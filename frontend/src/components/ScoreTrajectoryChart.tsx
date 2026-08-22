@@ -397,27 +397,63 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
                       </title>
                     </circle>
                   ))}
-                  {series.latest && (
-                    <text
-                      x={xScale(series.latest.x) + 7}
-                      y={yScale(series.latest.y) + (labelOffsets[series.id] ?? 4)}
-                      fontSize="13"
-                      fontWeight="700"
-                      fill={series.color}
-                      stroke="#ffffff"
-                      strokeWidth="3.5"
-                      strokeLinejoin="round"
-                      style={{ paintOrder: 'stroke fill' }}
-                    >
-                      {series.latest.y.toFixed(1)}
-                    </text>
-                  )}
                 </g>
               ))}
 
               {/* 3. 在折线之上绘制参考线胶囊徽章 (前景层，实体白色背景完全覆盖穿过的折线) */}
               {renderCutoffBadge(chart.silverCutoff, 'Silver', '#64748b')}
               {renderCutoffBadge(chart.bronzeCutoff, 'Bronze', '#d97706')}
+
+              {/* 4. 在折线之上绘制各 Agent 最新分数胶囊徽章 (智能避让与防穿透) */}
+              {chart.series.map((series) => {
+                if (!series.latest) return null;
+                const ptX = xScale(series.latest.x);
+                const ptY = yScale(series.latest.y);
+                const maxPlotX = Math.max(...chart.series.map((s) => (s.latest ? xScale(s.latest.x) : 0)));
+                const isTrailing = ptX < maxPlotX - 20;
+
+                const scoreStr = series.latest.y.toFixed(1);
+                const badgeWidth = scoreStr.length * 7.4 + 10;
+                const badgeHeight = 17;
+
+                let badgeX = ptX + 6;
+                let badgeY = ptY - badgeHeight / 2 + (labelOffsets[series.id] ?? 0);
+                let textX = badgeX + badgeWidth / 2;
+                let textY = badgeY + badgeHeight / 2 + 3.5;
+
+                if (isTrailing) {
+                  // 提前结束的 Agent：标签置于圆点下方居中，避免向右刺入后续折线
+                  badgeX = ptX - badgeWidth / 2;
+                  badgeY = ptY + 7;
+                  textX = ptX;
+                  textY = badgeY + badgeHeight / 2 + 3.5;
+                }
+
+                return (
+                  <g key={`badge-${series.id}`}>
+                    <rect
+                      x={badgeX}
+                      y={badgeY}
+                      width={badgeWidth}
+                      height={badgeHeight}
+                      rx="4"
+                      fill="#ffffff"
+                      stroke={series.color}
+                      strokeWidth="1"
+                    />
+                    <text
+                      x={textX}
+                      y={textY}
+                      textAnchor="middle"
+                      fontSize="11"
+                      fontWeight="700"
+                      fill={series.color}
+                    >
+                      {scoreStr}
+                    </text>
+                  </g>
+                );
+              })}
 
               {renderLegend()}
 

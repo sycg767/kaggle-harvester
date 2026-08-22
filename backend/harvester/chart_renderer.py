@@ -190,19 +190,44 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             y_offsets[i] = 4
             y_offsets[i + 1] = -4
 
+    max_x_val = max([pt["x"] for pt in end_points]) if end_points else 0
+
     for idx, pt in enumerate(end_points):
         ax.plot(pt["x"], pt["y"], marker="o", markersize=6, color=pt["color"], zorder=5)
-        offset_y = y_offsets[idx] if idx < len(y_offsets) else 0
+        
+        # 判断是否为较早结束的 Trailing 点（右侧还有其他 Agent 继续延伸）
+        is_trailing = pt["x"] < (max_x_val - 8)
+        
+        if is_trailing:
+            # 局数较少提前结束的点：置于圆点下方居中，完全避开向右延伸的折线
+            offset_pt = (0, -14)
+            va = "top"
+            ha = "center"
+        else:
+            # 最右侧活跃点：置于右侧留白区域，偏移 8 个像素点
+            offset_y_pt = y_offsets[idx] if idx < len(y_offsets) else 0
+            offset_pt = (8, offset_y_pt)
+            va = "center"
+            ha = "left"
+
         ax.annotate(
             "{:.1f}".format(pt["y"]),
             xy=(pt["x"], pt["y"]),
-            xytext=(pt["x"] + 3, pt["y"] + offset_y),
-            fontsize=9.5,
+            xytext=offset_pt,
+            textcoords="offset points",
+            fontsize=9.0,
             fontweight="bold",
             color=pt["color"],
-            va="center",
+            va=va,
+            ha=ha,
             zorder=6,
-            path_effects=[patheffects.withStroke(linewidth=3.5, foreground="#ffffff")],
+            bbox=dict(
+                boxstyle="round,pad=0.22",
+                facecolor="#ffffff",
+                edgecolor=pt["color"],
+                linewidth=0.8,
+                alpha=0.96,
+            ),
         )
 
     # 美化坐标轴
