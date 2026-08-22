@@ -630,7 +630,15 @@ class NotificationManager:
                 else "—"
             )
 
-            agent_alias = "p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"#{sub_id}")
+            agent_alias = (
+                "p46"
+                if str(sub_id).endswith("55565346") or str(sub_id) == "55565346"
+                else (
+                    "p31"
+                    if str(sub_id).endswith("55555162") or str(sub_id) == "55555162"
+                    else (f"p{str(sub_id)[-2:]}" if len(str(sub_id)) >= 2 else f"#{sub_id}")
+                )
+            )
 
             if ev_type == "new_episodes":
                 new_matches = item.get("new_matches", 1)

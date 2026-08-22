@@ -136,6 +136,8 @@ class AutoArchiveManager:
     def snapshot(self) -> AutoArchiveSnapshot:
         with self._state_lock:
             status = self._status.model_copy(deep=True)
+            if not self._run_lock.locked():
+                status.running = False
             status.scheduler_alive = bool(
                 self._task is not None and not self._task.done()
             )
@@ -258,9 +260,18 @@ class AutoArchiveManager:
                 config = self._config.model_copy(deep=True)
 
             try:
-                status, processed_runs, checked_items = await asyncio.to_thread(
-                    self._run_once_sync, config
+                # 设定硬超时 300 秒，防止 Kaggle 下载/列表挂起死锁
+                status, processed_runs, checked_items = await asyncio.wait_for(
+                    asyncio.to_thread(self._run_once_sync, config),
+                    timeout=300.0,
                 )
+            except asyncio.TimeoutError:
+                status = AutoArchiveStatus(
+                    last_checked_at=_utc_now().isoformat(),
+                    last_error="自动归档任务执行超时（300秒），已自动终止并恢复就绪状态。",
+                )
+                processed_runs = None
+                checked_items = []
             except Exception as exc:
                 status = AutoArchiveStatus(
                     last_checked_at=_utc_now().isoformat(),
@@ -268,6 +279,12 @@ class AutoArchiveManager:
                 )
                 processed_runs = None
                 checked_items = []
+            finally:
+                with self._state_lock:
+                    self._status.running = False
+                    self._status.scheduler_alive = True
+                    self._status.service_started_at = self._service_started_at
+                    self._status.scheduler_heartbeat_at = _utc_now().isoformat()
 
             with self._state_lock:
                 finished_at = _utc_now()
@@ -607,6 +624,7 @@ class AutoArchiveManager:
                 break
             try:
                 await self.run_now(trigger="scheduled")
-            except (AutoArchiveBusyError, ValueError):
-                # 配置变更或手动检查会唤醒循环，下一轮重新计算时间。
-                await asyncio.sleep(0)
+            except AutoArchiveBusyError:
+                await asyncio.sleep(1)
+            except Exception as exc:
+                await asyncio.sleep(2)

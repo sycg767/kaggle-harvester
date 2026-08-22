@@ -376,6 +376,8 @@ class SimulationMonitorManager:
     def snapshot(self) -> SimulationMonitorSnapshot:
         with self._state_lock:
             status = self._status.model_copy(deep=True)
+            if not self._run_lock.locked():
+                status.running = False
             status.scheduler_alive = bool(
                 self._task is not None and not self._task.done()
             )
