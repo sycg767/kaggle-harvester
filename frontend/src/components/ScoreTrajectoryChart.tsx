@@ -404,7 +404,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
               {renderCutoffBadge(chart.silverCutoff, 'Silver', '#64748b')}
               {renderCutoffBadge(chart.bronzeCutoff, 'Bronze', '#d97706')}
 
-              {/* 4. 在折线之上绘制各 Agent 最新分数胶囊徽章 (智能避让与防穿透) */}
+              {/* 4. 在折线之上绘制各 Agent 最新分数标签 (无边框纯文本，白色光晕描边，智能避让) */}
               {chart.series.map((series) => {
                 if (!series.latest) return null;
                 const ptX = xScale(series.latest.x);
@@ -413,45 +413,34 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
                 const isTrailing = ptX < maxPlotX - 20;
 
                 const scoreStr = series.latest.y.toFixed(1);
-                const badgeWidth = scoreStr.length * 7.4 + 10;
-                const badgeHeight = 17;
 
-                let badgeX = ptX + 6;
-                let badgeY = ptY - badgeHeight / 2 + (labelOffsets[series.id] ?? 0);
-                let textX = badgeX + badgeWidth / 2;
-                let textY = badgeY + badgeHeight / 2 + 3.5;
+                let textX = ptX + 7;
+                let textY = ptY + (labelOffsets[series.id] ?? 4);
+                let textAnchor: 'start' | 'middle' = 'start';
 
                 if (isTrailing) {
                   // 提前结束的 Agent：标签置于圆点下方居中，避免向右刺入后续折线
-                  badgeX = ptX - badgeWidth / 2;
-                  badgeY = ptY + 7;
                   textX = ptX;
-                  textY = badgeY + badgeHeight / 2 + 3.5;
+                  textY = ptY + 16;
+                  textAnchor = 'middle';
                 }
 
                 return (
-                  <g key={`badge-${series.id}`}>
-                    <rect
-                      x={badgeX}
-                      y={badgeY}
-                      width={badgeWidth}
-                      height={badgeHeight}
-                      rx="4"
-                      fill="#ffffff"
-                      stroke={series.color}
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={textX}
-                      y={textY}
-                      textAnchor="middle"
-                      fontSize="11"
-                      fontWeight="700"
-                      fill={series.color}
-                    >
-                      {scoreStr}
-                    </text>
-                  </g>
+                  <text
+                    key={`score-label-${series.id}`}
+                    x={textX}
+                    y={textY}
+                    textAnchor={textAnchor}
+                    fontSize="13"
+                    fontWeight="700"
+                    fill={series.color}
+                    stroke="#ffffff"
+                    strokeWidth="3.5"
+                    strokeLinejoin="round"
+                    style={{ paintOrder: 'stroke fill' }}
+                  >
+                    {scoreStr}
+                  </text>
                 );
               })}
 

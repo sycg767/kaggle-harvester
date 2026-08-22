@@ -215,19 +215,13 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             xy=(pt["x"], pt["y"]),
             xytext=offset_pt,
             textcoords="offset points",
-            fontsize=9.0,
+            fontsize=9.5,
             fontweight="bold",
             color=pt["color"],
             va=va,
             ha=ha,
             zorder=6,
-            bbox=dict(
-                boxstyle="round,pad=0.22",
-                facecolor="#ffffff",
-                edgecolor=pt["color"],
-                linewidth=0.8,
-                alpha=0.96,
-            ),
+            path_effects=[patheffects.withStroke(linewidth=3.5, foreground="#ffffff")],
         )
 
     # 美化坐标轴
