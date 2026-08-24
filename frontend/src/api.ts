@@ -365,10 +365,19 @@ export interface SimulationEpisode {
   opponent_team_id?: number;
   opponent_submission_id?: number;
   result: 'win' | 'loss' | 'tie' | 'unknown';
+  is_system_check?: boolean;
   reward?: number;
   score_delta?: number;
   opponent_score?: number;
   replay_url?: string;
+}
+
+export interface SimulationEpisodePageResponse {
+  submission_id: number;
+  total: number;
+  offset: number;
+  limit: number;
+  episodes: SimulationEpisode[];
 }
 
 export interface SimulationRatingPoint {
@@ -377,6 +386,7 @@ export interface SimulationRatingPoint {
   timestamp?: string;
   score: number;
   score_delta?: number;
+  is_system_check?: boolean;
   result: 'win' | 'loss' | 'tie' | 'unknown';
 }
 
@@ -396,6 +406,7 @@ export interface SimulationAgentStats {
   wins: number;
   losses: number;
   ties: number;
+  system_checks: number;
   win_rate: number;
   medal_tier?: 'gold' | 'silver' | 'bronze' | 'none' | 'unknown';
   bronze_gap_score?: number;
@@ -810,6 +821,19 @@ export const api = {
 
   runSimulationMonitor(): Promise<SimulationMonitorSnapshot> {
     return request('/simulation-monitor/run', { method: 'POST' });
+  },
+
+  getSimulationEpisodes(
+    submissionId: number,
+    offset = 0,
+    limit = 6,
+  ): Promise<SimulationEpisodePageResponse> {
+    const q = new URLSearchParams({
+      submission_id: String(submissionId),
+      offset: String(offset),
+      limit: String(limit),
+    });
+    return request(`/simulation-monitor/episodes?${q.toString()}`);
   },
 
   getSimulationMonitorLog(logId: string): Promise<SimulationMonitorRunDetail> {

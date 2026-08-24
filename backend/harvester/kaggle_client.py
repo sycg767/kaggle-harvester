@@ -1541,11 +1541,16 @@ class KaggleClient:
 
         # 1. 优先调用 Kaggle EpisodeService Web 接口获取当场真实初始分与结算变动
         try:
-            url = f"{KAGGLE_WEB_BASE}/competitions.EpisodeService/ListEpisodes"
-            headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
-            resp = httpx.post(url, json={"submissionId": sub_id}, headers=headers, timeout=20)
-            if resp.status_code == 200:
-                data = resp.json()
+                # EpisodeService 是 Kaggle 内部接口，必须复用已认证的 WebService 会话；
+                # 裸 httpx 请求会返回 400，随后错误回退到 SDK，丢失 initialScore/updatedScore。
+                web_client = KaggleWebServiceClient(self._token)
+                try:
+                    data = web_client.post(
+                        "competitions.EpisodeService/ListEpisodes",
+                        {"submissionId": sub_id},
+                    )
+                finally:
+                    web_client.close()
                 raw_episodes = data.get("episodes", [])
                 teams_map: dict[int, str] = {
                     int(t["id"]): str(t.get("teamName") or t.get("name") or "")
@@ -1607,26 +1612,28 @@ class KaggleClient:
 
                     my_idx = my_agent.index if my_agent is not None else 0
                     my_team = my_agent.team_name if my_agent is not None else ""
-                    opp_team = (
-                        opponent_agent.team_name
-                        if opponent_agent is not None and opponent_agent.team_name
-                        else "对手"
-                    )
-                    opp_team_id = opponent_agent.team_id if opponent_agent is not None else None
-                    opp_sub_id = (
-                        opponent_agent.submission_id if opponent_agent is not None else None
-                    )
-
-                    rew = my_agent.reward if my_agent is not None else None
-                    if rew is not None:
-                        if rew > 0:
-                            outcome = "win"
-                        elif rew < 0:
-                            outcome = "loss"
-                        else:
-                            outcome = "tie"
-                    else:
+                    is_system_check = opponent_agent is None
+                    if is_system_check:
+                        opp_team = "系统自检"
+                        opp_team_id = None
+                        opp_sub_id = None
+                        rew = None
                         outcome = "unknown"
+                        my_delta = None
+                    else:
+                        opp_team = opponent_agent.team_name or "对手"
+                        opp_team_id = opponent_agent.team_id
+                        opp_sub_id = opponent_agent.submission_id
+                        rew = my_agent.reward if my_agent is not None else None
+                        if rew is not None:
+                            if rew > 0:
+                                outcome = "win"
+                            elif rew < 0:
+                                outcome = "loss"
+                            else:
+                                outcome = "tie"
+                        else:
+                            outcome = "unknown"
 
                     replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
 
@@ -1646,6 +1653,7 @@ class KaggleClient:
                             opponent_team_id=opp_team_id,
                             opponent_submission_id=opp_sub_id,
                             result=outcome,
+                            is_system_check=is_system_check,
                             reward=rew,
                             score_delta=my_delta,
                             opponent_score=opp_initial_score,
@@ -1735,26 +1743,27 @@ class KaggleClient:
 
             my_idx = my_agent.index if my_agent is not None else 0
             my_team = my_agent.team_name if my_agent is not None else ""
-            opp_team = (
-                opponent_agent.team_name
-                if opponent_agent is not None and opponent_agent.team_name
-                else "对手"
-            )
-            opp_team_id = opponent_agent.team_id if opponent_agent is not None else None
-            opp_sub_id = (
-                opponent_agent.submission_id if opponent_agent is not None else None
-            )
-
-            rew = my_agent.reward if my_agent is not None else None
-            if rew is not None:
-                if rew > 0:
-                    outcome = "win"
-                elif rew < 0:
-                    outcome = "loss"
-                else:
-                    outcome = "tie"
-            else:
+            is_system_check = opponent_agent is None
+            if is_system_check:
+                opp_team = "系统自检"
+                opp_team_id = None
+                opp_sub_id = None
+                rew = None
                 outcome = "unknown"
+            else:
+                opp_team = opponent_agent.team_name or "对手"
+                opp_team_id = opponent_agent.team_id
+                opp_sub_id = opponent_agent.submission_id
+                rew = my_agent.reward if my_agent is not None else None
+                if rew is not None:
+                    if rew > 0:
+                        outcome = "win"
+                    elif rew < 0:
+                        outcome = "loss"
+                    else:
+                        outcome = "tie"
+                else:
+                    outcome = "unknown"
 
             replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
 
@@ -1774,18 +1783,29 @@ class KaggleClient:
                     opponent_team_id=opp_team_id,
                     opponent_submission_id=opp_sub_id,
                     result=outcome,
+                    is_system_check=is_system_check,
                     reward=rew,
                     replay_url=replay_url,
                 )
             )
 
-        # 增量合并到内存缓存
+# 增量合并到内存缓存
         known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(sub_id, [])}
         for ep in episodes:
             known_map[ep.id] = ep
         merged = sorted(known_map.values(), key=lambda x: x.create_time or "", reverse=True)
         self._sim_episodes_cache[sub_id] = merged
         return merged
+
+    def get_simulation_episodes_cached(
+        self, submission_id: int
+    ) -> list[SimulationEpisode]:
+        """返回指定提交已缓存的全部对局流水（按最新在前排序，不触发网络拉取）。
+
+        缓存由 list_simulation_episodes 在每次轮询时全量刷新，因此这里能拿到完整历史。
+        """
+        sub_id = int(submission_id)
+        return list(self._sim_episodes_cache.get(sub_id, []))
 
     def get_simulation_leaderboard(
         self,

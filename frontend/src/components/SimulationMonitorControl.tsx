@@ -47,6 +47,7 @@ import {
   type SimulationAgentStats,
   type SimulationClawbotTestResult,
   type SimulationEpisode,
+  type SimulationEpisodePageResponse,
   type SimulationMedalThresholds,
   type SimulationMonitorConfig,
   type SimulationMonitorRunDetail,
@@ -183,6 +184,27 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
     team_name?: string;
   }>>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [episodePages, setEpisodePages] = useState<Record<number, SimulationEpisodePageResponse>>({});
+  const [episodeLoading, setEpisodeLoading] = useState<Record<number, boolean>>({});
+  const episodeRequestedTotals = useRef<Record<number, number>>({});
+
+  const fetchEpisodePage = useCallback(async (submissionId: number, page = 1, pageSize = 6) => {
+    setEpisodeLoading((previous) => ({ ...previous, [submissionId]: true }));
+    try {
+      const data = await api.getSimulationEpisodes(submissionId, (page - 1) * pageSize, pageSize);
+      if (isMounted.current) {
+        setEpisodePages((previous) => ({ ...previous, [submissionId]: data }));
+      }
+    } catch (err: any) {
+      if (isMounted.current) {
+        message.error(`读取对局流水失败: ${err.message}`);
+      }
+    } finally {
+      if (isMounted.current) {
+        setEpisodeLoading((previous) => ({ ...previous, [submissionId]: false }));
+      }
+    }
+  }, [message]);
 
   const fetchAvailableSubmissions = useCallback(async (comp?: string) => {
     setLoadingSubmissions(true);
@@ -265,6 +287,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   }, [fetchSnapshot]);
 
   const handleOpen = () => {
+    episodeRequestedTotals.current = {};
     setOpen(true);
     fetchSnapshot(true);
   };
@@ -349,8 +372,27 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
 
   const agent1 = agents[0];
   const agent2 = agents[1];
-  const agent1Episodes = agent1?.recent_episodes || [];
-  const agent2Episodes = agent2?.recent_episodes || [];
+  const agent1Page = agent1 ? episodePages[agent1.submission_id] : undefined;
+  const agent2Page = agent2 ? episodePages[agent2.submission_id] : undefined;
+  const agent1Episodes = agent1Page?.episodes ?? [];
+  const agent2Episodes = agent2Page?.episodes ?? [];
+
+  useEffect(() => {
+    if (!open) return;
+    agents.slice(0, 2).forEach((agent) => {
+      if (
+        !episodeLoading[agent.submission_id]
+        && episodeRequestedTotals.current[agent.submission_id] !== agent.total_episodes
+        && (
+          !episodePages[agent.submission_id]
+          || episodePages[agent.submission_id].total !== agent.total_episodes
+        )
+      ) {
+        episodeRequestedTotals.current[agent.submission_id] = agent.total_episodes;
+        void fetchEpisodePage(agent.submission_id);
+      }
+    });
+  }, [agents, episodeLoading, episodePages, fetchEpisodePage, open]);
 
   // Table columns for each agent stream with Replay integrated into Episode ID and score change displayed
   const sideEpisodeColumns: TableColumnsType<SimulationEpisode> = useMemo(() => [
@@ -391,7 +433,11 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       ellipsis: true,
       render: (name: string, record) => {
         const scoreLabel = record.opponent_score ? ` (${record.opponent_score.toFixed(0)}分)` : '';
-        return (
+        return record.is_system_check ? (
+          <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+            系统自检
+          </Text>
+        ) : (
           <Tooltip title={record.opponent_submission_id ? `${name}${scoreLabel} (Sub #${record.opponent_submission_id})` : `${name}${scoreLabel}`}>
             <Text style={{ fontSize: 12 }} ellipsis>
               {name || '对手'}{record.opponent_score ? <span style={{ color: '#94a3b8', fontSize: 11 }}> ({record.opponent_score.toFixed(0)})</span> : null}
@@ -413,6 +459,13 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       width: 95,
       align: 'center',
       render: (res: string, record) => {
+        if (record.is_system_check) {
+          return (
+            <Tag color="default" style={{ margin: 0, fontSize: 11, fontWeight: 700, borderRadius: 6 }}>
+              系统自检 · 不计分
+            </Tag>
+          );
+        }
         const delta = record.score_delta;
         if (res === 'win' || record.reward === 1) {
           const deltaStr = delta !== undefined && delta !== null ? `+${Math.abs(delta).toFixed(1)}` : '+3.0';
@@ -437,16 +490,19 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             </Tag>
           );
         }
-        return (
-          <Tag color="processing" style={{ margin: 0, fontSize: 11, borderRadius: 6 }}>
-            进行中
-          </Tag>
-        );
+          return (
+            <Tag color="default" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
+              —
+            </Tag>
+          );
       },
     },
   ], []);
 
-  const totalTrackedCount = (agent1?.total_episodes || 0) + (agent2?.total_episodes || 0);
+  const getRatedEpisodeCount = (agent?: SimulationAgentStats) => (
+    Math.max(0, (agent?.total_episodes || 0) - (agent?.system_checks || 0))
+  );
+  const totalTrackedCount = getRatedEpisodeCount(agent1) + getRatedEpisodeCount(agent2);
   const isMonitoringActive = Boolean(snapshot?.config?.enabled);
 
   return (
@@ -580,7 +636,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
               <Card
                 size="small"
                 className="sim-banner-card"
-                bodyStyle={{ padding: '12px 18px' }}
+                styles={{ body: { padding: '12px 18px' } }}
               >
                 <Row gutter={[12, 12]} align="middle">
                   <Col xs={12} sm={6}>
@@ -664,7 +720,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       <Col xs={24} md={12} key={agent.submission_id}>
                         <Card
                           className="sim-agent-card"
-                          bodyStyle={{ padding: 18 }}
+                          styles={{ body: { padding: 18 } }}
                           title={
                             <div style={{ display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'space-between' }}>
                               <Space size={8} align="center">
@@ -727,7 +783,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                                 <Tag color="success" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>{agent.wins} 胜</Tag>
                                 <Tag color="error" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>{agent.losses} 负</Tag>
                                 {agent.ties > 0 && <Tag style={{ margin: 0, fontSize: 11 }}>{agent.ties} 平</Tag>}
-                                <Text type="secondary" style={{ fontSize: 11, marginLeft: 2 }}>(共 {agent.total_episodes} 局)</Text>
+                                <Text type="secondary" style={{ fontSize: 11, marginLeft: 2 }}>(共 {getRatedEpisodeCount(agent)} 局)</Text>
                               </Space>
                             </div>
                             <Progress
@@ -759,7 +815,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                   <Text strong style={{ fontSize: 14 }}>最新对局流水 (点击对局 ID 可观看回放)</Text>
                 </div>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  共追踪 {status?.total_tracked_episodes || totalTrackedCount} 场对战记录
+                  共追踪 {totalTrackedCount} 场对战记录
                 </Text>
               </div>
 
@@ -776,7 +832,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                           <span style={{ fontWeight: 700, fontSize: 13 }}>{agent1 ? getShortAgentName(agent1, 0) : 'Agent 1'} 对局流水</span>
                         </Space>
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          共 {agent1?.total_episodes || agent1Episodes.length} 局 ({agent1?.wins || 0}胜 {agent1?.losses || 0}负)
+                          共 {getRatedEpisodeCount(agent1)} 局 ({agent1?.wins || 0}胜 {agent1?.losses || 0}负)
                         </Text>
                       </div>
                     }
@@ -787,7 +843,17 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       rowKey="id"
                       size="small"
                       scroll={{ x: 380 }}
-                      pagination={{ pageSize: 6, showSizeChanger: false, size: 'small' }}
+                      pagination={{
+                        current: agent1Page ? Math.floor(agent1Page.offset / agent1Page.limit) + 1 : 1,
+                        pageSize: agent1Page?.limit || 6,
+                        total: agent1Page?.total || 0,
+                        showSizeChanger: false,
+                        size: 'small',
+                        onChange: (page, pageSize) => {
+                          if (agent1) void fetchEpisodePage(agent1.submission_id, page, pageSize);
+                        },
+                      }}
+                      loading={agent1 ? Boolean(episodeLoading[agent1.submission_id]) : false}
                       bordered
                     />
                   </Card>
@@ -805,7 +871,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                           <span style={{ fontWeight: 700, fontSize: 13 }}>{agent2 ? getShortAgentName(agent2, 1) : 'Agent 2'} 对局流水</span>
                         </Space>
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          共 {agent2?.total_episodes || agent2Episodes.length} 局 ({agent2?.wins || 0}胜 {agent2?.losses || 0}负)
+                          共 {getRatedEpisodeCount(agent2)} 局 ({agent2?.wins || 0}胜 {agent2?.losses || 0}负)
                         </Text>
                       </div>
                     }
@@ -816,7 +882,17 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       rowKey="id"
                       size="small"
                       scroll={{ x: 380 }}
-                      pagination={{ pageSize: 6, showSizeChanger: false, size: 'small' }}
+                      pagination={{
+                        current: agent2Page ? Math.floor(agent2Page.offset / agent2Page.limit) + 1 : 1,
+                        pageSize: agent2Page?.limit || 6,
+                        total: agent2Page?.total || 0,
+                        showSizeChanger: false,
+                        size: 'small',
+                        onChange: (page, pageSize) => {
+                          if (agent2) void fetchEpisodePage(agent2.submission_id, page, pageSize);
+                        },
+                      }}
+                      loading={agent2 ? Boolean(episodeLoading[agent2.submission_id]) : false}
                       bordered
                     />
                   </Card>
@@ -833,6 +909,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         placement="right"
         width="min(420px, 100vw)"
         open={settingsOpen}
+        forceRender
         onClose={() => setSettingsOpen(false)}
         extra={
           <Button

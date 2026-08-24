@@ -622,6 +622,7 @@ class SimulationEpisode(BaseModel):
     opponent_team_id: Optional[int] = None
     opponent_submission_id: Optional[int] = None
     result: Literal["win", "loss", "tie", "unknown"] = "unknown"
+    is_system_check: bool = False
     reward: Optional[float] = None
     score_delta: Optional[float] = None
     opponent_score: Optional[float] = None
@@ -636,6 +637,7 @@ class SimulationRatingPoint(BaseModel):
     timestamp: Optional[str] = None
     score: float
     score_delta: Optional[float] = None
+    is_system_check: bool = False
     result: Literal["win", "loss", "tie", "unknown"] = "unknown"
 
 
@@ -656,6 +658,7 @@ class SimulationAgentStats(BaseModel):
     wins: int = 0
     losses: int = 0
     ties: int = 0
+    system_checks: int = 0
     win_rate: float = 0.0
     recent_episodes: list[SimulationEpisode] = Field(default_factory=list)
     rating_trajectory: list[SimulationRatingPoint] = Field(default_factory=list)
@@ -793,6 +796,16 @@ class SimulationMonitorRunDetail(BaseModel):
     agents: list[SimulationAgentStats] = Field(default_factory=list)
     thresholds: Optional[SimulationMedalThresholds] = None
     medal_thresholds: Optional[SimulationMedalThresholds] = None
+
+
+class SimulationEpisodePageResponse(BaseModel):
+    """单个提交对局流水的分页响应。"""
+
+    submission_id: int
+    total: int = 0
+    offset: int = 0
+    limit: int = 0
+    episodes: list[SimulationEpisode] = Field(default_factory=list)
 
 
 class SimulationMonitorSnapshot(BaseModel):

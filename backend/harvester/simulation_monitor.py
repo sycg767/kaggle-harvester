@@ -24,7 +24,8 @@ from .models import (
     SimulationEpisode,
     SimulationHistoryPoint,
     SimulationMedalThresholds,
-    SimulationMonitorConfig,
+SimulationMonitorConfig,
+    SimulationEpisodePageResponse,
     SimulationRatingPoint,
     SimulationMonitorRunDetail,
     SimulationMonitorRunLog,
@@ -398,6 +399,35 @@ class SimulationMonitorManager:
                 status=status,
                 logs=[item.model_copy(deep=True) for item in self._logs],
             )
+
+    def get_episodes_page(
+        self,
+        submission_id: int,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> SimulationEpisodePageResponse:
+        """按分页返回指定提交的对局流水。
+
+        优先从监控轮询维护的内存缓存读取；服务刚重启且缓存为空时，才按需拉取一次完整历史。
+        分页切片在本地完成，不会为每次翻页重复请求 Kaggle。
+        """
+        offset = max(0, int(offset))
+        limit = max(1, min(int(limit), 200))
+        episodes = self._kaggle.get_simulation_episodes_cached(submission_id)
+        if not episodes:
+            episodes = self._kaggle.list_simulation_episodes(
+                submission_id=submission_id,
+                competition=self._config.competition,
+            )
+        total = len(episodes)
+        page = episodes[offset : offset + limit]
+        return SimulationEpisodePageResponse(
+            submission_id=submission_id,
+            total=total,
+            offset=offset,
+            limit=limit,
+            episodes=[item.model_copy(deep=True) for item in page],
+        )
 
     def _run_detail_path(self, log_id: str) -> Path:
         if len(log_id) != 32 or any(char not in hexdigits for char in log_id):
@@ -829,11 +859,30 @@ class SimulationMonitorManager:
                 )
                 continue
 
-            wins = sum(1 for ep in episodes if ep.result == "win")
-            losses = sum(1 for ep in episodes if ep.result == "loss")
-            ties = sum(1 for ep in episodes if ep.result == "tie")
+            system_check_names = {"对手", "系统自检"}
+            for ep in episodes:
+                if (
+                    ep.is_system_check
+                    or (
+                        ep.opponent_submission_id is None
+                        and ep.opponent_team_id is None
+                        and ep.opponent_team_name.strip() in system_check_names
+                    )
+                ):
+                    ep.is_system_check = True
+                    ep.opponent_team_name = "系统自检"
+                    ep.result = "unknown"
+                    ep.reward = None
+                    ep.score_delta = None
+                    ep.opponent_score = None
+
+            real_episodes = [ep for ep in episodes if not ep.is_system_check]
+            wins = sum(1 for ep in real_episodes if ep.result == "win")
+            losses = sum(1 for ep in real_episodes if ep.result == "loss")
+            ties = sum(1 for ep in real_episodes if ep.result == "tie")
+            system_checks = sum(1 for ep in episodes if ep.is_system_check)
             total = len(episodes)
-            win_rate = round((wins / total * 100), 1) if total > 0 else 0.0
+            win_rate = round((wins / len(real_episodes) * 100), 1) if real_episodes else 0.0
 
             # 匹配队伍名与 Rank
             my_team_name = sub.team_name or ""
@@ -896,9 +945,9 @@ class SimulationMonitorManager:
                 else:
                     medal_tier = "none"
 
-            # 若底层未直接给出 score_delta / opponent_score，则回退到 Elo 估算
-            agent_score_for_calc = score if score is not None else 800.0
-            for ep in episodes:
+            # 天梯变动必须使用 EpisodeService 返回的 initialScore/updatedScore。
+            # 没有真实接口数据时保持 None，绝不使用本地 Elo 估算冒充官方分数。
+            for ep in real_episodes:
                 if ep.opponent_score is None:
                     opp_key = ep.opponent_team_name.strip().lower() if ep.opponent_team_name else ""
                     opp_score = team_scores.get(opp_key) if opp_key else None
@@ -906,28 +955,12 @@ class SimulationMonitorManager:
                         opp_score = team_scores.get(str(ep.opponent_team_id))
                     ep.opponent_score = opp_score
 
-                if ep.score_delta is None:
-                    eff_opp_score = ep.opponent_score if ep.opponent_score is not None else 800.0
-                    try:
-                        exp_win = 1.0 / (1.0 + 10.0 ** ((eff_opp_score - agent_score_for_calc) / 400.0))
-                    except Exception:
-                        exp_win = 0.5
-
-                    actual = 1.0 if ep.result == "win" else (0.0 if ep.result == "loss" else 0.5)
-                    k_factor = 8.0
-                    delta = round(k_factor * (actual - exp_win), 1)
-                    if ep.result == "win" and delta < 0.5:
-                        delta = 1.0
-                    elif ep.result == "loss" and delta > -0.5:
-                        delta = -1.0
-                    ep.score_delta = delta
-
             # Kaggle 对局接口按最新在前返回；从当前最终分数反推每局结算后的分数。
             # 这样每一局都有一个真实/可解释的轨迹点，而不是每次轮询只有一个点。
             rating_trajectory: list[SimulationRatingPoint] = []
             if score is not None:
                 chronological_episodes = sorted(
-                    episodes,
+                    real_episodes,
                     key=lambda item: (item.end_time or item.create_time or "", item.id),
                 )
                 score_after = float(score)
@@ -961,6 +994,7 @@ class SimulationMonitorManager:
                 wins=wins,
                 losses=losses,
                 ties=ties,
+                system_checks=system_checks,
                 win_rate=win_rate,
                 recent_episodes=episodes[:50],
                 rating_trajectory=rating_trajectory,
@@ -982,6 +1016,7 @@ class SimulationMonitorManager:
                     wins=wins,
                     losses=losses,
                     ties=ties,
+                    system_checks=system_checks,
                     win_rate=win_rate,
                     bronze_gap_score=bronze_gap_score,
                     bronze_cutoff_score=bronze_cutoff,

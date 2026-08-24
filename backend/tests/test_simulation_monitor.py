@@ -23,6 +23,7 @@ import harvester.simulation_monitor as simulation_monitor_module
 class FakeKaggleClient:
     def __init__(self) -> None:
         self.competition_slug = "pokemon-tcg-ai-battle"
+        self.include_system_check = False
 
     def list_competition_submissions(
         self, competition: str | None = None, page_size: int = 20
@@ -53,7 +54,7 @@ class FakeKaggleClient:
     ) -> list[SimulationEpisode]:
         if submission_id == 55565346:
             # 3 wins, 2 losses = 5 matches (60.0% win rate)
-            return [
+            episodes = [
                 SimulationEpisode(
                     id=1001,
                     create_time="2026-08-17T10:00:00Z",
@@ -132,6 +133,25 @@ class FakeKaggleClient:
                     reward=-1.0,
                 ),
             ]
+            if self.include_system_check:
+                episodes.append(
+                    SimulationEpisode(
+                        id=1006,
+                        create_time="2026-08-17T05:00:00Z",
+                        state="COMPLETED",
+                        agents=[
+                            SimulationEpisodeAgent(submission_id=55565346, team_name="GrimmsnaRL", reward=-1.0, index=0),
+                        ],
+                        my_agent_index=0,
+                        my_submission_id=55565346,
+                        my_team_name="GrimmsnaRL",
+                        opponent_team_name="对手",
+                        result="loss",
+                        reward=-1.0,
+                        score_delta=-4.9,
+                    )
+                )
+            return episodes
         return []
 
     def get_simulation_leaderboard(
@@ -201,6 +221,32 @@ class TestSimulationMonitor(unittest.TestCase):
         self.assertEqual(thresholds.total_teams, 1000)
         self.assertEqual(thresholds.bronze_cutoff_rank, 100)
         self.assertEqual(thresholds.bronze_cutoff_score, 840.0)
+
+    def test_system_check_is_excluded_from_record_stats(self) -> None:
+        self.client.include_system_check = True
+        manager = SimulationMonitorManager(
+            kaggle_client=self.client,  # type: ignore[arg-type]
+            harvest_root=self.root,
+            default_competition="pokemon-tcg-ai-battle",
+        )
+        config = SimulationMonitorConfig(
+            enabled=True,
+            competition="pokemon-tcg-ai-battle",
+            bronze_percentile=0.10,
+        )
+        _, agents, _, _, _, _ = manager._run_once_sync(config)
+        agent1 = agents[0]
+        self.assertEqual(agent1.total_episodes, 6)
+        self.assertEqual(agent1.system_checks, 1)
+        self.assertEqual(agent1.wins, 3)
+        self.assertEqual(agent1.losses, 2)
+        self.assertEqual(agent1.win_rate, 60.0)
+        self.assertEqual(len(agent1.rating_trajectory), 5)
+        check = next(ep for ep in agent1.recent_episodes if ep.is_system_check)
+        self.assertEqual(check.result, "unknown")
+        self.assertIsNone(check.reward)
+        self.assertIsNone(check.score_delta)
+
 
     def test_run_now_persistence_and_detail(self) -> None:
         manager = SimulationMonitorManager(

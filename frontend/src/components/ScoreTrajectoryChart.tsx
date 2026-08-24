@@ -55,7 +55,10 @@ const labelForAgent = (agent: SimulationAgentStats, index: number) => {
 };
 
 const buildLegacyTrajectory = (agent: SimulationAgentStats): SimulationRatingPoint[] => {
-  const episodes = (agent.recent_episodes || []).slice().sort((a, b) => {
+  const episodes = (agent.recent_episodes || [])
+    .filter((episode) => !episode.is_system_check)
+    .slice()
+    .sort((a, b) => {
     const aTime = a.end_time || a.create_time || '';
     const bTime = b.end_time || b.create_time || '';
     return aTime.localeCompare(bTime) || a.id - b.id;
@@ -108,14 +111,20 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
   const chart = useMemo(() => {
     const series = agents
       .map((agent, index) => {
-        const trajectory = agent.rating_trajectory?.length
+        const systemCheckIds = new Set(
+          (agent.recent_episodes || [])
+            .filter((episode) => episode.is_system_check)
+            .map((episode) => episode.id),
+        );
+        const trajectory = (agent.rating_trajectory?.length
           ? agent.rating_trajectory
-          : buildLegacyTrajectory(agent);
+          : buildLegacyTrajectory(agent)
+        ).filter((point) => !systemCheckIds.has(point.episode_id));
         const points = trajectory
           .slice()
           .sort((a, b) => a.game_number - b.game_number)
-          .map((point) => ({
-            x: point.game_number,
+          .map((point, pointIndex) => ({
+            x: pointIndex + 1,
             y: point.score,
             timestamp: point.timestamp,
             episodeId: point.episode_id,
@@ -127,7 +136,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
           color: COLORS[index % COLORS.length],
           points,
           latest: points[points.length - 1],
-          games: agent.total_episodes || points[points.length - 1]?.x || 0,
+          games: agent.total_episodes - (agent.system_checks || 0) || points[points.length - 1]?.x || 0,
         } satisfies ChartSeries;
       })
       .filter((item) => item.points.length > 0);
@@ -318,7 +327,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
       size="small"
       title=""
       style={{ marginTop: 16, borderRadius: 10, borderColor: '#e2e8f0' }}
-      bodyStyle={{ padding: '10px 14px 14px' }}
+      styles={{ body: { padding: '10px 14px 14px' } }}
     >
       {!hasData ? (
         <Empty

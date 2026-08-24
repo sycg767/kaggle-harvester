@@ -127,9 +127,10 @@ export const Dashboard: React.FC = () => {
     <div style={{ padding: '8px 0 32px 0', maxWidth: 1440, margin: '0 auto' }}>
 
       {loading ? (
-        <div style={{ display: 'grid', placeItems: 'center', padding: '80px 0' }}>
-          <Spin size="large" tip="正在加载指挥中心全景数据..." />
-        </div>
+          <div style={{ display: 'grid', placeItems: 'center', padding: '80px 0', gap: 12 }}>
+            <Spin size="large" />
+            <span style={{ color: '#64748b', fontSize: 13 }}>正在加载指挥中心全景数据...</span>
+          </div>
       ) : (
         <>
           {/* 2. Core Feature Control Hub (4 Main Modules) */}
@@ -162,7 +163,7 @@ export const Dashboard: React.FC = () => {
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                   }}
-                  bodyStyle={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' }}
+                  styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -197,7 +198,7 @@ export const Dashboard: React.FC = () => {
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                   }}
-                  bodyStyle={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' }}
+                  styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -232,7 +233,7 @@ export const Dashboard: React.FC = () => {
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                   }}
-                  bodyStyle={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' }}
+                  styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -267,7 +268,7 @@ export const Dashboard: React.FC = () => {
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                   }}
-                  bodyStyle={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' }}
+                  styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -303,7 +304,7 @@ export const Dashboard: React.FC = () => {
                   border: '1px solid #e2e8f0',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
                 }}
-                bodyStyle={{ padding: '20px 22px' }}
+                styles={{ body: { padding: '20px 22px' } }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                   <Space align="center" size={8}>
@@ -538,7 +539,7 @@ export const Dashboard: React.FC = () => {
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                 }}
-                bodyStyle={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%' }}
+                styles={{ body: { padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%' } }}
               >
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -648,7 +649,7 @@ export const Dashboard: React.FC = () => {
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
                   cursor: 'pointer',
                 }}
-                bodyStyle={{ padding: '20px 24px' }}
+                styles={{ body: { padding: '20px 24px' } }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Space size={14} align="center">
@@ -681,7 +682,7 @@ export const Dashboard: React.FC = () => {
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
                   cursor: 'pointer',
                 }}
-                bodyStyle={{ padding: '20px 24px' }}
+                styles={{ body: { padding: '20px 24px' } }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Space size={14} align="center">
