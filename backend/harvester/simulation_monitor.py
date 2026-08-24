@@ -13,6 +13,7 @@ from pathlib import Path
 from string import hexdigits
 from typing import Any, Literal
 
+from .cache import PersistentSimulationEpisodeStore
 from .kaggle_client import KaggleClient, _parse_public_score
 from .notifications import NotificationManager
 from .models import (
@@ -72,12 +73,16 @@ class SimulationMonitorManager:
     def __init__(
         self,
         kaggle_client: KaggleClient,
-        harvest_root: str,
+        harvest_root: str | Path,
         default_competition: str = "pokemon-tcg-ai-battle",
         notification_manager: NotificationManager | None = None,
+        episode_store: PersistentSimulationEpisodeStore | None = None,
     ) -> None:
         self._kaggle = kaggle_client
         self._notifications = notification_manager
+        self._episode_store = episode_store or PersistentSimulationEpisodeStore(harvest_root)
+        if getattr(self._kaggle, "_episode_store", None) is None:
+            self._kaggle._episode_store = self._episode_store
         self._state_path = (
             Path(harvest_root).resolve() / "_cache" / "simulation_monitor.json"
         )

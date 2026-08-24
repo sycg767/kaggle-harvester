@@ -29,6 +29,7 @@ from harvester.cache import (
     PersistentKernelMetadataCache,
     PersistentKernelQueryCache,
     PersistentKernelScoreCache,
+    PersistentSimulationEpisodeStore,
 )
 from harvester.kaggle_client import KaggleClient
 from harvester.models import (
@@ -224,7 +225,11 @@ async def lifespan(app: FastAPI):
         "KAGGLE_COMPETITION", "rogii-wellbore-geology-prediction"
     )
     harvest_root = os.environ.get("HARVEST_ROOT", "harvested_kernels")
-    app.state.kaggle_client = KaggleClient(competition_slug=competition_slug)
+    app.state.simulation_episode_store = PersistentSimulationEpisodeStore(harvest_root)
+    app.state.kaggle_client = KaggleClient(
+        competition_slug=competition_slug,
+        episode_store=app.state.simulation_episode_store,
+    )
     app.state.kernel_query_cache = PersistentKernelQueryCache(harvest_root)
     app.state.kernel_score_cache = PersistentKernelScoreCache(harvest_root)
     app.state.kernel_metadata_cache = PersistentKernelMetadataCache(harvest_root)
@@ -259,6 +264,7 @@ async def lifespan(app: FastAPI):
         harvest_root=harvest_root,
         default_competition="pokemon-tcg-ai-battle",
         notification_manager=app.state.notifications,
+        episode_store=app.state.simulation_episode_store,
     )
     await app.state.notifications.start()
     await app.state.auto_archive.start()

@@ -17,7 +17,11 @@ from typing import Any, Optional
 
 import httpx
 
-from .cache import PersistentKernelMetadataCache, PersistentKernelScoreCache
+from .cache import (
+    PersistentKernelMetadataCache,
+    PersistentKernelScoreCache,
+    PersistentSimulationEpisodeStore,
+)
 from .models import (
     CompetitionInfo,
     CompetitionSubmission,
@@ -296,11 +300,13 @@ class KaggleClient:
         competition_slug: Optional[str] = None,
         score_cache: Optional[PersistentKernelScoreCache] = None,
         metadata_cache: Optional[PersistentKernelMetadataCache] = None,
+        episode_store: Optional[PersistentSimulationEpisodeStore] = None,
     ) -> None:
         self._token = kaggle_token or os.environ.get("KAGGLE_API_TOKEN", "")
         self.competition_slug = competition_slug or self.COMPETITION_SLUG
         self._score_cache = score_cache
         self._metadata_cache = metadata_cache
+        self._episode_store = episode_store
         self._competition_info_memory: dict[str, CompetitionInfo] = {}
         self._sim_leaderboard_cache: dict[str, tuple[float, SimulationMedalThresholds, list[dict[str, Any]]]] = {}
         self._sim_episodes_cache: dict[int, list[SimulationEpisode]] = {}
@@ -1566,6 +1572,20 @@ class KaggleClient:
                     if not ep_id:
                         continue
                     create_time = ep.get("createTime")
+                teams_map: dict[int, str] = {
+                    int(t["id"]): str(t.get("teamName") or t.get("name") or "")
+                    for t in data.get("teams", [])
+                    if isinstance(t, dict) and "id" in t
+                }
+
+                episodes: list[SimulationEpisode] = []
+                for ep in raw_episodes:
+                    if not isinstance(ep, dict):
+                        continue
+                    ep_id = int(ep.get("id", 0))
+                    if not ep_id:
+                        continue
+                    create_time = ep.get("createTime")
                     end_time = ep.get("endTime")
                     raw_state = str(ep.get("state", "") or "")
                     raw_type = str(ep.get("type", "") or "")
@@ -1662,6 +1682,11 @@ class KaggleClient:
                     )
 
                 episodes.sort(key=lambda x: x.create_time or "", reverse=True)
+                if self._episode_store is not None and episodes:
+                    self._episode_store.upsert_episodes(episodes)
+                    merged = self._episode_store.get_episodes(sub_id, order="DESC")
+                    self._sim_episodes_cache[sub_id] = merged
+                    return merged
                 # 增量合并到内存缓存
                 known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(sub_id, [])}
                 for ep in episodes:
@@ -1673,138 +1698,150 @@ class KaggleClient:
             pass
 
         # 2. 回退到 Python SDK 接口
-        from kaggle.api.kaggle_api_extended import KaggleApi
+        try:
+            from kaggle.api.kaggle_api_extended import KaggleApi
 
-        api = KaggleApi()
-        api.authenticate()
-        raw_episodes = api.competition_list_episodes(sub_id) or []
+            api = KaggleApi()
+            api.authenticate()
+            raw_episodes = api.competition_list_episodes(sub_id) or []
 
-        episodes: list[SimulationEpisode] = []
-        for ep in raw_episodes:
-            if ep is None:
-                continue
-            ep_id = int(getattr(ep, "id", 0))
-            if not ep_id:
-                continue
-            create_time_dt = getattr(ep, "create_time", None) or getattr(ep, "createTime", None)
-            end_time_dt = getattr(ep, "end_time", None) or getattr(ep, "endTime", None)
-            create_time = (
-                create_time_dt.isoformat()
-                if hasattr(create_time_dt, "isoformat")
-                else (str(create_time_dt) if create_time_dt else None)
-            )
-            end_time = (
-                end_time_dt.isoformat()
-                if hasattr(end_time_dt, "isoformat")
-                else (str(end_time_dt) if end_time_dt else None)
-            )
-            duration_seconds = None
-            if hasattr(create_time_dt, "timestamp") and hasattr(end_time_dt, "timestamp"):
-                duration_seconds = max(0.0, end_time_dt.timestamp() - create_time_dt.timestamp())
-
-            raw_state = str(getattr(ep, "state", "") or "")
-            raw_type = str(getattr(ep, "type", "") or "")
-
-            raw_agents = getattr(ep, "agents", []) or []
-            agents: list[SimulationEpisodeAgent] = []
-            my_agent: SimulationEpisodeAgent | None = None
-            opponent_agent: SimulationEpisodeAgent | None = None
-
-            for i, a in enumerate(raw_agents):
-                agent_sub_id = int(
-                    getattr(a, "submission_id", None)
-                    or getattr(a, "submissionId", 0)
-                    or 0
+            episodes: list[SimulationEpisode] = []
+            for ep in raw_episodes:
+                if ep is None:
+                    continue
+                ep_id = int(getattr(ep, "id", 0))
+                if not ep_id:
+                    continue
+                create_time_dt = getattr(ep, "create_time", None) or getattr(ep, "createTime", None)
+                end_time_dt = getattr(ep, "end_time", None) or getattr(ep, "endTime", None)
+                create_time = (
+                    create_time_dt.isoformat()
+                    if hasattr(create_time_dt, "isoformat")
+                    else (str(create_time_dt) if create_time_dt else None)
                 )
-                team_id = getattr(a, "team_id", None) or getattr(a, "teamId", None)
-                team_name = str(
-                    getattr(a, "team_name", None)
-                    or getattr(a, "teamName", "")
-                    or ""
+                end_time = (
+                    end_time_dt.isoformat()
+                    if hasattr(end_time_dt, "isoformat")
+                    else (str(end_time_dt) if end_time_dt else None)
                 )
-                reward = getattr(a, "reward", None)
-                reward_val = float(reward) if reward is not None else None
-                agent_index = int(getattr(a, "index", i) or i)
-                agent_state = str(getattr(a, "state", "") or "")
+                duration_seconds = None
+                if hasattr(create_time_dt, "timestamp") and hasattr(end_time_dt, "timestamp"):
+                    duration_seconds = max(0.0, end_time_dt.timestamp() - create_time_dt.timestamp())
 
-                sim_agent = SimulationEpisodeAgent(
-                    submission_id=agent_sub_id,
-                    team_id=int(team_id) if team_id is not None else None,
-                    team_name=team_name,
-                    reward=reward_val,
-                    index=agent_index,
-                    state=agent_state,
-                )
-                agents.append(sim_agent)
-                if agent_sub_id == sub_id:
-                    my_agent = sim_agent
-                else:
-                    opponent_agent = sim_agent
+                raw_state = str(getattr(ep, "state", "") or "")
+                raw_type = str(getattr(ep, "type", "") or "")
 
-            my_idx = my_agent.index if my_agent is not None else 0
-            my_team = my_agent.team_name if my_agent is not None else ""
-            is_system_check = opponent_agent is None
-            if is_system_check:
-                opp_team = "系统自检"
-                opp_team_id = None
-                opp_sub_id = None
-                rew = None
-                outcome = "unknown"
-            else:
-                opp_team = opponent_agent.team_name or "对手"
-                opp_team_id = opponent_agent.team_id
-                opp_sub_id = opponent_agent.submission_id
-                rew = my_agent.reward if my_agent is not None else None
-                if rew is not None:
-                    if rew > 0:
-                        outcome = "win"
-                    elif rew < 0:
-                        outcome = "loss"
+                raw_agents = getattr(ep, "agents", []) or []
+                agents: list[SimulationEpisodeAgent] = []
+                my_agent: SimulationEpisodeAgent | None = None
+                opponent_agent: SimulationEpisodeAgent | None = None
+
+                for i, a in enumerate(raw_agents):
+                    agent_sub_id = int(
+                        getattr(a, "submission_id", None)
+                        or getattr(a, "submissionId", 0)
+                        or 0
+                    )
+                    team_id = getattr(a, "team_id", None) or getattr(a, "teamId", None)
+                    team_name = str(
+                        getattr(a, "team_name", None)
+                        or getattr(a, "teamName", "")
+                        or ""
+                    )
+                    reward = getattr(a, "reward", None)
+                    reward_val = float(reward) if reward is not None else None
+                    agent_index = int(getattr(a, "index", i) or i)
+                    agent_state = str(getattr(a, "state", "") or "")
+
+                    sim_agent = SimulationEpisodeAgent(
+                        submission_id=agent_sub_id,
+                        team_id=int(team_id) if team_id is not None else None,
+                        team_name=team_name,
+                        reward=reward_val,
+                        index=agent_index,
+                        state=agent_state,
+                    )
+                    agents.append(sim_agent)
+                    if agent_sub_id == sub_id:
+                        my_agent = sim_agent
                     else:
-                        outcome = "tie"
-                else:
+                        opponent_agent = sim_agent
+
+                my_idx = my_agent.index if my_agent is not None else 0
+                my_team = my_agent.team_name if my_agent is not None else ""
+                is_system_check = opponent_agent is None
+                if is_system_check:
+                    opp_team = "系统自检"
+                    opp_team_id = None
+                    opp_sub_id = None
+                    rew = None
                     outcome = "unknown"
+                else:
+                    opp_team = opponent_agent.team_name or "对手"
+                    opp_team_id = opponent_agent.team_id
+                    opp_sub_id = opponent_agent.submission_id
+                    rew = my_agent.reward if my_agent is not None else None
+                    if rew is not None:
+                        if rew > 0:
+                            outcome = "win"
+                        elif rew < 0:
+                            outcome = "loss"
+                        else:
+                            outcome = "tie"
+                    else:
+                        outcome = "unknown"
 
-            replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
+                replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
 
-            episodes.append(
-                SimulationEpisode(
-                    id=ep_id,
-                    create_time=create_time,
-                    end_time=end_time,
-                    duration_seconds=duration_seconds,
-                    state=raw_state,
-                    type=raw_type,
-                    agents=agents,
-                    my_agent_index=my_idx,
-                    my_submission_id=sub_id,
-                    my_team_name=my_team,
-                    opponent_team_name=opp_team,
-                    opponent_team_id=opp_team_id,
-                    opponent_submission_id=opp_sub_id,
-                    result=outcome,
-                    is_system_check=is_system_check,
-                    reward=rew,
-                    replay_url=replay_url,
+                episodes.append(
+                    SimulationEpisode(
+                        id=ep_id,
+                        create_time=create_time,
+                        end_time=end_time,
+                        duration_seconds=duration_seconds,
+                        state=raw_state,
+                        type=raw_type,
+                        agents=agents,
+                        my_agent_index=my_idx,
+                        my_submission_id=sub_id,
+                        my_team_name=my_team,
+                        opponent_team_name=opp_team,
+                        opponent_team_id=opp_team_id,
+                        opponent_submission_id=opp_sub_id,
+                        result=outcome,
+                        is_system_check=is_system_check,
+                        reward=rew,
+                        replay_url=replay_url,
+                    )
                 )
-            )
 
-# 增量合并到内存缓存
-        known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(sub_id, [])}
-        for ep in episodes:
-            known_map[ep.id] = ep
-        merged = sorted(known_map.values(), key=lambda x: x.create_time or "", reverse=True)
-        self._sim_episodes_cache[sub_id] = merged
-        return merged
+            if self._episode_store is not None and episodes:
+                self._episode_store.upsert_episodes(episodes)
+                merged = self._episode_store.get_episodes(sub_id, order="DESC")
+                self._sim_episodes_cache[sub_id] = merged
+                return merged
+
+            # 增量合并到内存缓存
+            known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(sub_id, [])}
+            for ep in episodes:
+                known_map[ep.id] = ep
+            merged = sorted(known_map.values(), key=lambda x: x.create_time or "", reverse=True)
+            self._sim_episodes_cache[sub_id] = merged
+            return merged
+        except Exception:
+            pass
+
+        if self._episode_store is not None:
+            return self._episode_store.get_episodes(sub_id, order="DESC")
+        return list(self._sim_episodes_cache.get(sub_id, []))
 
     def get_simulation_episodes_cached(
         self, submission_id: int
     ) -> list[SimulationEpisode]:
-        """返回指定提交已缓存的全部对局流水（按最新在前排序，不触发网络拉取）。
-
-        缓存由 list_simulation_episodes 在每次轮询时全量刷新，因此这里能拿到完整历史。
-        """
+        """返回指定提交已缓存的全部对局流水（按最新在前排序，不触发网络拉取）。"""
         sub_id = int(submission_id)
+        if self._episode_store is not None:
+            return self._episode_store.get_episodes(sub_id, order="DESC")
         return list(self._sim_episodes_cache.get(sub_id, []))
 
     def get_simulation_leaderboard(

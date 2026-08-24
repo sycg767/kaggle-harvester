@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import sys
@@ -16,8 +16,15 @@ from harvester.cache import (
     PersistentKernelMetadataCache,
     PersistentKernelQueryCache,
     PersistentKernelScoreCache,
+    PersistentSimulationEpisodeStore,
 )
-from harvester.models import CompetitionInfo, ScoredKernel, VersionInfo
+from harvester.models import (
+    CompetitionInfo,
+    ScoredKernel,
+    SimulationEpisode,
+    SimulationEpisodeAgent,
+    VersionInfo,
+)
 import main as api_main
 
 
@@ -357,6 +364,58 @@ class StaleWhileRevalidateTests(unittest.IsolatedAsyncioTestCase):
                 api_main.SCORE_INDEX_REFRESH_SECONDS = previous_refresh_seconds
                 for task in api_main.app.state.kernel_refresh_tasks.values():
                     task.cancel()
+
+    def test_simulation_episode_store_sqlite_incremental_upsert(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = PersistentSimulationEpisodeStore(temp_dir)
+            ep1 = SimulationEpisode(
+                id=1001,
+                create_time="2026-08-20T00:00:00Z",
+                my_submission_id=55565346,
+                my_team_name="GrimmsnaRL",
+                opponent_team_name="Opp1",
+                result="win",
+                reward=1.0,
+                score_delta=5.0,
+            )
+            ep2 = SimulationEpisode(
+                id=1002,
+                create_time="2026-08-20T01:00:00Z",
+                my_submission_id=55565346,
+                my_team_name="GrimmsnaRL",
+                opponent_team_name="Opp2",
+                result="loss",
+                reward=-1.0,
+                score_delta=-4.0,
+            )
+            count = store.upsert_episodes([ep1, ep2])
+            self.assertEqual(count, 2)
+            self.assertEqual(store.get_episode_count(55565346), 2)
+            self.assertEqual(store.get_latest_episode_id(55565346), 1002)
+
+            # 增量插入第 3 局与更新已存在对局
+            ep3 = SimulationEpisode(
+                id=1003,
+                create_time="2026-08-20T02:00:00Z",
+                my_submission_id=55565346,
+                my_team_name="GrimmsnaRL",
+                opponent_team_name="Opp3",
+                result="win",
+                reward=1.0,
+                score_delta=3.5,
+            )
+            store.upsert_episodes([ep2, ep3])
+            self.assertEqual(store.get_episode_count(55565346), 3)
+
+            # 按时间正序读取全量历史
+            all_eps = store.get_episodes(55565346, order="ASC")
+            self.assertEqual([ep.id for ep in all_eps], [1001, 1002, 1003])
+            self.assertEqual(all_eps[-1].score_delta, 3.5)
+
+            # 验证进程重启后数据完整保留
+            store_reloaded = PersistentSimulationEpisodeStore(temp_dir)
+            self.assertEqual(store_reloaded.get_episode_count(55565346), 3)
+            self.assertEqual(store_reloaded.stats()["total_episodes_stored"], 3)
 
 
 if __name__ == "__main__":
