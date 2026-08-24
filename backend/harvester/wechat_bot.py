@@ -296,11 +296,11 @@ if __name__ == "__main__":
     try:
         if is_chart_only:
             chart_path = get_chart_image()
-            print(f"IMAGE:{chart_path}")
+            print(f"MEDIA:{chart_path}")
         elif is_with_chart:
             text = get_status_text(history_only=is_history_only)
             chart_path = get_chart_image()
-            print(f"{text}\n\nIMAGE:{chart_path}")
+            print(f"{text}\n\nMEDIA:{chart_path}")
         else:
             print(get_status_text(history_only=is_history_only))
     except Exception as exc:

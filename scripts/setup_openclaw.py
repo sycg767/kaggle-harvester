@@ -217,13 +217,13 @@ p31 刚赢一场止跌，但安全垫只有 +0.9 分很极限 ⚠️；p46 近�
 ```bash
 python "{script_path}" --chart
 ```
-2. 脚本成功后，最终回复必须是脚本输出的 `IMAGE:<绝对路径>` 单独一行；必须原样保留 `IMAGE:` 前缀和绝对路径。
-3. **禁止发送任何其他内容**：不要写介绍、点评、emoji、Markdown、代码围栏、文件路径说明，也不要把 `IMAGE:` 行包在其他文字中。
+2. 脚本成功后，最终回复必须是脚本输出的 `MEDIA:<绝对路径>` 单独一行；必须原样保留 `MEDIA:` 前缀和绝对路径。
+3. **禁止发送任何其他内容**：不要写介绍、点评、emoji、Markdown、代码围栏、文件路径说明，也不要把 `MEDIA:` 行包在其他文字中。
 4. 不要根据图表数据自行生成文字总结。只有脚本失败时，才回复简短的错误信息。
 
 成功回复格式（必须严格只有这一行）：
 ```text
-IMAGE:/tmp/simulation_trajectory.png
+MEDIA:/tmp/simulation_trajectory.png
 ```
 """)
 
@@ -255,13 +255,13 @@ python "{script_path}" --history-only
 ```bash
 python "{script_path}" --chart
 ```
-This is a strict image-only request. After the command succeeds, return exactly the single `IMAGE:<absolute path>` line from the command output so OpenClaw can send it as an image attachment.
+This is a strict image-only request. After the command succeeds, return exactly the single `MEDIA:<absolute path>` line from the command output so OpenClaw can send it as an image attachment.
 Do not add any commentary, coach analysis, emoji, Markdown, code fence, filename explanation, or other text before or after that line. Do not wrap the line in a larger message. Do not generate a text summary from the chart data.
 Only send a brief error message if the command fails.
 
 For chart success, the entire final response must be exactly one line in this form:
 ```text
-IMAGE:/tmp/simulation_trajectory.png
+MEDIA:/tmp/simulation_trajectory.png
 ```
 """)
 
