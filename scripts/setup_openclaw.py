@@ -212,15 +212,17 @@ p31 刚赢一场止跌，但安全垫只有 +0.9 分很极限 ⚠️；p46 近�
 • 状态回暖，刚打赢 marc_town 止血！
 
 ### 场景 4：用户询问「走势图 / 评分轨迹 / 曲线 / chart / 战报图 / 看图」
+这是**严格的图片发送请求**，不是文字战报请求：
 1. 立即执行脚本生成高清走势图：
 ```bash
 python "{script_path}" --chart
 ```
-该命令会在毫秒级生成全量评分轨迹图并输出 `IMAGE:/tmp/simulation_trajectory.png`。
-2. 输出图片并配以简短教练点评（例如说明 p46 红色曲线与 p31 蓝色曲线最新状态）：
-```text
-📈 最新评分轨迹走势图已生成！红线为 p46，蓝线为 p31，虚线为银牌/铜牌参考线。
+2. 脚本成功后，最终回复必须是脚本输出的 `IMAGE:<绝对路径>` 单独一行；必须原样保留 `IMAGE:` 前缀和绝对路径。
+3. **禁止发送任何其他内容**：不要写介绍、点评、emoji、Markdown、代码围栏、文件路径说明，也不要把 `IMAGE:` 行包在其他文字中。
+4. 不要根据图表数据自行生成文字总结。只有脚本失败时，才回复简短的错误信息。
 
+成功回复格式（必须严格只有这一行）：
+```text
 IMAGE:/tmp/simulation_trajectory.png
 ```
 """)
@@ -253,8 +255,14 @@ python "{script_path}" --history-only
 ```bash
 python "{script_path}" --chart
 ```
+This is a strict image-only request. After the command succeeds, return exactly the single `IMAGE:<absolute path>` line from the command output so OpenClaw can send it as an image attachment.
+Do not add any commentary, coach analysis, emoji, Markdown, code fence, filename explanation, or other text before or after that line. Do not wrap the line in a larger message. Do not generate a text summary from the chart data.
+Only send a brief error message if the command fails.
 
-Parse the data and reply in the friendly, structured, and insightful WeChat coach format defined in SOUL.md.
+For chart success, the entire final response must be exactly one line in this form:
+```text
+IMAGE:/tmp/simulation_trajectory.png
+```
 """)
 
         # 如果存在 openclaw 用户，自动修正权限
