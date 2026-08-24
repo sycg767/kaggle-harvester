@@ -977,7 +977,7 @@ class SimulationMonitorManager:
                         )
                     )
                     score_after = round(score_after - (ep.score_delta or 0.0), 1)
-                rating_trajectory = list(reversed(reversed_points))[-500:]
+                rating_trajectory = list(reversed(reversed_points))
 
             agent_stat = SimulationAgentStats(
                 submission_id=sub_id,

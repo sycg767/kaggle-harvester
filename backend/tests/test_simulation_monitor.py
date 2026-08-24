@@ -310,6 +310,34 @@ class TestSimulationMonitor(unittest.TestCase):
         self.assertEqual(agents[0].submission_id, 55565346)
         self.assertEqual(agents[1].submission_id, 55555162)
 
+    def test_render_trajectory_chart_aligns_to_zero(self) -> None:
+        from harvester.chart_renderer import render_trajectory_chart
+
+        snapshot = {
+            "status": {
+                "agents": [
+                    {
+                        "submission_id": 55565346,
+                        "description": "p46",
+                        "score": 868.8,
+                        "total_episodes": 559,
+                        "rating_trajectory": [
+                            {"game_number": 59, "score": 880.0},
+                            {"game_number": 150, "score": 900.0},
+                            {"game_number": 559, "score": 868.8},
+                        ],
+                    }
+                ],
+                "thresholds": {
+                    "silver_cutoff_score": 911.0,
+                    "bronze_cutoff_score": 841.2,
+                },
+            }
+        }
+        png_bytes = render_trajectory_chart(snapshot)
+        self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
+

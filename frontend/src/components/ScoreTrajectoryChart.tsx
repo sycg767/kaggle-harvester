@@ -124,7 +124,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
           .slice()
           .sort((a, b) => a.game_number - b.game_number)
           .map((point, pointIndex) => ({
-            x: pointIndex + 1,
+            x: point.game_number || pointIndex + 1,
             y: point.score,
             timestamp: point.timestamp,
             episodeId: point.episode_id,
@@ -159,22 +159,21 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
       };
     }
 
-    const minGames = Math.min(...allPoints.map((point) => point.x));
+    const minGames = 0;
     const maxGames = Math.max(...allPoints.map((point) => point.x), ...series.map((item) => item.games));
     const minScore = Math.min(...allPoints.map((point) => point.y), ...cutoffValues);
     const maxScore = Math.max(...allPoints.map((point) => point.y), ...cutoffValues);
-    const xPaddingLeft = Math.max(1, (maxGames - minGames) * 0.03);
-    const xPaddingRight = Math.max(18, (maxGames - minGames) * 0.09);
+    const xPaddingRight = Math.max(18, maxGames * 0.09);
     const scoreRange = Math.max(20, maxScore - minScore);
     const yPadding = Math.max(8, scoreRange * 0.14);
 
     return {
       series,
-      xMin: Math.max(0, minGames - xPaddingLeft),
-      xMax: Math.max(minGames + 10, maxGames + xPaddingRight),
+      xMin: 0,
+      xMax: Math.max(10, maxGames + xPaddingRight),
       yMin: Math.floor((minScore - yPadding) / 10) * 10,
       yMax: Math.ceil((maxScore + yPadding) / 10) * 10,
-      xTicks: integerTicks(Math.max(0, minGames - xPaddingLeft), Math.max(minGames + 10, maxGames + xPaddingRight), 5),
+      xTicks: integerTicks(0, Math.max(10, maxGames + xPaddingRight), 5),
       yTicks: niceTicks(Math.floor((minScore - yPadding) / 10) * 10, Math.ceil((maxScore + yPadding) / 10) * 10, 5),
       silverCutoff: thresholds?.silver_cutoff_score,
       bronzeCutoff: thresholds?.bronze_cutoff_score,

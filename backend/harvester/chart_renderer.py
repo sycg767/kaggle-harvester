@@ -76,6 +76,13 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             pts = sorted(trajectory, key=lambda p: int(p.get("game_number", 0)))
             x_vals = [int(p.get("game_number", 0)) for p in pts]
             y_vals = [float(p.get("score", 0.0)) for p in pts]
+
+            # 若起点不是 0 局（例如首局为第 1 局或增量截取），补充 (0, 首局初始分) 锚点，确保折线平滑连接至原点 0
+            if x_vals:
+                if x_vals[0] > 0:
+                    x_vals = [0] + x_vals
+                    y_vals = [y_vals[0]] + y_vals
+
             all_x.extend(x_vals)
             all_y.extend(y_vals)
             final_s = y_vals[-1] if y_vals else (agent.get("score") or agent.get("public_score") or 0.0)
@@ -98,11 +105,9 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
         ax.set_ylim(min_y - y_padding, max_y + y_padding)
 
     if all_x:
-        min_x = min(all_x)
         max_x = max(all_x)
-        x_padding_left = max(2, (max_x - min_x) * 0.03)
-        x_padding_right = max(18, (max_x - min_x) * 0.09)
-        ax.set_xlim(max(0, min_x - x_padding_left), max_x + x_padding_right)
+        x_padding_right = max(18, max_x * 0.09)
+        ax.set_xlim(0, max_x + x_padding_right)
     else:
         ax.set_xlim(0, 100)
         ax.set_ylim(400, 1000)
@@ -166,7 +171,10 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             item["x"],
             item["y"],
             color=item["color"],
-            linewidth=2.0,
+            linewidth=1.8,
+            marker="o",
+            markersize=2.2,
+            markevery=1,
             solid_capstyle="round",
             zorder=3,
             label="{} · {:.1f} ({} games)".format(item["label"], item["final_score"], item["total_games"]),
