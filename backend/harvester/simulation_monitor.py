@@ -33,6 +33,15 @@ from .models import (
 )
 
 
+SIMULATION_FETCH_TIMEOUT_SECONDS = float(
+    os.environ.get("SIMULATION_FETCH_TIMEOUT_SECONDS", "45")
+)
+SIMULATION_CHECK_TIMEOUT_SECONDS = max(
+    SIMULATION_FETCH_TIMEOUT_SECONDS + 15.0,
+    float(os.environ.get("SIMULATION_CHECK_TIMEOUT_SECONDS", "60")),
+)
+
+
 class SimulationMonitorBusyError(RuntimeError):
     """已有一次对战监控检查正在运行中。"""
 
@@ -75,6 +84,7 @@ class SimulationMonitorManager:
         self._run_details_root = self._state_path.parent / "simulation_monitor_runs"
         self._run_details_root.mkdir(parents=True, exist_ok=True)
         self._state_lock = threading.RLock()
+        self._sync_run_lock = threading.Lock()
         self._run_lock = asyncio.Lock()
         self._wake_event = asyncio.Event()
         self._stop_event = asyncio.Event()
@@ -482,6 +492,7 @@ class SimulationMonitorManager:
         async with self._run_lock:
             started_at = _utc_now()
             with self._state_lock:
+                previous_status = self._status.model_copy(deep=True)
                 self._status.running = True
                 self._status.last_error = None
                 self._status.next_run_at = None
@@ -506,20 +517,19 @@ class SimulationMonitorManager:
                         events_to_notify,
                     ) = await asyncio.wait_for(
                         asyncio.to_thread(self._run_once_sync, config),
-                        timeout=25.0,
+                        timeout=SIMULATION_CHECK_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
-                    status = SimulationMonitorStatus(
-                        competition=config.competition,
-                        last_checked_at=_utc_now().isoformat(),
-                        last_error="Kaggle 网络请求超时 (25秒)，本次检查已安全中止。",
+                    status = previous_status
+                    status.last_checked_at = _utc_now().isoformat()
+                    status.last_error = (
+                        f"Kaggle 网络请求超时 ({int(SIMULATION_CHECK_TIMEOUT_SECONDS)}秒)，"
+                        "本次检查已安全中止，已保留上次成功数据。"
                     )
                 except Exception as exc:
-                    status = SimulationMonitorStatus(
-                        competition=config.competition,
-                        last_checked_at=_utc_now().isoformat(),
-                        last_error=str(exc)[:500],
-                    )
+                    status = previous_status
+                    status.last_checked_at = _utc_now().isoformat()
+                    status.last_error = str(exc)[:500]
 
                 with self._state_lock:
                     finished_at = _utc_now()
@@ -619,7 +629,15 @@ class SimulationMonitorManager:
             self._wake_event.set()
             return self.snapshot()
 
-    def _run_once_sync(
+    def _run_once_sync(self, config: SimulationMonitorConfig):
+        if not self._sync_run_lock.acquire(blocking=False):
+            raise SimulationMonitorBusyError("上一轮 Simulation 对战检查仍在后台收尾，请稍候再试。")
+        try:
+            return self._run_once_sync_impl(config)
+        finally:
+            self._sync_run_lock.release()
+
+    def _run_once_sync_impl(
         self, config: SimulationMonitorConfig
     ) -> tuple[
         SimulationMonitorStatus,
@@ -716,14 +734,36 @@ class SimulationMonitorManager:
             except Exception as exc:
                 errors.append(f"提交 #{target_sub_id} 对局流水读取失败: {str(exc)[:200]}")
                 episodes_map[target_sub_id] = []
+                fetch_failed_submission_ids.add(target_sub_id)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(3, len(target_submissions) + 1)) as executor:
-            futures = [executor.submit(_fetch_leaderboard)]
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(3, len(target_submissions) + 1)
+        )
+        try:
+            future_submission_ids: dict[concurrent.futures.Future, int] = {}
+            leaderboard_future = executor.submit(_fetch_leaderboard)
+            futures = [leaderboard_future]
             for sub in target_submissions:
-                futures.append(executor.submit(_fetch_sub_episodes, int(str(sub.ref))))
-            done, not_done = concurrent.futures.wait(futures, timeout=18.0)
+                submission_id = int(str(sub.ref))
+                future = executor.submit(_fetch_sub_episodes, submission_id)
+                future_submission_ids[future] = submission_id
+                futures.append(future)
+            _, not_done = concurrent.futures.wait(
+                futures,
+                timeout=SIMULATION_FETCH_TIMEOUT_SECONDS,
+            )
             if not_done:
-                errors.append("部分天梯/对局数据拉取超时 (18秒)")
+                errors.append(
+                    f"部分天梯/对局数据拉取超时 ({int(SIMULATION_FETCH_TIMEOUT_SECONDS)}秒)"
+                )
+                for future in not_done:
+                    submission_id = future_submission_ids.get(future)
+                    if submission_id is not None:
+                        fetch_failed_submission_ids.add(submission_id)
+                    future.cancel()
+        finally:
+            # 不要在超时后隐式 wait；否则外层检查超时也无法及时返回。
+            executor.shutdown(wait=False, cancel_futures=True)
 
         # 构建 team_id/team_name 到 rank/score 的索引
         team_ranks: dict[str, int] = {}
@@ -752,10 +792,42 @@ class SimulationMonitorManager:
         with self._state_lock:
             prev_counts = dict(self._known_episode_counts)
             prev_tiers = dict(self._known_medal_tiers)
+            previous_agents = {
+                agent.submission_id: agent.model_copy(deep=True)
+                for agent in self._status.agents
+            }
+            previous_thresholds = (
+                self._status.thresholds or self._status.medal_thresholds
+            )
+
+        fetch_failed_submission_ids: set[int] = set()
 
         for sub in target_submissions:
             sub_id = int(str(sub.ref))
             episodes: list[SimulationEpisode] = episodes_map.get(sub_id, [])
+            stale_agent = previous_agents.get(sub_id)
+            if sub_id in fetch_failed_submission_ids and stale_agent is not None:
+                agents_stats.append(stale_agent)
+                new_history_points.append(
+                    SimulationHistoryPoint(
+                        timestamp=checked_time,
+                        submission_id=stale_agent.submission_id,
+                        score=stale_agent.score,
+                        rank=stale_agent.rank,
+                        total_episodes=stale_agent.total_episodes,
+                        wins=stale_agent.wins,
+                        losses=stale_agent.losses,
+                        ties=stale_agent.ties,
+                        win_rate=stale_agent.win_rate,
+                        bronze_gap_score=stale_agent.bronze_gap_score,
+                        bronze_cutoff_score=(
+                            previous_thresholds.bronze_cutoff_score
+                            if previous_thresholds
+                            else None
+                        ),
+                    )
+                )
+                continue
 
             wins = sum(1 for ep in episodes if ep.result == "win")
             losses = sum(1 for ep in episodes if ep.result == "loss")

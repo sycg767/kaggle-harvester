@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from harvester.models import (
     SimulationMonitorConfig,
 )
 from harvester.simulation_monitor import SimulationMonitorManager
+import harvester.simulation_monitor as simulation_monitor_module
 
 
 class FakeKaggleClient:
@@ -219,6 +221,32 @@ class TestSimulationMonitor(unittest.TestCase):
         self.assertEqual(len(detail.agents), 2)
         self.assertEqual(detail.agents[0].submission_id, 55565346)
         self.assertEqual(len(detail.agents[0].recent_episodes), 5)
+
+    def test_timeout_preserves_previous_agents(self) -> None:
+        manager = SimulationMonitorManager(
+            kaggle_client=self.client,  # type: ignore[arg-type]
+            harvest_root=self.root,
+            default_competition="pokemon-tcg-ai-battle",
+        )
+        baseline = asyncio.run(manager.run_now(trigger="manual"))
+        self.assertEqual(len(baseline.status.agents), 2)
+
+        original = manager._run_once_sync_impl
+
+        def slow_run(config):
+            time.sleep(0.05)
+            return original(config)
+
+        manager._run_once_sync_impl = slow_run  # type: ignore[method-assign]
+        previous_check_timeout = simulation_monitor_module.SIMULATION_CHECK_TIMEOUT_SECONDS
+        try:
+            simulation_monitor_module.SIMULATION_CHECK_TIMEOUT_SECONDS = 0.01
+            timed_out = asyncio.run(manager.run_now(trigger="manual"))
+        finally:
+            simulation_monitor_module.SIMULATION_CHECK_TIMEOUT_SECONDS = previous_check_timeout
+
+        self.assertEqual(len(timed_out.status.agents), 2)
+        self.assertIn("已保留上次成功数据", timed_out.status.last_error or "")
 
     def test_custom_target_submission_ids(self) -> None:
         manager = SimulationMonitorManager(

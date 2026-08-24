@@ -460,16 +460,6 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 500 }}
         >
           <span>对战监控</span>
-          {agents.length > 0 && (
-            <Tag
-              color={status?.running ? 'processing' : 'default'}
-              style={{ marginLeft: 4, marginRight: 0, borderRadius: 10, fontSize: 11 }}
-            >
-              {(agents[0]?.score ?? agents[0]?.public_score) !== undefined && (agents[0]?.score ?? agents[0]?.public_score) !== null
-                ? `${Number(agents[0]?.score ?? agents[0]?.public_score).toFixed(1)}分`
-                : isMonitoringActive ? '活跃' : '已暂停'}
-            </Tag>
-          )}
         </Button>
       </Tooltip>
 

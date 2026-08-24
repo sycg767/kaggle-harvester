@@ -16,9 +16,12 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBounda
     console.error('页面渲染失败', error, info.componentStack);
   }
 
-  private reset = () => {
-    this.setState({ error: null });
-    window.location.assign('/kernels');
+  private reloadCurrentPage = () => {
+    window.location.reload();
+  };
+
+  private goToDashboard = () => {
+    window.location.assign('/dashboard');
   };
 
   render() {
@@ -27,9 +30,14 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBounda
       <main className="fatal-error-shell" role="alert">
         <Result
           status="error"
-          title="页面暂时无法显示"
-          subTitle="数据和本地归档不会受影响。可以返回 Kernel 广场重新加载界面。"
-          extra={<Button type="primary" onClick={this.reset}>返回 Kernel 广场</Button>}
+          title="当前页面暂时无法显示"
+          subTitle={`当前地址：${window.location.pathname}。数据和本地归档不会受影响，请先尝试重新加载当前页面。`}
+          extra={(
+            <>
+              <Button type="primary" onClick={this.reloadCurrentPage}>重新加载当前页</Button>
+              <Button onClick={this.goToDashboard}>返回竞赛工作台</Button>
+            </>
+          )}
         />
       </main>
     );
