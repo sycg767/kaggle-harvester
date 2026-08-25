@@ -541,6 +541,7 @@ class SimulationMonitorManager:
             new_history_points: list[SimulationHistoryPoint] = []
             events_to_notify: list[dict[str, Any]] = []
 
+            force_refresh = (trigger == "manual")
             try:
                 try:
                     (
@@ -551,7 +552,7 @@ class SimulationMonitorManager:
                         new_history_points,
                         events_to_notify,
                     ) = await asyncio.wait_for(
-                        asyncio.to_thread(self._run_once_sync, config),
+                        asyncio.to_thread(self._run_once_sync, config, force_refresh),
                         timeout=SIMULATION_CHECK_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
@@ -664,16 +665,16 @@ class SimulationMonitorManager:
             self._wake_event.set()
             return self.snapshot()
 
-    def _run_once_sync(self, config: SimulationMonitorConfig):
+    def _run_once_sync(self, config: SimulationMonitorConfig, force_refresh: bool = False):
         if not self._sync_run_lock.acquire(blocking=False):
             raise SimulationMonitorBusyError("上一轮 Simulation 对战检查仍在后台收尾，请稍候再试。")
         try:
-            return self._run_once_sync_impl(config)
+            return self._run_once_sync_impl(config, force_refresh=force_refresh)
         finally:
             self._sync_run_lock.release()
 
     def _run_once_sync_impl(
-        self, config: SimulationMonitorConfig
+        self, config: SimulationMonitorConfig, force_refresh: bool = False
     ) -> tuple[
         SimulationMonitorStatus,
         list[SimulationAgentStats],
@@ -685,49 +686,125 @@ class SimulationMonitorManager:
         comp = config.competition.strip()
         errors: list[str] = []
 
-        # 1. 确定监控的目标 Submission IDs (支持团队中任意成员提交的 Agent 编号)
-        submissions_map: dict[str, CompetitionSubmission] = {}
-        try:
-            raw_subs = self._kaggle.list_competition_submissions(
-                competition=comp, page_size=50
-            )
-            for s in raw_subs:
-                submissions_map[str(s.ref)] = s
-        except Exception as exc:
-            errors.append(f"拉取提交列表提示: {str(exc)[:150]}")
-
-        target_submissions: list[CompetitionSubmission] = []
+        # 1. 确定配置的目标 Submission IDs (如 p46 / p31)
         target_ids_list = config.target_submission_ids or config.submission_ids
+        target_sub_ids: list[int] = []
         if target_ids_list:
             for tid in target_ids_list:
                 try:
-                    tid_str = str(int(str(tid).strip()))
+                    target_sub_ids.append(int(str(tid).strip()))
                 except (ValueError, TypeError):
                     continue
-                if tid_str in submissions_map:
-                    target_submissions.append(submissions_map[tid_str])
+
+        submissions_map: dict[str, CompetitionSubmission] = {}
+        thresholds: SimulationMedalThresholds | None = None
+        leaderboard_rows: list[dict[str, Any]] = []
+        episodes_map: dict[int, list[SimulationEpisode]] = {}
+        fetch_failed_submission_ids: set[int] = set()
+
+        def _fetch_submissions():
+            try:
+                raw_subs = self._kaggle.list_competition_submissions(
+                    competition=comp, page_size=50
+                )
+                for s in raw_subs:
+                    submissions_map[str(s.ref)] = s
+            except Exception as exc:
+                errors.append(f"拉取提交列表提示: {str(exc)[:150]}")
+
+        def _fetch_leaderboard():
+            nonlocal thresholds, leaderboard_rows
+            try:
+                thresholds, leaderboard_rows = self._kaggle.get_simulation_leaderboard(
+                    competition=comp,
+                    bronze_percentile=config.bronze_percentile,
+                    force_refresh=force_refresh,
+                )
+            except Exception as exc:
+                errors.append(f"天梯榜单读取失败: {str(exc)[:200]}")
+
+        def _fetch_sub_episodes(target_sub_id: int):
+            try:
+                episodes_map[target_sub_id] = self._kaggle.list_simulation_episodes(
+                    submission_id=target_sub_id, competition=comp
+                )
+            except Exception as exc:
+                errors.append(f"提交 #{target_sub_id} 对局流水读取失败: {str(exc)[:200]}")
+                episodes_map[target_sub_id] = []
+                fetch_failed_submission_ids.add(target_sub_id)
+
+        # 2. 全量并发拉取：将提交列表、天梯总榜、以及各目标 Agent 的对战流水在同一时刻并发触发
+        worker_count = max(4, len(target_sub_ids) + 2)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=worker_count)
+        try:
+            future_submission_ids: dict[concurrent.futures.Future, int] = {}
+            futures: list[concurrent.futures.Future] = []
+
+            futures.append(executor.submit(_fetch_submissions))
+            futures.append(executor.submit(_fetch_leaderboard))
+
+            if target_sub_ids:
+                for sid in target_sub_ids:
+                    fut = executor.submit(_fetch_sub_episodes, sid)
+                    future_submission_ids[fut] = sid
+                    futures.append(fut)
+
+            _, not_done = concurrent.futures.wait(
+                futures,
+                timeout=SIMULATION_FETCH_TIMEOUT_SECONDS,
+            )
+            if not_done:
+                errors.append(
+                    f"部分天梯/对局数据拉取超时 ({int(SIMULATION_FETCH_TIMEOUT_SECONDS)}秒)"
+                )
+                for future in not_done:
+                    submission_id = future_submission_ids.get(future)
+                    if submission_id is not None:
+                        fetch_failed_submission_ids.add(submission_id)
+                    future.cancel()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        # 如果没有预设 target_ids_list，则使用从 submissions 中自动提取的活跃 Agent
+        if not target_sub_ids:
+            discovered_subs: list[CompetitionSubmission] = []
+            for s in submissions_map.values():
+                norm_status = (s.status or "").lower()
+                if "error" not in norm_status and "fail" not in norm_status:
+                    discovered_subs.append(s)
+                    if len(discovered_subs) >= 2:
+                        break
+            if not discovered_subs and submissions_map:
+                discovered_subs = list(submissions_map.values())[:2]
+
+            if discovered_subs:
+                target_sub_ids = [int(str(s.ref)) for s in discovered_subs]
+                sub_executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(target_sub_ids))
+                try:
+                    sub_futs = [sub_executor.submit(_fetch_sub_episodes, sid) for sid in target_sub_ids]
+                    concurrent.futures.wait(sub_futs, timeout=SIMULATION_FETCH_TIMEOUT_SECONDS)
+                finally:
+                    sub_executor.shutdown(wait=False, cancel_futures=True)
+
+        # 3. 构造 target_submissions 列表
+        target_submissions: list[CompetitionSubmission] = []
+        if target_sub_ids:
+            for sid in target_sub_ids:
+                sid_str = str(sid)
+                if sid_str in submissions_map:
+                    target_submissions.append(submissions_map[sid_str])
                 else:
-                    desc = "p46" if tid_str == "55565346" else ("p31" if tid_str == "55555162" else f"Agent #{tid_str}")
-                    public_score = 843.0 if tid_str == "55565346" else (847.8 if tid_str == "55555162" else None)
+                    desc = "p46" if sid_str == "55565346" else ("p31" if sid_str == "55555162" else f"Agent #{sid_str}")
+                    public_score = 843.0 if sid_str == "55565346" else (847.8 if sid_str == "55555162" else None)
                     target_submissions.append(
                         CompetitionSubmission(
-                            ref=tid_str,
+                            ref=sid_str,
                             description=desc,
                             file_name=f"{desc}_submission.tar.gz",
                             public_score=public_score,
                             status="complete",
                         )
                     )
-        else:
-            for s in submissions_map.values():
-                norm_status = (s.status or "").lower()
-                if "error" not in norm_status and "fail" not in norm_status:
-                    target_submissions.append(s)
-                    if len(target_submissions) >= 2:
-                        break
-            if not target_submissions and submissions_map:
-                target_submissions = list(submissions_map.values())[:2]
-
         if not target_submissions:
             target_submissions = [
                 CompetitionSubmission(
@@ -745,60 +822,6 @@ class SimulationMonitorManager:
                     status="complete",
                 ),
             ]
-
-        # 2. 并行拉取全量天梯榜单与目标提交对局数据（大幅降低网络等待时间）
-        thresholds: SimulationMedalThresholds | None = None
-        leaderboard_rows: list[dict[str, Any]] = []
-        episodes_map: dict[int, list[SimulationEpisode]] = {}
-
-        def _fetch_leaderboard():
-            nonlocal thresholds, leaderboard_rows
-            try:
-                thresholds, leaderboard_rows = self._kaggle.get_simulation_leaderboard(
-                    competition=comp,
-                    bronze_percentile=config.bronze_percentile,
-                )
-            except Exception as exc:
-                errors.append(f"天梯榜单读取失败: {str(exc)[:200]}")
-
-        def _fetch_sub_episodes(target_sub_id: int):
-            try:
-                episodes_map[target_sub_id] = self._kaggle.list_simulation_episodes(
-                    submission_id=target_sub_id, competition=comp
-                )
-            except Exception as exc:
-                errors.append(f"提交 #{target_sub_id} 对局流水读取失败: {str(exc)[:200]}")
-                episodes_map[target_sub_id] = []
-                fetch_failed_submission_ids.add(target_sub_id)
-
-        executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max(3, len(target_submissions) + 1)
-        )
-        try:
-            future_submission_ids: dict[concurrent.futures.Future, int] = {}
-            leaderboard_future = executor.submit(_fetch_leaderboard)
-            futures = [leaderboard_future]
-            for sub in target_submissions:
-                submission_id = int(str(sub.ref))
-                future = executor.submit(_fetch_sub_episodes, submission_id)
-                future_submission_ids[future] = submission_id
-                futures.append(future)
-            _, not_done = concurrent.futures.wait(
-                futures,
-                timeout=SIMULATION_FETCH_TIMEOUT_SECONDS,
-            )
-            if not_done:
-                errors.append(
-                    f"部分天梯/对局数据拉取超时 ({int(SIMULATION_FETCH_TIMEOUT_SECONDS)}秒)"
-                )
-                for future in not_done:
-                    submission_id = future_submission_ids.get(future)
-                    if submission_id is not None:
-                        fetch_failed_submission_ids.add(submission_id)
-                    future.cancel()
-        finally:
-            # 不要在超时后隐式 wait；否则外层检查超时也无法及时返回。
-            executor.shutdown(wait=False, cancel_futures=True)
 
         # 构建 team_id/team_name 到 rank/score 的索引
         team_ranks: dict[str, int] = {}

@@ -155,7 +155,11 @@ class FakeKaggleClient:
         return []
 
     def get_simulation_leaderboard(
-        self, competition: str = "pokemon-tcg-ai-battle", bronze_percentile: float = 0.10
+        self,
+        competition: str = "pokemon-tcg-ai-battle",
+        bronze_percentile: float = 0.10,
+        force_refresh: bool = False,
+        **kwargs: Any,
     ) -> tuple[SimulationMedalThresholds, list[dict]]:
         # Mock 1000 teams
         total = 1000
