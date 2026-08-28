@@ -386,15 +386,29 @@ export const Dashboard: React.FC = () => {
                           <div style={{ marginTop: 8 }}>
                             <div style={{ fontSize: 12, color: isAboveBronze ? '#166534' : '#475569', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                               <span>胜率: {p46?.win_rate !== undefined ? p46.win_rate.toFixed(1) : '—'}% ({p46?.wins ?? 0}胜/{p46?.losses ?? 0}负)</span>
-                              {gap !== undefined && gap !== null ? (
-                                gap >= 0 ? (
-                                  <span style={{ fontWeight: 700, color: '#16a34a' }}>安全垫: +{gap.toFixed(1)}分</span>
-                                ) : (
-                                  <span style={{ fontWeight: 700, color: '#e11d48' }}>距铜牌: {gap.toFixed(1)}分</span>
-                                )
-                              ) : (
-                                <span style={{ color: '#94a3b8' }}>安全垫: —</span>
-                              )}
+                              {(() => {
+                                const scoreVal = p46?.score ?? p46?.public_score ?? 0;
+                                const tier = p46?.medal_tier || 'none';
+                                if (tier === 'gold') {
+                                  const c = p46?.tier_cushion_score ?? (thresholds?.gold_cutoff_score ? scoreVal - thresholds.gold_cutoff_score : 0);
+                                  return <span style={{ fontWeight: 700, color: '#ca8a04' }}>金牌安全垫: +{c.toFixed(1)}分</span>;
+                                }
+                                if (tier === 'silver') {
+                                  const c = p46?.tier_cushion_score ?? (thresholds?.silver_cutoff_score ? scoreVal - thresholds.silver_cutoff_score : 0);
+                                  return <span style={{ fontWeight: 700, color: '#0284c7' }}>银牌安全垫: +{c.toFixed(1)}分</span>;
+                                }
+                                if (tier === 'bronze') {
+                                  const c = p46?.tier_cushion_score ?? p46?.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? scoreVal - thresholds.bronze_cutoff_score : 0);
+                                  return <span style={{ fontWeight: 700, color: '#16a34a' }}>铜牌安全垫: +{c.toFixed(1)}分</span>;
+                                }
+                                const gapVal = p46?.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? scoreVal - thresholds.bronze_cutoff_score : null);
+                                if (gapVal !== null && gapVal !== undefined) {
+                                  return gapVal >= 0
+                                    ? <span style={{ fontWeight: 700, color: '#16a34a' }}>铜牌安全垫: +{gapVal.toFixed(1)}分</span>
+                                    : <span style={{ fontWeight: 700, color: '#e11d48' }}>距铜牌: {gapVal.toFixed(1)}分</span>;
+                                }
+                                return <span style={{ color: '#94a3b8' }}>安全垫: —</span>;
+                              })()}
                             </div>
                             <div style={{ borderTop: isAboveBronze ? '1px solid rgba(22, 101, 52, 0.1)' : '1px solid #e2e8f0', paddingTop: 4 }}>
                               {ep ? (
@@ -471,15 +485,29 @@ export const Dashboard: React.FC = () => {
                           <div style={{ marginTop: 8 }}>
                             <div style={{ fontSize: 12, color: isAboveBronze ? '#166534' : '#475569', display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                               <span>胜率: {p31?.win_rate !== undefined ? p31.win_rate.toFixed(1) : '—'}% ({p31?.wins ?? 0}胜/{p31?.losses ?? 0}负)</span>
-                              {gap !== undefined && gap !== null ? (
-                                gap >= 0 ? (
-                                  <span style={{ fontWeight: 700, color: '#16a34a' }}>安全垫: +{gap.toFixed(1)}分</span>
-                                ) : (
-                                  <span style={{ fontWeight: 700, color: '#e11d48' }}>距铜牌: {gap.toFixed(1)}分</span>
-                                )
-                              ) : (
-                                <span style={{ color: '#94a3b8' }}>安全垫: —</span>
-                              )}
+                              {(() => {
+                                const scoreVal = p31?.score ?? p31?.public_score ?? 0;
+                                const tier = p31?.medal_tier || 'none';
+                                if (tier === 'gold') {
+                                  const c = p31?.tier_cushion_score ?? (thresholds?.gold_cutoff_score ? scoreVal - thresholds.gold_cutoff_score : 0);
+                                  return <span style={{ fontWeight: 700, color: '#ca8a04' }}>金牌安全垫: +{c.toFixed(1)}分</span>;
+                                }
+                                if (tier === 'silver') {
+                                  const c = p31?.tier_cushion_score ?? (thresholds?.silver_cutoff_score ? scoreVal - thresholds.silver_cutoff_score : 0);
+                                  return <span style={{ fontWeight: 700, color: '#0284c7' }}>银牌安全垫: +{c.toFixed(1)}分</span>;
+                                }
+                                if (tier === 'bronze') {
+                                  const c = p31?.tier_cushion_score ?? p31?.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? scoreVal - thresholds.bronze_cutoff_score : 0);
+                                  return <span style={{ fontWeight: 700, color: '#16a34a' }}>铜牌安全垫: +{c.toFixed(1)}分</span>;
+                                }
+                                const gapVal = p31?.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? scoreVal - thresholds.bronze_cutoff_score : null);
+                                if (gapVal !== null && gapVal !== undefined) {
+                                  return gapVal >= 0
+                                    ? <span style={{ fontWeight: 700, color: '#16a34a' }}>铜牌安全垫: +{gapVal.toFixed(1)}分</span>
+                                    : <span style={{ fontWeight: 700, color: '#e11d48' }}>距铜牌: {gapVal.toFixed(1)}分</span>;
+                                }
+                                return <span style={{ color: '#94a3b8' }}>安全垫: —</span>;
+                              })()}
                             </div>
                             <div style={{ borderTop: isAboveBronze ? '1px solid rgba(22, 101, 52, 0.1)' : '1px solid #e2e8f0', paddingTop: 4 }}>
                               {ep ? (
@@ -497,27 +525,254 @@ export const Dashboard: React.FC = () => {
                   </Col>
                 </Row>
 
-                {/* Thresholds Waterline Indicator */}
-                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 16px', border: '1px solid #f1f5f9' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
-                    <span style={{ fontWeight: 600 }}>奖牌线切分 (总计 {thresholds?.total_teams || 6807} 支参赛队)</span>
-                    <Space size={12}>
-                      <span style={{ color: '#475569', fontWeight: 600 }}>银牌线: {thresholds?.silver_cutoff_score || 917.4}分</span>
-                      <span style={{ color: '#d97706', fontWeight: 700 }}>铜牌线: {thresholds?.bronze_cutoff_score || 839.1}分</span>
-                    </Space>
-                  </div>
-                  <Progress
-                    percent={(() => {
-                      const topScore = Math.max(p46?.score || p46?.public_score || 0, p31?.score || p31?.public_score || 0);
-                      const silverCutoff = thresholds?.silver_cutoff_score || 917.4;
-                      return silverCutoff > 0 ? Math.min(100, Math.max(0, Math.round((topScore / silverCutoff) * 100))) : 0;
-                    })()}
-                    showInfo={false}
-                    strokeColor="#94a3b8"
-                    trailColor="#e5e7eb"
-                    size={['100%', 8]}
-                  />
-                </div>
+                {/* Thresholds Waterline Multi-Segment Indicator */}
+                {(() => {
+                  const totalTeams = thresholds?.total_teams || 6807;
+                  const goldCutoff = thresholds?.gold_cutoff_score || 1148.0;
+                  const goldRank = thresholds?.gold_cutoff_rank || 23;
+                  const silverCutoff = thresholds?.silver_cutoff_score || 921.1;
+                  const silverRank = thresholds?.silver_cutoff_rank || 340;
+                  const bronzeCutoff = thresholds?.bronze_cutoff_score || 849.5;
+                  const bronzeRank = thresholds?.bronze_cutoff_rank || 680;
+
+                  const p46Score = p46?.score ?? p46?.public_score;
+                  const p31Score = p31?.score ?? p31?.public_score;
+
+                  // Compute visual scale bounds
+                  const minVal = Math.min(bronzeCutoff - 120, (p46Score ?? 800) - 40, (p31Score ?? 800) - 40, 720);
+                  const maxVal = Math.max(goldCutoff + 80, (p46Score ?? 950) + 40, (p31Score ?? 950) + 40, 1220);
+                  const range = Math.max(1, maxVal - minVal);
+
+                  const getPct = (score: number) => Math.min(98, Math.max(2, ((score - minVal) / range) * 100));
+
+                  const posBronze = getPct(bronzeCutoff);
+                  const posSilver = getPct(silverCutoff);
+                  const posGold = getPct(goldCutoff);
+                  const posP46 = p46Score !== undefined && p46Score !== null ? getPct(p46Score) : null;
+                  const posP31 = p31Score !== undefined && p31Score !== null ? getPct(p31Score) : null;
+
+                  return (
+                    <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #e2e8f0', marginBottom: 16 }}>
+                      {/* Header Info */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                        <span style={{ fontWeight: 700, color: '#1e293b' }}>
+                          🏆 奖牌线切分 (总计 {totalTeams} 支参赛队)
+                        </span>
+                        <Space size={14} wrap>
+                          <Tooltip title={`Top 10 + 0.2% 队伍 (第 ${goldRank} 名及以上)`}>
+                            <span style={{ color: '#ca8a04', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              🥇 金牌线: {goldCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#a16207' }}>(Top {goldRank})</span>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title={`Top 5% 队伍 (第 ${silverRank} 名及以上)`}>
+                            <span style={{ color: '#0284c7', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              🥈 银牌线: {silverCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#0369a1' }}>(Top {silverRank})</span>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title={`Top 10% 队伍 (第 ${bronzeRank} 名及以上)`}>
+                            <span style={{ color: '#d97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              🥉 铜牌线: {bronzeCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#b45309' }}>(Top {bronzeRank})</span>
+                            </span>
+                          </Tooltip>
+                        </Space>
+                      </div>
+
+                      {/* Visual Multi-Segment Bar Container */}
+                      <div style={{ position: 'relative', paddingTop: 26, paddingBottom: 22, margin: '0 8px' }}>
+                        {/* Agent Pin Markers */}
+                        {posP46 !== null && p46Score !== undefined && (
+                          <Tooltip title={`Agent p46: ${p46Score.toFixed(1)}分 (${p46?.rank ? `第${p46.rank}名 · ` : ''}${p46?.medal_tier === 'gold' ? '🥇金牌区' : p46?.medal_tier === 'silver' ? '🥈银牌区' : p46?.medal_tier === 'bronze' ? '🥉铜牌区' : '暂无奖牌'})`}>
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: `${posP46}%`,
+                                transform: 'translateX(-50%)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                zIndex: 3,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  background: '#2563eb',
+                                  color: '#ffffff',
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  boxShadow: '0 1px 4px rgba(37,99,235,0.4)',
+                                  whiteSpace: 'nowrap',
+                                  lineHeight: '14px',
+                                }}
+                              >
+                                p46: {p46Score.toFixed(1)}
+                              </div>
+                              <div
+                                style={{
+                                  width: 0,
+                                  height: 0,
+                                  borderLeft: '4px solid transparent',
+                                  borderRight: '4px solid transparent',
+                                  borderTop: '5px solid #2563eb',
+                                }}
+                              />
+                            </div>
+                          </Tooltip>
+                        )}
+
+                        {posP31 !== null && p31Score !== undefined && (
+                          <Tooltip title={`Agent p31: ${p31Score.toFixed(1)}分 (${p31?.rank ? `第${p31.rank}名 · ` : ''}${p31?.medal_tier === 'gold' ? '🥇金牌区' : p31?.medal_tier === 'silver' ? '🥈银牌区' : p31?.medal_tier === 'bronze' ? '🥉铜牌区' : '暂无奖牌'})`}>
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: `${posP31}%`,
+                                transform: 'translateX(-50%)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                zIndex: 4,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  background: '#7c3aed',
+                                  color: '#ffffff',
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  boxShadow: '0 1px 4px rgba(124,58,237,0.4)',
+                                  whiteSpace: 'nowrap',
+                                  lineHeight: '14px',
+                                }}
+                              >
+                                p31: {p31Score.toFixed(1)}
+                              </div>
+                              <div
+                                style={{
+                                  width: 0,
+                                  height: 0,
+                                  borderLeft: '4px solid transparent',
+                                  borderRight: '4px solid transparent',
+                                  borderTop: '5px solid #7c3aed',
+                                }}
+                              />
+                            </div>
+                          </Tooltip>
+                        )}
+
+                        {/* Multi-Segment Track */}
+                        <div
+                          style={{
+                            height: 12,
+                            borderRadius: 6,
+                            display: 'flex',
+                            overflow: 'hidden',
+                            background: '#e2e8f0',
+                            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)',
+                            position: 'relative',
+                          }}
+                        >
+                          {/* Below Bronze Segment */}
+                          <div
+                            style={{
+                              width: `${posBronze}%`,
+                              background: '#cbd5e1',
+                              height: '100%',
+                            }}
+                          />
+                          {/* Bronze Zone Segment */}
+                          <div
+                            style={{
+                              width: `${Math.max(0, posSilver - posBronze)}%`,
+                              background: 'linear-gradient(90deg, #fdba74, #fb923c)',
+                              height: '100%',
+                            }}
+                          />
+                          {/* Silver Zone Segment */}
+                          <div
+                            style={{
+                              width: `${Math.max(0, posGold - posSilver)}%`,
+                              background: 'linear-gradient(90deg, #7dd3fc, #38bdf8)',
+                              height: '100%',
+                            }}
+                          />
+                          {/* Gold Zone Segment */}
+                          <div
+                            style={{
+                              width: `${Math.max(0, 100 - posGold)}%`,
+                              background: 'linear-gradient(90deg, #fde047, #eab308)',
+                              height: '100%',
+                            }}
+                          />
+                        </div>
+
+                        {/* Vertical Cutoff Threshold Markers & Labels */}
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: `${posBronze}%`,
+                            transform: 'translateX(-50%)',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#b45309',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ width: 1, height: 6, background: '#b45309', marginBottom: 2 }} />
+                          <span>🥉 {bronzeCutoff.toFixed(1)}</span>
+                        </div>
+
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: `${posSilver}%`,
+                            transform: 'translateX(-50%)',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#0369a1',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ width: 1, height: 6, background: '#0369a1', marginBottom: 2 }} />
+                          <span>🥈 {silverCutoff.toFixed(1)}</span>
+                        </div>
+
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: `${posGold}%`,
+                            transform: 'translateX(-50%)',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#a16207',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ width: 1, height: 6, background: '#a16207', marginBottom: 2 }} />
+                          <span>🥇 {goldCutoff.toFixed(1)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <ScoreTrajectoryChart
                   agents={agents}

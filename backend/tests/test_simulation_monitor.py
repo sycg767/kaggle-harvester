@@ -217,8 +217,8 @@ class TestSimulationMonitor(unittest.TestCase):
         self.assertEqual(len(agent1.rating_trajectory), 5)
         self.assertEqual([point.game_number for point in agent1.rating_trajectory], [1, 2, 3, 4, 5])
         self.assertAlmostEqual(agent1.rating_trajectory[-1].score, 862.8, places=1)
-        # Medal tier: Rank 1 <= Gold (12) -> Gold
         self.assertEqual(agent1.medal_tier, "gold")
+        self.assertIsNotNone(agent1.tier_cushion_score)
 
         # Thresholds
         self.assertIsNotNone(thresholds)

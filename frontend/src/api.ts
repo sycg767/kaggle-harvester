@@ -411,6 +411,9 @@ export interface SimulationAgentStats {
   medal_tier?: 'gold' | 'silver' | 'bronze' | 'none' | 'unknown';
   bronze_gap_score?: number;
   bronze_gap_rank?: number;
+  tier_cushion_score?: number;
+  next_tier_gap_score?: number;
+  next_tier_name?: 'gold' | 'silver' | 'bronze';
   recent_episodes: SimulationEpisode[];
   rating_trajectory: SimulationRatingPoint[];
   last_updated?: string;

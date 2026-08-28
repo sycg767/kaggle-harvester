@@ -664,6 +664,9 @@ class SimulationAgentStats(BaseModel):
     rating_trajectory: list[SimulationRatingPoint] = Field(default_factory=list)
     bronze_gap_score: Optional[float] = None
     bronze_gap_rank: Optional[int] = None
+    tier_cushion_score: Optional[float] = None
+    next_tier_gap_score: Optional[float] = None
+    next_tier_name: Optional[Literal["gold", "silver", "bronze"]] = None
     medal_tier: Literal["gold", "silver", "bronze", "none", "unknown"] = "unknown"
     last_updated: Optional[str] = None
 

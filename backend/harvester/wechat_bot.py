@@ -171,9 +171,32 @@ def format_message(data, history_only=False):
         rank = a.get("rank") or "—"
         tier = a.get("medal_tier", "none")
         tier_icon = "🥇" if tier == "gold" else ("🥈" if tier == "silver" else ("🥉" if tier == "bronze" else "⚪"))
-        tier_label = "金牌区" if tier == "gold" else ("银牌区" if tier == "silver" else ("铜牌区" if tier == "bronze" else "暂无奖牌"))
-        gap = a.get("bronze_gap_score")
-        gap_str = f"高于铜牌线 +{gap:.1f}分" if (gap is not None and gap >= 0) else (f"距铜牌线还差 {gap:.1f}分" if gap is not None else "")
+        tier_cushion = a.get("tier_cushion_score")
+        next_gap = a.get("next_tier_gap_score")
+        next_tier = a.get("next_tier_name")
+        next_tier_label = "金牌线" if next_tier == "gold" else ("银牌线" if next_tier == "silver" else ("铜牌线" if next_tier == "bronze" else ""))
+
+        cushion_parts = []
+        if tier == "gold" and tier_cushion is not None:
+            cushion_parts.append(f"高于金牌线 +{tier_cushion:.1f}分")
+        elif tier == "silver" and tier_cushion is not None:
+            cushion_parts.append(f"高于银牌线 +{tier_cushion:.1f}分")
+            if next_gap is not None and next_tier_label:
+                cushion_parts.append(f"距{next_tier_label}还差 {next_gap:.1f}分")
+        elif tier == "bronze" and tier_cushion is not None:
+            cushion_parts.append(f"高于铜牌线 +{tier_cushion:.1f}分")
+            if next_gap is not None and next_tier_label:
+                cushion_parts.append(f"距{next_tier_label}还差 {next_gap:.1f}分")
+        else:
+            gap = a.get("bronze_gap_score")
+            if gap is not None and gap >= 0:
+                cushion_parts.append(f"高于铜牌线 +{gap:.1f}分")
+            elif next_gap is not None:
+                cushion_parts.append(f"距铜牌线还差 {next_gap:.1f}分")
+            elif gap is not None:
+                cushion_parts.append(f"距铜牌线还差 {abs(gap):.1f}分")
+
+        gap_str = " · ".join(cushion_parts) if cushion_parts else ""
         
         wins = a.get("wins", 0)
         losses = a.get("losses", 0)

@@ -762,17 +762,60 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                             </Col>
                           </Row>
 
-                          {/* Bronze Gap Cushion */}
-                          {agent.bronze_gap_score !== undefined && agent.bronze_gap_score !== null && (
-                            <div className={isAboveBronze ? 'sim-cushion-banner-success' : 'sim-cushion-banner-danger'}>
-                              <span>
-                                {isAboveBronze ? '🛡️ 铜牌安全垫 (高于铜牌线)' : '⚠️ 距离铜牌线差距'}
-                              </span>
-                              <span style={{ fontSize: 14, fontWeight: 800 }}>
-                                {isAboveBronze ? `+${agent.bronze_gap_score.toFixed(1)} 分` : `${agent.bronze_gap_score.toFixed(1)} 分`}
-                              </span>
-                            </div>
-                          )}
+                          {/* Dynamic Medal Tier Cushion Banner */}
+                          {(() => {
+                            const sc = scoreVal !== undefined && scoreVal !== null ? Number(scoreVal) : 0;
+                            let cushionTitle = '⚠️ 距离铜牌线差距';
+                            let cushionVal = `${(agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0)).toFixed(1)} 分`;
+                            let nextGapText: string | null = null;
+                            let bannerClass = 'sim-cushion-banner-danger';
+
+                            if (medalTier === 'gold') {
+                              cushionTitle = '🥇 金牌安全垫 (高于金牌线)';
+                              const c = agent.tier_cushion_score ?? (thresholds?.gold_cutoff_score ? sc - thresholds.gold_cutoff_score : 0);
+                              cushionVal = `+${c.toFixed(1)} 分`;
+                              bannerClass = 'sim-cushion-banner-gold';
+                            } else if (medalTier === 'silver') {
+                              cushionTitle = '🥈 银牌安全垫 (高于银牌线)';
+                              const c = agent.tier_cushion_score ?? (thresholds?.silver_cutoff_score ? sc - thresholds.silver_cutoff_score : 0);
+                              cushionVal = `+${c.toFixed(1)} 分`;
+                              bannerClass = 'sim-cushion-banner-silver';
+                              const nextGap = agent.next_tier_gap_score ?? (thresholds?.gold_cutoff_score ? thresholds.gold_cutoff_score - sc : null);
+                              if (nextGap !== null && nextGap !== undefined) {
+                                nextGapText = `距金牌线 ${nextGap.toFixed(1)} 分`;
+                              }
+                            } else if (medalTier === 'bronze') {
+                              cushionTitle = '🥉 铜牌安全垫 (高于铜牌线)';
+                              const c = agent.tier_cushion_score ?? agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
+                              cushionVal = `+${c.toFixed(1)} 分`;
+                              bannerClass = 'sim-cushion-banner-bronze';
+                              const nextGap = agent.next_tier_gap_score ?? (thresholds?.silver_cutoff_score ? thresholds.silver_cutoff_score - sc : null);
+                              if (nextGap !== null && nextGap !== undefined) {
+                                nextGapText = `距银牌线 ${nextGap.toFixed(1)} 分`;
+                              }
+                            } else {
+                              cushionTitle = '⚠️ 距离铜牌线差距';
+                              const gap = agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
+                              cushionVal = `${gap.toFixed(1)} 分`;
+                              bannerClass = 'sim-cushion-banner-danger';
+                            }
+
+                            return (
+                              <div className={bannerClass}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span>{cushionTitle}</span>
+                                  {nextGapText && (
+                                    <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.85, background: 'rgba(0,0,0,0.05)', padding: '1px 6px', borderRadius: 4 }}>
+                                      {nextGapText}
+                                    </span>
+                                  )}
+                                </div>
+                                <span style={{ fontSize: 14, fontWeight: 800 }}>
+                                  {cushionVal}
+                                </span>
+                              </div>
+                            );
+                          })()}
 
                           {/* Win Rate Progress & Stats */}
                           <div className="sim-stats-section">

@@ -612,6 +612,9 @@ class SimulationMonitorManager:
                             "ties": a.ties,
                             "win_rate": a.win_rate,
                             "bronze_gap_score": a.bronze_gap_score,
+                            "tier_cushion_score": a.tier_cushion_score,
+                            "next_tier_gap_score": a.next_tier_gap_score,
+                            "next_tier_name": a.next_tier_name,
                             "medal_tier": a.medal_tier,
                         }
                         for a in agents
@@ -973,6 +976,35 @@ class SimulationMonitorManager:
                 else:
                     medal_tier = "none"
 
+            # 动态计算当前奖牌层安全垫 (tier_cushion_score) 与下一奖牌层冲刺差距 (next_tier_gap_score)
+            tier_cushion_score: float | None = None
+            next_tier_gap_score: float | None = None
+            next_tier_name: Literal["gold", "silver", "bronze"] | None = None
+
+            if score is not None:
+                if medal_tier == "gold":
+                    if gold_cutoff is not None:
+                        tier_cushion_score = round(score - gold_cutoff, 1)
+                    next_tier_gap_score = None
+                    next_tier_name = None
+                elif medal_tier == "silver":
+                    if silver_cutoff is not None:
+                        tier_cushion_score = round(score - silver_cutoff, 1)
+                    if gold_cutoff is not None:
+                        next_tier_gap_score = round(gold_cutoff - score, 1)
+                    next_tier_name = "gold"
+                elif medal_tier == "bronze":
+                    if bronze_cutoff is not None:
+                        tier_cushion_score = round(score - bronze_cutoff, 1)
+                    if silver_cutoff is not None:
+                        next_tier_gap_score = round(silver_cutoff - score, 1)
+                    next_tier_name = "silver"
+                else:  # none or unknown
+                    tier_cushion_score = None
+                    if bronze_cutoff is not None:
+                        next_tier_gap_score = round(bronze_cutoff - score, 1)
+                    next_tier_name = "bronze"
+
             # 天梯变动必须使用 EpisodeService 返回的 initialScore/updatedScore。
             # 没有真实接口数据时保持 None，绝不使用本地 Elo 估算冒充官方分数。
             for ep in real_episodes:
@@ -1028,6 +1060,9 @@ class SimulationMonitorManager:
                 rating_trajectory=rating_trajectory,
                 bronze_gap_score=bronze_gap_score,
                 bronze_gap_rank=bronze_gap_rank,
+                tier_cushion_score=tier_cushion_score,
+                next_tier_gap_score=next_tier_gap_score,
+                next_tier_name=next_tier_name,
                 medal_tier=medal_tier,
                 last_updated=checked_time,
             )
