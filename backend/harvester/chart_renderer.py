@@ -96,27 +96,37 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
                 "total_games": total_g,
             })
 
-    # 设置参考线与范围
+    # 设置参考线与范围（聚焦 600 分以上真实竞争区间，右侧留足标签留白）
     cutoff_vals = [v for v in [silver_cutoff, bronze_cutoff] if v is not None]
     if all_y or cutoff_vals:
-        min_y = min(all_y + cutoff_vals) if (all_y or cutoff_vals) else 400
-        max_y = max(all_y + cutoff_vals) if (all_y or cutoff_vals) else 1000
-        y_padding = max(10, (max_y - min_y) * 0.15)
-        ax.set_ylim(min_y - y_padding, max_y + y_padding)
+        min_y = min(all_y + cutoff_vals) if (all_y or cutoff_vals) else 600.0
+        max_y = max(all_y + cutoff_vals) if (all_y or cutoff_vals) else 1000.0
+        effective_min = max(600.0, min_y)
+        y_padding = max(10.0, (max_y - effective_min) * 0.12)
+        ax.set_ylim(max(550.0, effective_min - y_padding), max_y + y_padding)
 
     if all_x:
         max_x = max(all_x)
-        x_padding_right = max(18, max_x * 0.09)
+        x_padding_right = max(70.0, max_x * 0.08)
         ax.set_xlim(0, max_x + x_padding_right)
     else:
         ax.set_xlim(0, 100)
-        ax.set_ylim(400, 1000)
+        ax.set_ylim(600, 1000)
 
-    # 绘制背景网格
+    # 主标题（居中正式展示）
+    ax.set_title(
+        "Pokémon TCG AI Battle — Final Submission Rating Progression",
+        fontsize=11.5,
+        fontweight="bold",
+        color="#0f172a",
+        pad=14,
+    )
+
+    # 绘制背景网格（柔和淡化浅灰）
     ax.grid(True, linestyle="-", linewidth=0.6, color="#f1f5f9", zorder=1)
     ax.set_axisbelow(True)
 
-    # 绘制银牌线与铜牌线虚线 (带胶囊背景，避免与折线穿刺重叠)
+    # 绘制银牌线与铜牌线虚线 (左侧胶囊徽章参考体系)
     if silver_cutoff is not None:
         ax.axhline(
             y=silver_cutoff,
@@ -132,7 +142,7 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             silver_cutoff,
             "Silver {:.1f}".format(silver_cutoff),
             color="#64748b",
-            fontsize=9.0,
+            fontsize=8.8,
             fontweight="bold",
             va="center",
             zorder=4,
@@ -154,7 +164,7 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             bronze_cutoff,
             "Bronze {:.1f}".format(bronze_cutoff),
             color="#d97706",
-            fontsize=9.0,
+            fontsize=8.8,
             fontweight="bold",
             va="center",
             zorder=4,
@@ -163,7 +173,7 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
 
     import matplotlib.patheffects as patheffects
 
-    # 绘制各 Agent 折线
+    # 绘制各 Agent 折线（精细化 1.5px 线宽，去除 1000 局密集圆点叠加）
     legend_elements = []
     end_points = []
     for item in series_list:
@@ -171,13 +181,10 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             item["x"],
             item["y"],
             color=item["color"],
-            linewidth=1.8,
-            marker="o",
-            markersize=2.2,
-            markevery=1,
+            linewidth=1.5,
             solid_capstyle="round",
             zorder=3,
-            label="{} · {:.1f} ({} games)".format(item["label"], item["final_score"], item["total_games"]),
+            label="{} · {} games".format(item["label"], item["total_games"]),
         )
         legend_elements.append(line)
 
@@ -189,45 +196,18 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
                 "label": item["label"],
             })
 
-    # 防重叠智能垂直偏移
-    end_points.sort(key=lambda p: p["y"], reverse=True)
-    y_offsets = [0] * len(end_points)
-    for i in range(len(end_points) - 1):
-        diff = end_points[i]["y"] - end_points[i + 1]["y"]
-        if diff < 15:  # 两点垂直分差很近
-            y_offsets[i] = 4
-            y_offsets[i + 1] = -4
-
-    max_x_val = max([pt["x"] for pt in end_points]) if end_points else 0
-
-    for idx, pt in enumerate(end_points):
-        ax.plot(pt["x"], pt["y"], marker="o", markersize=6, color=pt["color"], zorder=5)
-        
-        # 判断是否为较早结束的 Trailing 点（右侧还有其他 Agent 继续延伸）
-        is_trailing = pt["x"] < (max_x_val - 8)
-        
-        if is_trailing:
-            # 局数较少提前结束的点：置于圆点下方居中，完全避开向右延伸的折线
-            offset_pt = (0, -14)
-            va = "top"
-            ha = "center"
-        else:
-            # 最右侧活跃点：置于右侧留白区域，偏移 8 个像素点
-            offset_y_pt = y_offsets[idx] if idx < len(y_offsets) else 0
-            offset_pt = (8, offset_y_pt)
-            va = "center"
-            ha = "left"
-
+    # 终点数值水平靠右标注（严格水平对齐于终点右侧 8px 处，绝不下沉压线）
+    for pt in end_points:
         ax.annotate(
             "{:.1f}".format(pt["y"]),
             xy=(pt["x"], pt["y"]),
-            xytext=offset_pt,
+            xytext=(8, 0),
             textcoords="offset points",
             fontsize=9.5,
             fontweight="bold",
             color=pt["color"],
-            va=va,
-            ha=ha,
+            va="center",
+            ha="left",
             zorder=6,
             path_effects=[patheffects.withStroke(linewidth=3.5, foreground="#ffffff")],
         )
@@ -240,21 +220,21 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
     ax.spines["top"].set_visible(True)
     ax.spines["right"].set_visible(True)
 
-    ax.tick_params(axis="both", which="both", colors="#64748b", labelsize=9)
-    ax.set_xlabel("games played", fontsize=10, color="#475569", labelpad=6)
-    ax.set_ylabel("rating", fontsize=10, color="#475569", labelpad=6)
+    ax.tick_params(axis="both", which="both", colors="#64748b", labelsize=8.8)
+    ax.set_xlabel("Games Played", fontsize=9.5, fontweight="bold", color="#475569", labelpad=6)
+    ax.set_ylabel("Skill Rating", fontsize=9.5, fontweight="bold", color="#475569", labelpad=6)
 
-    # 右下角图例
+    # 右下角精简图例
     if series_list:
         ax.legend(
             loc="lower right",
             frameon=True,
             facecolor="#ffffff",
-            edgecolor="#cbd5e1",
-            framealpha=0.95,
-            fontsize=9,
-            borderpad=0.6,
-            handlelength=1.5,
+            edgecolor="#e2e8f0",
+            framealpha=0.92,
+            fontsize=8.5,
+            borderpad=0.5,
+            handlelength=1.4,
         )
 
     plt.tight_layout()

@@ -30,8 +30,8 @@ interface ChartSeries {
 
 const COLORS = ['#d14343', '#3478c5', '#8b5cf6', '#0f9d75', '#d97706'];
 const VIEWBOX_WIDTH = 920;
-const VIEWBOX_HEIGHT = 380;
-const PLOT = { left: 68, right: 24, top: 30, bottom: 54 };
+const VIEWBOX_HEIGHT = 400;
+const PLOT = { left: 68, right: 36, top: 48, bottom: 50 };
 
 const formatNumber = (value: number) =>
   Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -87,10 +87,29 @@ const buildPath = (points: ChartPoint[]) =>
     .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
     .join(' ');
 
-const niceTicks = (min: number, max: number, count: number) => {
-  if (max <= min) return [min];
-  const step = (max - min) / (count - 1);
-  return Array.from({ length: count }, (_, index) => min + step * index);
+const calculateYAxisTicks = (min: number, max: number, targetCount: number = 6) => {
+  if (max <= min) {
+    const rounded = Math.round(min);
+    return { yMin: rounded - 50, yMax: rounded + 50, ticks: [rounded - 50, rounded, rounded + 50] };
+  }
+  const rawStep = (max - min) / Math.max(1, targetCount - 1);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+
+  let stepMultiplier = 10;
+  if (normalized <= 1.25) stepMultiplier = 1;
+  else if (normalized <= 2.2) stepMultiplier = 2;
+  else if (normalized <= 3.8) stepMultiplier = 2.5;
+  else if (normalized <= 7.0) stepMultiplier = 5;
+
+  const step = Math.max(1, Math.round(stepMultiplier * magnitude));
+  const yMin = Math.floor(min / step) * step;
+  const yMax = Math.ceil(max / step) * step;
+  const ticks: number[] = [];
+  for (let val = yMin; val <= yMax + 1e-5; val += step) {
+    ticks.push(Math.round(val * 1e6) / 1e6);
+  }
+  return { yMin, yMax, ticks };
 };
 
 const integerTicks = (min: number, max: number, count: number) => {
@@ -161,20 +180,21 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
 
     const minGames = 0;
     const maxGames = Math.max(...allPoints.map((point) => point.x), ...series.map((item) => item.games));
-    const minScore = Math.min(...allPoints.map((point) => point.y), ...cutoffValues);
+    // 聚焦于有效竞争区间，底部分数下限收敛至天梯基准（600分），防止开局倒推异常压扁全图真实走势
+    const effectiveMinScore = Math.max(600, Math.min(...allPoints.map((point) => point.y), ...cutoffValues));
     const maxScore = Math.max(...allPoints.map((point) => point.y), ...cutoffValues);
-    const xPaddingRight = Math.max(18, maxGames * 0.09);
-    const scoreRange = Math.max(20, maxScore - minScore);
-    const yPadding = Math.max(8, scoreRange * 0.14);
+    // 右侧预留充足外边距，确保即使各 Agent 局数不同，终点右侧分数标签也能完整横向展示，绝不下沉压线
+    const xPaddingRight = Math.max(72, maxGames * 0.08);
+    const yTickInfo = calculateYAxisTicks(effectiveMinScore - 10, maxScore + 15, 6);
 
     return {
       series,
       xMin: 0,
       xMax: Math.max(10, maxGames + xPaddingRight),
-      yMin: Math.floor((minScore - yPadding) / 10) * 10,
-      yMax: Math.ceil((maxScore + yPadding) / 10) * 10,
+      yMin: yTickInfo.yMin,
+      yMax: yTickInfo.yMax,
       xTicks: integerTicks(0, Math.max(10, maxGames + xPaddingRight), 5),
-      yTicks: niceTicks(Math.floor((minScore - yPadding) / 10) * 10, Math.ceil((maxScore + yPadding) / 10) * 10, 5),
+      yTicks: yTickInfo.ticks,
       silverCutoff: thresholds?.silver_cutoff_score,
       bronzeCutoff: thresholds?.bronze_cutoff_score,
     };
@@ -184,8 +204,10 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
   const plotHeight = VIEWBOX_HEIGHT - PLOT.top - PLOT.bottom;
   const xScale = (value: number) =>
     PLOT.left + ((value - chart.xMin) / (chart.xMax - chart.xMin || 1)) * plotWidth;
-  const yScale = (value: number) =>
-    PLOT.top + (1 - (value - chart.yMin) / (chart.yMax - chart.yMin || 1)) * plotHeight;
+  const yScale = (value: number) => {
+    const clamped = Math.max(chart.yMin, Math.min(chart.yMax, value));
+    return PLOT.top + (1 - (clamped - chart.yMin) / (chart.yMax - chart.yMin || 1)) * plotHeight;
+  };
   const hasData = chart.series.length > 0;
 
   // 计算末端分数标签的防重叠垂直偏移
@@ -240,8 +262,9 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
         y1={y}
         y2={y}
         stroke={color}
-        strokeDasharray="6 5"
-        strokeWidth="1.5"
+        strokeDasharray="5 5"
+        strokeWidth="1.2"
+        strokeOpacity="0.8"
       />
     );
   };
@@ -250,14 +273,14 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
     if (value === undefined || value < chart.yMin || value > chart.yMax) return null;
     const y = yScale(value);
     const text = `${label} ${formatNumber(value)}`;
-    const badgeWidth = text.length * 7.4 + 16;
+    const badgeWidth = text.length * 7.2 + 14;
     const badgeHeight = 18;
+    // 阈值标签保持在图表左侧
     const badgeX = PLOT.left + 8;
     const badgeY = y - badgeHeight / 2;
 
     return (
       <g key={`cutoff-badge-${label}`}>
-        {/* 纯白实体胶囊框，浮于折线之上，确保文字 100% 不被线条穿透遮挡 */}
         <rect
           x={badgeX}
           y={badgeY}
@@ -267,6 +290,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
           fill="#ffffff"
           stroke={color}
           strokeWidth="1"
+          strokeOpacity="0.85"
         />
         <text
           x={badgeX + badgeWidth / 2}
@@ -281,37 +305,52 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
       </g>
     );
   };
+
   const renderLegend = () => {
-    const width = 198;
-    const rowHeight = 22;
-    const height = 12 + chart.series.length * rowHeight;
+    const width = 136;
+    const rowHeight = 20;
+    const height = 10 + chart.series.length * rowHeight;
     const x = VIEWBOX_WIDTH - PLOT.right - width - 8;
     const y = VIEWBOX_HEIGHT - PLOT.bottom - height - 8;
     return (
-      <g>
-        <rect x={x} y={y} width={width} height={height} rx="6" fill="#ffffff" fillOpacity="0.94" stroke="#cbd5e1" strokeWidth="1" />
+      <g key="chart-legend">
+        {/* 紧凑、弱化背景边框的右下角 Legend */}
+        <rect
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          rx="5"
+          fill="#ffffff"
+          fillOpacity="0.9"
+          stroke="#e2e8f0"
+          strokeWidth="1"
+        />
         {chart.series.map((series, index) => {
-          const rowY = y + 17 + index * rowHeight;
-          const scoreText = series.latest ? series.latest.y.toFixed(1) : '—';
-          const gamesText = `(${series.games} games)`;
+          const rowY = y + 15 + index * rowHeight;
+          const gamesText = `${series.games} games`;
           return (
             <g key={`legend-${series.id}`}>
-              {/* 颜色标识线 */}
-              <line x1={x + 10} x2={x + 26} y1={rowY - 4} y2={rowY - 4} stroke={series.color} strokeWidth="3" strokeLinecap="round" />
+              {/* 颜色标识短线 */}
+              <line
+                x1={x + 10}
+                x2={x + 22}
+                y1={rowY - 3.5}
+                y2={rowY - 3.5}
+                stroke={series.color}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              />
               {/* 代理代号 (p46 / p31) */}
-              <text x={x + 32} y={rowY} fontSize="11" fontWeight="600" fill="#1e293b">
+              <text x={x + 28} y={rowY} fontSize="11" fontWeight="700" fill="#334155">
                 {series.label}
               </text>
               {/* 分隔圆点 */}
-              <text x={x + 58} y={rowY} fontSize="11" fill="#94a3b8">
+              <text x={x + 52} y={rowY} fontSize="11" fill="#94a3b8">
                 ·
               </text>
-              {/* 积分数值 (严格左对齐在同一 X 坐标) */}
-              <text x={x + 67} y={rowY} fontSize="11" fontWeight="600" fill={series.color}>
-                {scoreText}
-              </text>
-              {/* 场次数值 (严格左对齐在同一 X 坐标) */}
-              <text x={x + 108} y={rowY} fontSize="10.5" fill="#64748b">
+              {/* 场次数值（省略重复的 rating，保持精简） */}
+              <text x={x + 60} y={rowY} fontSize="10.5" fontWeight="500" fill="#64748b">
                 {gamesText}
               </text>
             </g>
@@ -326,7 +365,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
       size="small"
       title=""
       style={{ marginTop: 16, borderRadius: 10, borderColor: '#e2e8f0' }}
-      styles={{ body: { padding: '10px 14px 14px' } }}
+      styles={{ body: { padding: '12px 16px 16px' } }}
     >
       {!hasData ? (
         <Empty
@@ -340,106 +379,114 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
             <svg
               viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
               role="img"
-              aria-label="各 Agent 每局评分变化折线图"
+              aria-label="Pokémon TCG AI Battle — Final Submission Rating Progress"
               style={{ display: 'block', width: '100%', minWidth: 560, height: 'auto' }}
             >
+              {/* 图表主标题（居中展示） */}
+              <text
+                x={VIEWBOX_WIDTH / 2}
+                y="28"
+                textAnchor="middle"
+                fontSize="14.5"
+                fontWeight="700"
+                fill="#0f172a"
+                letterSpacing="-0.2"
+              >
+                Pokémon TCG AI Battle — Final Submission Rating Progression
+              </text>
+
+              {/* 图表主绘图区域边框（柔和中性浅灰，降低视觉抢夺） */}
               <rect
                 x={PLOT.left}
                 y={PLOT.top}
                 width={plotWidth}
                 height={plotHeight}
                 fill="#ffffff"
-                stroke="#0f172a"
+                stroke="#cbd5e1"
                 strokeWidth="1"
               />
 
+              {/* 水平网格线（淡化浅灰背景） */}
               {chart.yTicks.map((tick) => {
                 const y = yScale(tick);
                 return (
                   <g key={`y-${tick}`}>
-                    <line x1={PLOT.left} x2={VIEWBOX_WIDTH - PLOT.right} y1={y} y2={y} stroke="#e5e7eb" />
-                    <text x={PLOT.left - 10} y={y + 4} textAnchor="end" fontSize="12" fill="#475569">
+                    <line x1={PLOT.left} x2={VIEWBOX_WIDTH - PLOT.right} y1={y} y2={y} stroke="#f1f5f9" strokeWidth="1" />
+                    <text x={PLOT.left - 10} y={y + 4} textAnchor="end" fontSize="11" fill="#64748b">
                       {formatNumber(tick)}
                     </text>
                   </g>
                 );
               })}
 
+              {/* 垂直网格线（极淡背景参考线） */}
               {chart.xTicks.map((tick) => {
                 const x = xScale(tick);
                 return (
                   <g key={`x-${tick}`}>
-                    <line x1={x} x2={x} y1={PLOT.top} y2={VIEWBOX_HEIGHT - PLOT.bottom} stroke="#f1f5f9" />
-                    <text x={x} y={VIEWBOX_HEIGHT - PLOT.bottom + 22} textAnchor="middle" fontSize="12" fill="#475569">
+                    <line x1={x} x2={x} y1={PLOT.top} y2={VIEWBOX_HEIGHT - PLOT.bottom} stroke="#f8fafc" strokeWidth="1" />
+                    <text x={x} y={VIEWBOX_HEIGHT - PLOT.bottom + 20} textAnchor="middle" fontSize="11" fill="#64748b">
                       {formatNumber(tick)}
                     </text>
                   </g>
                 );
               })}
 
-              {/* 1. 先绘制参考虚线 (背景层) */}
-              {renderCutoffLine(chart.silverCutoff, '#64748b')}
+              {/* 1. 先绘制参考虚线 (背景层：淡色辅助虚线) */}
+              {renderCutoffLine(chart.silverCutoff, '#94a3b8')}
               {renderCutoffLine(chart.bronzeCutoff, '#d97706')}
 
-              {/* 2. 绘制数据折线与圆点 */}
+              {/* 2. 绘制数据折线（精细化 1.5px 线宽，高数据密度下纯净平滑，去除 1000 个密集重叠圆点产生的毛边和粗重感） */}
               {chart.series.map((series) => (
                 <g key={series.id}>
                   <path
                     d={buildPath(series.points.map((point) => ({ ...point, x: xScale(point.x), y: yScale(point.y) })))}
                     fill="none"
                     stroke={series.color}
-                    strokeWidth="2.3"
+                    strokeWidth="1.5"
                     strokeLinejoin="round"
                     strokeLinecap="round"
                   />
-                  {series.points.map((point, index) => (
-                    <circle
-                      key={`${series.id}-${point.episodeId}-${index}`}
-                      cx={xScale(point.x)}
-                      cy={yScale(point.y)}
-                      r={index === series.points.length - 1 ? 4 : 2.2}
-                      fill={series.color}
-                    >
-                      <title>
-                        {`${series.label} · 第 ${point.x} 局 · ${point.y.toFixed(1)} 分 · ${point.result} · ${formatTime(point.timestamp)}`}
-                      </title>
-                    </circle>
-                  ))}
+                  {/* 仅在数据点稀疏（<= 60局）时渲染中间节点，1000局高密度时保持线条纯净细腻 */}
+                  {series.points.length <= 60 &&
+                    series.points.slice(0, -1).map((point, index) => (
+                      <circle
+                        key={`${series.id}-${point.episodeId}-${index}`}
+                        cx={xScale(point.x)}
+                        cy={yScale(point.y)}
+                        r={1.8}
+                        fill={series.color}
+                      >
+                        <title>
+                          {`${series.label} · 第 ${point.x} 局 · ${point.y.toFixed(1)} 分 · ${point.result} · ${formatTime(point.timestamp)}`}
+                        </title>
+                      </circle>
+                    ))}
                 </g>
               ))}
 
-              {/* 3. 在折线之上绘制参考线胶囊徽章 (前景层，实体白色背景完全覆盖穿过的折线) */}
+              {/* 3. 在折线之上绘制参考线胶囊徽章 (左侧前景层，实体白色背景避免折线穿透) */}
               {renderCutoffBadge(chart.silverCutoff, 'Silver', '#64748b')}
               {renderCutoffBadge(chart.bronzeCutoff, 'Bronze', '#d97706')}
 
-              {/* 4. 在折线之上绘制各 Agent 最新分数标签 (无边框纯文本，白色光晕描边，智能避让) */}
+              {/* 4. 曲线终点显著标记与右侧水平 Rating 数值（加粗、对应色、白色光晕、水平对齐于终点右侧） */}
               {chart.series.map((series) => {
                 if (!series.latest) return null;
                 const ptX = xScale(series.latest.x);
                 const ptY = yScale(series.latest.y);
-                const maxPlotX = Math.max(...chart.series.map((s) => (s.latest ? xScale(s.latest.x) : 0)));
-                const isTrailing = ptX < maxPlotX - 20;
-
                 const scoreStr = series.latest.y.toFixed(1);
 
-                let textX = ptX + 7;
-                let textY = ptY + (labelOffsets[series.id] ?? 4);
-                let textAnchor: 'start' | 'middle' = 'start';
-
-                if (isTrailing) {
-                  // 提前结束的 Agent：标签置于圆点下方居中，避免向右刺入后续折线
-                  textX = ptX;
-                  textY = ptY + 16;
-                  textAnchor = 'middle';
-                }
+                // 严格水平放置在终点右侧 8px 处，垂直方向与折线末端居中对齐，极简现代风
+                const textX = ptX + 8;
+                const textY = ptY + 4.5;
 
                 return (
                   <text
                     key={`score-label-${series.id}`}
                     x={textX}
                     y={textY}
-                    textAnchor={textAnchor}
-                    fontSize="13"
+                    textAnchor="start"
+                    fontSize="13.5"
                     fontWeight="700"
                     fill={series.color}
                     stroke="#ffffff"
@@ -452,20 +499,24 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
                 );
               })}
 
+              {/* 5. 右下角精简 Legend */}
               {renderLegend()}
 
-              <text x={PLOT.left + plotWidth / 2} y={VIEWBOX_HEIGHT - 10} textAnchor="middle" fontSize="13" fill="#334155">
-                games played
+              {/* X 轴正式标签 */}
+              <text x={PLOT.left + plotWidth / 2} y={VIEWBOX_HEIGHT - 12} textAnchor="middle" fontSize="12" fontWeight="600" fill="#475569">
+                Games Played
               </text>
+              {/* Y 轴正式标签 */}
               <text
                 x="16"
                 y={PLOT.top + plotHeight / 2}
                 textAnchor="middle"
-                fontSize="13"
-                fill="#334155"
+                fontSize="12"
+                fontWeight="600"
+                fill="#475569"
                 transform={`rotate(-90 16 ${PLOT.top + plotHeight / 2})`}
               >
-                rating
+                Skill Rating
               </text>
             </svg>
           </div>
