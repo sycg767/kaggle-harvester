@@ -210,45 +210,86 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
   };
   const hasData = chart.series.length > 0;
 
-  // 计算末端分数标签的防重叠垂直偏移
-  const labelOffsets = useMemo(() => {
-    const offsets: Record<number, number> = {};
+  // 智能自适应空间感知避让算法（动态感知上下层级与相对位置，100% 杜绝重叠）
+  const endPointLayouts = useMemo(() => {
     const validSeries = chart.series.filter((s) => s.latest);
-    if (validSeries.length <= 1) {
-      validSeries.forEach((s) => {
-        offsets[s.id] = 4;
-      });
-      return offsets;
-    }
+    if (validSeries.length === 0) return [];
 
-    const items = validSeries.map((s) => ({
-      id: s.id,
-      x: xScale(s.latest!.x),
-      y: yScale(s.latest!.y),
-      score: s.latest!.y,
-    }));
+    const maxPlotX = Math.max(...validSeries.map((s) => xScale(s.latest!.x)));
 
-    // 按 Y 坐标从上到下排序（屏幕 Y 越小越靠上）
-    items.sort((a, b) => a.y - b.y);
+    // 1. 初始方向决策：根据相对层级与位置确定最优朝向 (Top / Bottom / Right)
+    const items = validSeries.map((s) => {
+      const ptX = xScale(s.latest!.x);
+      const ptY = yScale(s.latest!.y);
+      const isTrailing = ptX < maxPlotX - 10;
 
-    for (let i = 0; i < items.length; i += 1) {
-      offsets[items[i].id] = 4; // 默认居中
-    }
+      // 评估与其他折线的相对垂直位置（是否处于上方）
+      const otherSeries = validSeries.filter((other) => other.id !== s.id && other.latest);
+      const isHigherThanOthers = otherSeries.length === 0 || otherSeries.every((other) => s.latest!.y >= other.latest!.y);
 
-    for (let i = 0; i < items.length - 1; i += 1) {
-      const current = items[i];
-      const next = items[i + 1];
-      const dy = next.y - current.y;
-      const dx = Math.abs(next.x - current.x);
+      let textX = ptX + 8;
+      let textY = ptY + 4.5;
+      let textAnchor: 'start' | 'middle' = 'start';
 
-      // 如果两个标签垂直距离小于 22px 且水平距离接近
-      if (dy < 22 && dx < 60) {
-        offsets[current.id] = -5; // 上方标签向上微调
-        offsets[next.id] = 13;   // 下方标签向下微调
+      if (isTrailing) {
+        textX = ptX;
+        textAnchor = 'middle';
+        // 若处于上方则向上避让（ptY - 8），若处于下方则向下避让（ptY + 16），永远向开阔外侧延伸
+        if (isHigherThanOthers) {
+          textY = ptY - 8;
+        } else {
+          textY = ptY + 16;
+        }
       }
+
+      return {
+        id: s.id,
+        label: s.label,
+        color: s.color,
+        scoreStr: s.latest!.y.toFixed(1),
+        ptX,
+        ptY,
+        textX,
+        textY,
+        targetY: textY,
+        textAnchor,
+      };
+    });
+
+    // 2. 包围盒重叠检测与弹性排斥力迭代（防止任意局数相同、分差极近时文字粘连重叠）
+    const MIN_GAP_Y = 18;
+    for (let iter = 0; iter < 10; iter += 1) {
+      let changed = false;
+      for (let i = 0; i < items.length; i += 1) {
+        for (let j = i + 1; j < items.length; j += 1) {
+          const itemA = items[i];
+          const itemB = items[j];
+
+          // 水平距离接近（包围盒 X 轴重叠）
+          const dx = Math.abs(itemA.textX - itemB.textX);
+          if (dx < 45) {
+            const dy = itemB.targetY - itemA.targetY;
+            if (Math.abs(dy) < MIN_GAP_Y) {
+              const overlap = MIN_GAP_Y - Math.abs(dy);
+              if (itemA.targetY <= itemB.targetY) {
+                itemA.targetY -= overlap / 2;
+                itemB.targetY += overlap / 2;
+              } else {
+                itemA.targetY += overlap / 2;
+                itemB.targetY -= overlap / 2;
+              }
+              changed = true;
+            }
+          }
+        }
+      }
+      if (!changed) break;
     }
 
-    return offsets;
+    return items.map((item) => ({
+      ...item,
+      textY: item.targetY,
+    }));
   }, [chart.series, chart.xMin, chart.xMax, chart.yMin, chart.yMax, plotWidth, plotHeight]);
 
   const renderCutoffLine = (value: number | undefined, color: string) => {
@@ -379,7 +420,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
             <svg
               viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
               role="img"
-              aria-label="Pokémon TCG AI Battle — Final Submission Rating Progress"
+              aria-label="Pokémon TCG AI Battle — Final Submission Rating Progression"
               style={{ display: 'block', width: '100%', minWidth: 560, height: 'auto' }}
             >
               {/* 图表主标题（居中展示） */}
@@ -469,35 +510,24 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
               {renderCutoffBadge(chart.silverCutoff, 'Silver', '#64748b')}
               {renderCutoffBadge(chart.bronzeCutoff, 'Bronze', '#d97706')}
 
-              {/* 4. 曲线终点显著标记与右侧水平 Rating 数值（加粗、对应色、白色光晕、水平对齐于终点右侧） */}
-              {chart.series.map((series) => {
-                if (!series.latest) return null;
-                const ptX = xScale(series.latest.x);
-                const ptY = yScale(series.latest.y);
-                const scoreStr = series.latest.y.toFixed(1);
-
-                // 严格水平放置在终点右侧 8px 处，垂直方向与折线末端居中对齐，极简现代风
-                const textX = ptX + 8;
-                const textY = ptY + 4.5;
-
-                return (
-                  <text
-                    key={`score-label-${series.id}`}
-                    x={textX}
-                    y={textY}
-                    textAnchor="start"
-                    fontSize="13.5"
-                    fontWeight="700"
-                    fill={series.color}
-                    stroke="#ffffff"
-                    strokeWidth="3.5"
-                    strokeLinejoin="round"
-                    style={{ paintOrder: 'stroke fill' }}
-                  >
-                    {scoreStr}
-                  </text>
-                );
-              })}
+              {/* 4. 方案 1：错位就地标注（纯净无虚线、无大圆点） */}
+              {endPointLayouts.map((item) => (
+                <text
+                  key={`score-label-${item.id}`}
+                  x={item.textX}
+                  y={item.textY}
+                  textAnchor={item.textAnchor}
+                  fontSize="13.5"
+                  fontWeight="700"
+                  fill={item.color}
+                  stroke="#ffffff"
+                  strokeWidth="3.5"
+                  strokeLinejoin="round"
+                  style={{ paintOrder: 'stroke fill' }}
+                >
+                  {item.scoreStr}
+                </text>
+              ))}
 
               {/* 5. 右下角精简 Legend */}
               {renderLegend()}

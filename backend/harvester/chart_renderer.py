@@ -196,18 +196,80 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
                 "label": item["label"],
             })
 
-    # 终点数值水平靠右标注（严格水平对齐于终点右侧 8px 处，绝不下沉压线）
+    # 智能自适应空间感知避让算法（动态感知上下层级与相对位置）
+    max_x_val = max([pt["x"] for pt in end_points]) if end_points else 0
+
+    annot_items = []
     for pt in end_points:
+        is_trailing = pt["x"] < (max_x_val - 6)
+        # 评估与其他折线的相对垂直位置
+        others = [other for other in end_points if other is not pt]
+        is_higher = len(others) == 0 or all(pt["y"] >= other["y"] for other in others)
+
+        if is_trailing:
+            # 若处于上方则向上避让，若处于下方则向下避让
+            if is_higher:
+                xytext = [0, 8]
+                va = "bottom"
+                ha = "center"
+            else:
+                xytext = [0, -14]
+                va = "top"
+                ha = "center"
+        else:
+            # 最右侧活跃队伍：置于终点正右侧
+            xytext = [7, 0]
+            va = "center"
+            ha = "left"
+
+        annot_items.append({
+            "pt": pt,
+            "xytext": xytext,
+            "va": va,
+            "ha": ha,
+            "target_y": pt["y"],
+        })
+
+    # 垂直包围盒重叠松弛迭代（应对局数相同、分差极近的情况）
+    MIN_SCORE_GAP = 16.0
+    for _ in range(10):
+        changed = False
+        for i in range(len(annot_items)):
+            for j in range(i + 1, len(annot_items)):
+                item_a = annot_items[i]
+                item_b = annot_items[j]
+                dx = abs(item_a["pt"]["x"] - item_b["pt"]["x"])
+                if dx < 40:
+                    dy = abs(item_a["target_y"] - item_b["target_y"])
+                    if dy < MIN_SCORE_GAP:
+                        overlap = MIN_SCORE_GAP - dy
+                        if item_a["target_y"] >= item_b["target_y"]:
+                            item_a["target_y"] += overlap / 2.0
+                            item_b["target_y"] -= overlap / 2.0
+                        else:
+                            item_a["target_y"] -= overlap / 2.0
+                            item_b["target_y"] += overlap / 2.0
+                        changed = True
+        if not changed:
+            break
+
+    for item in annot_items:
+        pt = item["pt"]
+        # 根据松弛后的目标 Y 调整 xytext
+        offset_y = item["xytext"][1]
+        if item["va"] == "center" and abs(item["target_y"] - pt["y"]) > 1.0:
+            offset_y += (item["target_y"] - pt["y"]) * 0.8
+
         ax.annotate(
             "{:.1f}".format(pt["y"]),
             xy=(pt["x"], pt["y"]),
-            xytext=(8, 0),
+            xytext=(item["xytext"][0], offset_y),
             textcoords="offset points",
             fontsize=9.5,
             fontweight="bold",
             color=pt["color"],
-            va="center",
-            ha="left",
+            va=item["va"],
+            ha=item["ha"],
             zorder=6,
             path_effects=[patheffects.withStroke(linewidth=3.5, foreground="#ffffff")],
         )
