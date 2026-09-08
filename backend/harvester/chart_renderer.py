@@ -86,7 +86,13 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
             all_x.extend(x_vals)
             all_y.extend(y_vals)
             final_s = y_vals[-1] if y_vals else (agent.get("score") or agent.get("public_score") or 0.0)
-            total_g = agent.get("total_episodes") or len(x_vals)
+            system_checks = int(agent.get("system_checks") or 0)
+            raw_total = agent.get("total_episodes")
+            if raw_total is not None:
+                total_g = max(0, int(raw_total) - system_checks)
+            else:
+                total_g = pts[-1].get("game_number", len(x_vals)) if pts else len(x_vals)
+
             series_list.append({
                 "label": label,
                 "color": color,
