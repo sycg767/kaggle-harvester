@@ -77,6 +77,47 @@ def _competition_slug_from_ref(raw: object) -> str:
     return value.strip()
 
 
+def _is_simulation_competition(
+    slug: str,
+    tags: Optional[list[str]] = None,
+    title: str = "",
+    description: str = "",
+) -> bool:
+    """精准判断是否为天梯模拟对抗赛 (Simulation Arena)。"""
+    slug_lower = (slug or "").lower().strip()
+    # 显式排除非模拟竞赛：策略报告、医学影像、生物细胞、地质测井、安全攻击等常规/分析赛
+    if any(k in slug_lower for k in ("strategy", "rsna", "biohub", "rogii", "security")):
+        return False
+
+    tags_lower = [t.lower() for t in (tags or [])]
+    if any("simulation" in t for t in tags_lower):
+        return True
+
+    title_lower = (title or "").lower()
+    desc_lower = (description or "").lower()
+    if "simulation" in title_lower or "simulation" in desc_lower:
+        return True
+
+    # 平台已知模拟对战环境竞赛
+    if slug_lower in {
+        "pokemon-tcg-ai-battle",
+        "kaggriculture",
+        "lux-ai-season-1",
+        "lux-ai-season-2",
+        "lux-ai-season-3",
+        "kore-2022",
+        "connectx",
+        "santa-2024",
+        "hungry-geese",
+        "halite-iv",
+        "rock-paper-scissors",
+        "football",
+    }:
+        return True
+
+    return False
+
+
 class KaggleWebServiceClient:
     """Calls Kaggle's internal JSON web service (``/api/i``) with XSRF auth.
 
@@ -553,6 +594,34 @@ class KaggleClient:
             ],
             timeout=90,
         )
+
+        # 尝试通过 Python Kaggle SDK 补充 tags 与真实 description/title (若 SDK 可用且非纯单测 mock)
+        tags_by_slug: dict[str, list[str]] = {}
+        title_by_slug: dict[str, str] = {}
+        desc_by_slug: dict[str, str] = {}
+        try:
+            from kaggle.api.kaggle_api_extended import KaggleApi
+
+            api = KaggleApi()
+            api.authenticate()
+            resp = api.competitions_list(group="entered", page_size=size)
+            for c in getattr(resp, "competitions", []) or []:
+                c_slug = _competition_slug_from_ref(
+                    getattr(c, "ref", None) or getattr(c, "id", None)
+                )
+                if c_slug:
+                    tags_by_slug[c_slug] = [
+                        t.name.lower()
+                        for t in (getattr(c, "tags", []) or [])
+                        if getattr(t, "name", None)
+                    ]
+                    if getattr(c, "title", None):
+                        title_by_slug[c_slug] = str(c.title).strip()
+                    if getattr(c, "description", None):
+                        desc_by_slug[c_slug] = str(c.description).strip()
+        except Exception:
+            pass
+
         results: list[EnteredCompetition] = []
         seen: set[str] = set()
         for row in rows:
@@ -573,7 +642,17 @@ class KaggleClient:
                 team_count_int = int(team_count) if team_count is not None else None
             except (TypeError, ValueError):
                 team_count_int = None
+
             raw_title = str(row.get("title") or "").strip()
+            if not raw_title and slug in title_by_slug:
+                raw_title = title_by_slug[slug]
+
+            tags = tags_by_slug.get(slug, [])
+            desc = desc_by_slug.get(slug, "")
+            is_sim = _is_simulation_competition(
+                slug, tags=tags, title=raw_title, description=desc
+            )
+
             results.append(
                 EnteredCompetition(
                     id=slug,
@@ -590,6 +669,8 @@ class KaggleClient:
                         else None
                     ),
                     team_count=team_count_int,
+                    is_simulation=is_sim,
+                    tags=tags,
                 )
             )
         return results
@@ -654,17 +735,32 @@ class KaggleClient:
                     # 无法从平台证据推断时保持兼容默认值，并通过 source 明确标记。
                     is_lower_better = True
                     source = "fallback"
+
+                tags_list = [
+                    t.get("name", "").lower()
+                    for t in (data.get("tags") or [])
+                    if isinstance(t, dict) and t.get("name")
+                ]
+                desc_text = str(data.get("description") or "")
+                raw_title_info = str(data.get("title") or comp)
+                is_sim = _is_simulation_competition(
+                    comp, tags=tags_list, title=raw_title_info, description=desc_text
+                )
+
                 info = CompetitionInfo(
                     id=comp,
-                    title=data.get("title", comp),
+                    title=raw_title_info,
                     category=data.get("category", ""),
                     deadline=data.get("deadline"),
                     reward=data.get("reward"),
                     team_count=data.get("teamCount"),
                     kernel_count=data.get("kernelCount"),
                     evaluation_metric=evaluation_metric,
+                    description=desc_text or None,
                     is_lower_better=is_lower_better,
                     score_direction_source=source,
+                    is_simulation=is_sim,
+                    tags=tags_list,
                 )
                 self._competition_info_memory[comp] = info
                 return info.model_copy(deep=True)

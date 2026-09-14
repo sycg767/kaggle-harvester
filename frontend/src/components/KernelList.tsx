@@ -41,6 +41,7 @@ import {
   MinusCircleOutlined,
   ReloadOutlined,
   SearchOutlined,
+  StarFilled,
   StarOutlined,
   ThunderboltOutlined,
   TrophyOutlined,
@@ -49,6 +50,7 @@ import {
 import { Filter } from 'lucide-react';
 import {
   api,
+  type ActiveCompetitionInfo,
   type ArchiveEntry,
   type CompetitionInfo,
   type EnteredCompetition,
@@ -70,6 +72,7 @@ import { resolveScoreDirection, saveScoreDirection, type ScoreDirection } from '
 import {
   dispatchArchivesChanged,
   dispatchCompetitionChanged,
+  dispatchDefaultCompetitionChanged,
   HARVESTER_EVENTS,
 } from '../events';
 
@@ -213,6 +216,8 @@ const KernelList: React.FC = () => {
     const current = localStorage.getItem('harvester.competition') || DEFAULT_COMPETITION;
     return [...new Set([current, DEFAULT_COMPETITION, ...readRecentCompetitions()])].slice(0, 8);
   });
+  const [activeCompInfo, setActiveCompInfo] = useState<ActiveCompetitionInfo | null>(null);
+  const [settingDefault, setSettingDefault] = useState(false);
   const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
   const [enteredLoading, setEnteredLoading] = useState(false);
   const [enteredError, setEnteredError] = useState<string | null>(null);
@@ -387,6 +392,24 @@ const KernelList: React.FC = () => {
     void loadEnteredCompetitions(false);
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    void api.getActiveCompetition().then((info) => {
+      if (mounted) setActiveCompInfo(info);
+    }).catch(() => null);
+
+    const handleDefaultChanged = () => {
+      void api.getActiveCompetition().then((info) => {
+        if (mounted) setActiveCompInfo(info);
+      }).catch(() => null);
+    };
+    window.addEventListener(HARVESTER_EVENTS.defaultCompetitionChanged, handleDefaultChanged);
+    return () => {
+      mounted = false;
+      window.removeEventListener(HARVESTER_EVENTS.defaultCompetitionChanged, handleDefaultChanged);
+    };
+  }, []);
+
   useEffect(() => () => requestControllerRef.current?.abort(), []);
 
   useEffect(() => {
@@ -396,6 +419,30 @@ const KernelList: React.FC = () => {
     window.addEventListener(HARVESTER_EVENTS.focusCompetition, focusCompetition);
     return () => window.removeEventListener(HARVESTER_EVENTS.focusCompetition, focusCompetition);
   }, []);
+
+  const togglePinActiveCompetition = async () => {
+    const targetComp = competition.trim();
+    if (!targetComp) return;
+    setSettingDefault(true);
+    try {
+      const isCurrentPinned = activeCompInfo?.competition === targetComp && activeCompInfo?.is_pinned;
+      if (isCurrentPinned) {
+        const res = await api.deleteActiveCompetition();
+        setActiveCompInfo(res);
+        dispatchDefaultCompetitionChanged(res.competition);
+        message.success(`已恢复智能推荐默认赛事（当前智能推荐：${res.competition}）`);
+      } else {
+        const res = await api.setActiveCompetition(targetComp);
+        setActiveCompInfo(res);
+        dispatchDefaultCompetitionChanged(res.competition);
+        message.success(`已将「${competitionInfo?.title || targetComp}」设为全站主攻赛事，所有设备同步生效！`);
+      }
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '设置默认竞赛失败。');
+    } finally {
+      setSettingDefault(false);
+    }
+  };
 
   const archivedVersions = useMemo(() => {
     const result = new Map<string, number[]>();
@@ -408,12 +455,16 @@ const KernelList: React.FC = () => {
   }, [archives]);
 
   const competitionOptions = useMemo(
-    () => buildEnteredCompetitionOptions(enteredCompetitions, [
-      competition,
-      ...recentCompetitions,
-      DEFAULT_COMPETITION,
-    ]),
-    [competition, enteredCompetitions, recentCompetitions],
+    () => buildEnteredCompetitionOptions(
+      enteredCompetitions,
+      [
+        competition,
+        ...recentCompetitions,
+        DEFAULT_COMPETITION,
+      ],
+      activeCompInfo?.competition,
+    ),
+    [competition, enteredCompetitions, recentCompetitions, activeCompInfo?.competition],
   );
 
   const competitionOptionValues = useMemo(
@@ -827,6 +878,34 @@ const KernelList: React.FC = () => {
                   aria-label="刷新已参加竞赛"
                   onClick={() => void loadEnteredCompetitions(true)}
                 />
+              </Tooltip>
+              <Tooltip
+                title={
+                  activeCompInfo?.competition === competition && activeCompInfo?.is_pinned
+                    ? '当前竞赛已设为「全站主攻赛事」（新设备与移动端默认展示）。点击可取消固定，恢复系统智能推荐。'
+                    : activeCompInfo?.competition === competition
+                    ? '当前竞赛是系统「智能推荐的默认赛事」（未截止的正在进行赛事）。点击可直接固定为全站主攻赛事。'
+                    : '设为全站默认主攻赛事（所有设备、新打开页面均默认展示此赛事，免改 .env）'
+                }
+              >
+                <Button
+                  icon={
+                    activeCompInfo?.competition === competition && activeCompInfo?.is_pinned ? (
+                      <StarFilled style={{ color: '#faad14' }} />
+                    ) : activeCompInfo?.competition === competition ? (
+                      <StarOutlined style={{ color: '#faad14' }} />
+                    ) : (
+                      <StarOutlined />
+                    )
+                  }
+                  loading={settingDefault}
+                  aria-label="设为全站默认主攻赛事"
+                  onClick={togglePinActiveCompetition}
+                >
+                  {activeCompInfo?.competition === competition && activeCompInfo?.is_pinned
+                    ? '全站主攻'
+                    : undefined}
+                </Button>
               </Tooltip>
             </Space.Compact>
           </Col>

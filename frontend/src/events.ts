@@ -1,6 +1,7 @@
 export const HARVESTER_EVENTS = {
   archivesChanged: 'harvester:archives-changed',
   competitionChanged: 'harvester:competition-changed',
+  defaultCompetitionChanged: 'harvester:default-competition-changed',
   focusCompetition: 'harvester:focus-competition',
 } as const;
 
@@ -13,4 +14,11 @@ export const dispatchCompetitionChanged = (competition: string) => {
     detail: competition,
   }));
 };
+
+export const dispatchDefaultCompetitionChanged = (competition: string) => {
+  window.dispatchEvent(new CustomEvent(HARVESTER_EVENTS.defaultCompetitionChanged, {
+    detail: competition,
+  }));
+};
+
 

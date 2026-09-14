@@ -27,20 +27,25 @@ export function competitionOptionLabel(
 export function buildEnteredCompetitionOptions(
   entered: EnteredCompetition[],
   extras: Array<string | undefined | null> = [],
+  activeSlug?: string | null,
 ): Array<{ value: string; label: string }> {
-  const fromEntered = entered.map((item) => ({
-    value: item.id,
-    label: competitionOptionLabel(item),
-  }));
+  const fromEntered = entered.map((item) => {
+    const isDefault = activeSlug && item.id.toLowerCase() === activeSlug.toLowerCase();
+    return {
+      value: item.id,
+      label: competitionOptionLabel(item, isDefault ? '⭐ 全站主攻' : undefined),
+    };
+  });
   const known = new Set(fromEntered.map((item) => item.value));
   const extraOptions = extras
     .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0)
     .filter((slug) => !known.has(slug))
     .map((slug) => {
       known.add(slug);
+      const isDefault = activeSlug && slug.toLowerCase() === activeSlug.toLowerCase();
       return {
         value: slug,
-        label: competitionOptionLabel(slug, '已保存'),
+        label: competitionOptionLabel(slug, isDefault ? '⭐ 全站主攻' : '已保存'),
       };
     });
   return [...fromEntered, ...extraOptions];

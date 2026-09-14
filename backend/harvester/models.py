@@ -160,6 +160,8 @@ class CompetitionInfo(BaseModel):
     score_direction_source: Literal[
         "api", "leaderboard", "metric", "fallback"
     ] = "fallback"
+    is_simulation: bool = False
+    tags: list[str] = Field(default_factory=list)
 
 
 COMPETITION_SLUG_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9-]{2,119}$"
@@ -188,6 +190,8 @@ class EnteredCompetition(BaseModel):
     deadline: Optional[str] = None
     reward: Optional[str] = None
     team_count: Optional[int] = None
+    is_simulation: bool = False
+    tags: list[str] = Field(default_factory=list)
 
 
 class AutoArchiveConfig(BaseModel):
@@ -817,3 +821,19 @@ class SimulationMonitorSnapshot(BaseModel):
     config: SimulationMonitorConfig
     status: SimulationMonitorStatus
     logs: list[SimulationMonitorRunLog] = Field(default_factory=list)
+
+
+class SetActiveCompetitionRequest(BaseModel):
+    """设置全站默认主攻竞赛请求。"""
+
+    competition: Optional[str] = Field(default=None, max_length=120)
+
+
+class ActiveCompetitionInfo(BaseModel):
+    """当前主攻竞赛信息。"""
+
+    competition: str
+    source: str  # 'pinned', 'auto', 'env', 'fallback'
+    is_pinned: bool = False
+    pinned_competition: Optional[str] = None
+

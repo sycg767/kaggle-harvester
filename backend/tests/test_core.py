@@ -1478,5 +1478,69 @@ class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(scored.status.recent_events[0].ref, "1")
 
 
+class ActiveCompetitionApiTests(unittest.TestCase):
+    def test_active_competition_api_lifecycle(self) -> None:
+        from fastapi.testclient import TestClient
+        from main import app
+        from harvester.cache import (
+            PersistentActiveCompetitionStore,
+            PersistentEnteredCompetitionsCache,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = PersistentActiveCompetitionStore(temp_dir)
+            entered = PersistentEnteredCompetitionsCache(temp_dir)
+            app.state.active_competition_store = store
+            app.state.entered_competitions_cache = entered
+
+            with TestClient(app) as client:
+                app.state.active_competition_store = store
+                app.state.entered_competitions_cache = entered
+
+                # 1. 初始状态获取
+                res = client.get("/api/active-competition")
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertIn("competition", data)
+                self.assertFalse(data["is_pinned"])
+
+                # 2. 设置主攻赛事
+                post_res = client.post(
+                    "/api/active-competition",
+                    json={"competition": "rsna-knee-abnormality-detection"},
+                )
+                self.assertEqual(post_res.status_code, 200)
+                data2 = post_res.json()
+                self.assertEqual(data2["competition"], "rsna-knee-abnormality-detection")
+                self.assertEqual(data2["source"], "pinned")
+                self.assertTrue(data2["is_pinned"])
+
+                # 3. GET 确认已被持久化
+                get_res = client.get("/api/active-competition")
+                self.assertEqual(get_res.status_code, 200)
+                self.assertEqual(
+                    get_res.json()["competition"], "rsna-knee-abnormality-detection"
+                )
+                self.assertTrue(get_res.json()["is_pinned"])
+
+                # 4. /api/health 应反映新的 default_competition
+                health_res = client.get("/api/health")
+                self.assertEqual(health_res.status_code, 200)
+                self.assertEqual(
+                    health_res.json()["default_competition"],
+                    "rsna-knee-abnormality-detection",
+                )
+                self.assertEqual(
+                    health_res.json()["active_competition"]["competition"],
+                    "rsna-knee-abnormality-detection",
+                )
+
+                # 5. DELETE 清除，恢复自动
+                del_res = client.delete("/api/active-competition")
+                self.assertEqual(del_res.status_code, 200)
+                self.assertFalse(del_res.json()["is_pinned"])
+
+
 if __name__ == "__main__":
     unittest.main()
+

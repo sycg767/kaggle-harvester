@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -24,15 +25,18 @@ sys.path.insert(0, str(Path(__file__).parent))
 from harvester.archiver import Archiver
 from harvester.auto_archive import AutoArchiveBusyError, AutoArchiveManager
 from harvester.cache import (
+    PersistentActiveCompetitionStore,
     PersistentCompetitionCache,
     PersistentEnteredCompetitionsCache,
     PersistentKernelMetadataCache,
     PersistentKernelQueryCache,
     PersistentKernelScoreCache,
     PersistentSimulationEpisodeStore,
+    resolve_active_competition,
 )
 from harvester.kaggle_client import KaggleClient
 from harvester.models import (
+    ActiveCompetitionInfo,
     ArchiveRequest,
     ArchiverConfig,
     AutoArchiveConfig,
@@ -48,6 +52,7 @@ from harvester.models import (
     NotificationTestResult,
     ScoredKernel,
     ScoreDirection,
+    SetActiveCompetitionRequest,
 SimulationClawbotTestResult,
     SimulationEpisodePageResponse,
     SimulationMonitorConfig,
@@ -221,10 +226,16 @@ async def lifespan(app: FastAPI):
     # Load .env file
     load_dotenv(Path(__file__).parent / ".env")
 
-    competition_slug = os.environ.get(
-        "KAGGLE_COMPETITION", "rogii-wellbore-geology-prediction"
-    )
     harvest_root = os.environ.get("HARVEST_ROOT", "harvested_kernels")
+    app.state.active_competition_store = PersistentActiveCompetitionStore(harvest_root)
+    app.state.entered_competitions_cache = PersistentEnteredCompetitionsCache(
+        harvest_root
+    )
+    competition_slug, _ = resolve_active_competition(
+        store=app.state.active_competition_store,
+        entered_cache=app.state.entered_competitions_cache,
+        env_default=os.environ.get("KAGGLE_COMPETITION"),
+    )
     app.state.simulation_episode_store = PersistentSimulationEpisodeStore(harvest_root)
     app.state.kaggle_client = KaggleClient(
         competition_slug=competition_slug,
@@ -234,9 +245,6 @@ async def lifespan(app: FastAPI):
     app.state.kernel_score_cache = PersistentKernelScoreCache(harvest_root)
     app.state.kernel_metadata_cache = PersistentKernelMetadataCache(harvest_root)
     app.state.competition_cache = PersistentCompetitionCache(harvest_root)
-    app.state.entered_competitions_cache = PersistentEnteredCompetitionsCache(
-        harvest_root
-    )
     app.state.kernel_refresh_tasks = {}
     config = ArchiverConfig(
         harvest_root=harvest_root,
@@ -324,7 +332,14 @@ async def health():
     submission_monitor: SubmissionMonitorManager = app.state.submission_monitor
     simulation_monitor: SimulationMonitorManager = app.state.simulation_monitor
     notifications: NotificationManager = app.state.notifications
+    active_store: PersistentActiveCompetitionStore = app.state.active_competition_store
+    current_slug, current_source = resolve_active_competition(
+        store=active_store,
+        entered_cache=entered_cache,
+        env_default=os.environ.get("KAGGLE_COMPETITION"),
+    )
     readiness = client.readiness()
+    readiness["default_competition"] = current_slug
     ready = bool(
         readiness["kaggle_cli"]
         and (os.name != "nt" or readiness["utf8_wrapper_exists"])
@@ -335,6 +350,12 @@ async def health():
         "version": app.version,
         "ready": ready,
         **readiness,
+        "active_competition": {
+            "competition": current_slug,
+            "source": current_source,
+            "is_pinned": current_source == "pinned",
+            "pinned_competition": active_store.get(),
+        },
         "archive": archiver.get_stats(),
         "cache": {
             **query_cache.stats(),
@@ -411,6 +432,84 @@ async def list_entered_competitions(
         if cached:
             return cached[:page_size]
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.get("/api/active-competition", response_model=ActiveCompetitionInfo)
+async def get_active_competition():
+    """获取当前默认/主攻竞赛及来源（pinned / auto / env / fallback）。"""
+    store: PersistentActiveCompetitionStore = app.state.active_competition_store
+    entered_cache: PersistentEnteredCompetitionsCache = (
+        app.state.entered_competitions_cache
+    )
+    slug, source = resolve_active_competition(
+        store=store,
+        entered_cache=entered_cache,
+        env_default=os.environ.get("KAGGLE_COMPETITION"),
+    )
+    return {
+        "competition": slug,
+        "source": source,
+        "is_pinned": source == "pinned",
+        "pinned_competition": store.get(),
+    }
+
+
+@app.post("/api/active-competition", response_model=ActiveCompetitionInfo)
+async def set_active_competition(payload: SetActiveCompetitionRequest):
+    """设置或清除全站默认/主攻竞赛。"""
+    store: PersistentActiveCompetitionStore = app.state.active_competition_store
+    client: Optional[KaggleClient] = getattr(app.state, "kaggle_client", None)
+    target = (payload.competition or "").strip()
+    if not target:
+        store.clear()
+    else:
+        if len(target) < 3 or not re.match(r"^[a-zA-Z0-9_-]+$", target):
+            raise HTTPException(
+                status_code=400,
+                detail="竞赛标识无效，仅支持字母、数字、短横线及下划线。",
+            )
+        store.set(target)
+        if client is not None:
+            client.competition_slug = target
+
+    entered_cache: PersistentEnteredCompetitionsCache = (
+        app.state.entered_competitions_cache
+    )
+    slug, source = resolve_active_competition(
+        store=store,
+        entered_cache=entered_cache,
+        env_default=os.environ.get("KAGGLE_COMPETITION"),
+    )
+    return {
+        "competition": slug,
+        "source": source,
+        "is_pinned": source == "pinned",
+        "pinned_competition": store.get(),
+    }
+
+
+@app.delete("/api/active-competition", response_model=ActiveCompetitionInfo)
+async def delete_active_competition():
+    """清除手动指定的主攻赛事，恢复智能自动选择默认赛事。"""
+    store: PersistentActiveCompetitionStore = app.state.active_competition_store
+    store.clear()
+    entered_cache: PersistentEnteredCompetitionsCache = (
+        app.state.entered_competitions_cache
+    )
+    slug, source = resolve_active_competition(
+        store=store,
+        entered_cache=entered_cache,
+        env_default=os.environ.get("KAGGLE_COMPETITION"),
+    )
+    client: Optional[KaggleClient] = getattr(app.state, "kaggle_client", None)
+    if client is not None:
+        client.competition_slug = slug
+    return {
+        "competition": slug,
+        "source": source,
+        "is_pinned": False,
+        "pinned_competition": None,
+    }
 
 
 @app.get("/api/kernels", response_model=list[ScoredKernel])
@@ -792,26 +891,23 @@ async def list_simulation_submissions(competition: Optional[str] = Query(None)):
     results: list[dict[str, Any]] = []
     seen_ids: set[int] = set()
 
-    # 1. 优先放入当前团队已配置或已在天梯战斗的 Agent
+    # 1. 仅当请求的竞赛与当前配置/运行中的竞赛一致时，才放入当前团队已配置的 Agent
     snap = manager.snapshot()
-    for idx, agent in enumerate(snap.status.agents or []):
-        sub_id = int(agent.submission_id)
-        if sub_id not in seen_ids:
-            seen_ids.add(sub_id)
-            desc_label = agent.description or f"Agent #{idx + 1}"
-            if "p46" in str(sub_id) or sub_id == 55565346:
-                desc_label = "Agent #1 (p46)"
-            elif "p31" in str(sub_id) or sub_id == 55555162:
-                desc_label = "Agent #2 (p31)"
-            results.append({
-                "submission_id": sub_id,
-                "description": desc_label,
-                "file_name": "",
-                "date": "",
-                "status": "complete",
-                "public_score": agent.score if agent.score is not None else agent.public_score,
-                "team_name": "Team Active Agent",
-            })
+    if snap.config.competition == comp:
+        for idx, agent in enumerate(snap.status.agents or []):
+            sub_id = int(agent.submission_id)
+            if sub_id not in seen_ids:
+                seen_ids.add(sub_id)
+                desc_label = agent.description or f"Agent #{idx + 1}"
+                results.append({
+                    "submission_id": sub_id,
+                    "description": desc_label,
+                    "file_name": "",
+                    "date": "",
+                    "status": "complete",
+                    "public_score": agent.score if agent.score is not None else agent.public_score,
+                    "team_name": "Team Active Agent",
+                })
 
     # 2. 拉取 Kaggle 账号名下的历史提交
     try:

@@ -30,6 +30,7 @@ import {
   PanelLeftOpen,
   RefreshCw,
   Search,
+  Swords,
 } from 'lucide-react';
 import { api, apiAuth, type ArchiveStats, type CompetitionInfo, type HealthStatus } from '../api';
 import { HARVESTER_EVENTS } from '../events';
@@ -38,7 +39,7 @@ import kaggleLogo from '../assets/kaggle-logo.svg';
 const { Text, Paragraph } = Typography;
 
 interface NavItem {
-  key: 'dashboard' | 'kernels' | 'archives';
+  key: 'dashboard' | 'arena' | 'kernels' | 'archives';
   label: string;
   icon: React.ReactNode;
   badge?: number;
@@ -135,7 +136,9 @@ const AppLayout: React.FC = () => {
       setBackendOnline(true);
       setArchiveStats(status.archive);
       const activeCompetition =
-        localStorage.getItem('harvester.competition') || status.default_competition;
+        localStorage.getItem('harvester.competition') ||
+        status.active_competition?.competition ||
+        status.default_competition;
       void api
         .getCompetition(activeCompetition)
         .then((comp) => {
@@ -152,6 +155,15 @@ const AppLayout: React.FC = () => {
 
   useEffect(() => {
     void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    const handleDefaultChanged = () => {
+      void loadData();
+    };
+    window.addEventListener(HARVESTER_EVENTS.defaultCompetitionChanged, handleDefaultChanged);
+    return () =>
+      window.removeEventListener(HARVESTER_EVENTS.defaultCompetitionChanged, handleDefaultChanged);
   }, [loadData]);
 
   useEffect(() => {
@@ -202,10 +214,11 @@ const AppLayout: React.FC = () => {
 
   useEffect(() => {
     const handleCompetitionChanged = (event: Event) => {
-      const competition = (event as CustomEvent<string>).detail;
-      if (!competition) return;
+      const customEvent = event as CustomEvent<string>;
+      const slug = customEvent.detail;
+      if (!slug) return;
       void api
-        .getCompetition(competition)
+        .getCompetition(slug)
         .then(setCompetitionInfo)
         .catch(() => setCompetitionInfo(null));
     };
@@ -244,6 +257,8 @@ const AppLayout: React.FC = () => {
     ? 'archives'
     : location.pathname.startsWith('/kernels')
     ? 'kernels'
+    : location.pathname.startsWith('/arena')
+    ? 'arena'
     : 'dashboard';
 
   const runtimeErrors = [
@@ -255,6 +270,7 @@ const AppLayout: React.FC = () => {
 
   const navItems: NavItem[] = [
     { key: 'dashboard', label: '竞赛工作台', icon: <Activity size={17} /> },
+    { key: 'arena', label: '天梯对抗', icon: <Swords size={17} /> },
     { key: 'kernels', label: 'Kernel 广场', icon: <LayoutDashboard size={17} /> },
     {
       key: 'archives',
@@ -266,6 +282,7 @@ const AppLayout: React.FC = () => {
 
   const handleNavigation = (key: NavItem['key']) => {
     if (key === 'dashboard') navigate('/dashboard');
+    else if (key === 'arena') navigate('/arena');
     else if (key === 'kernels') navigate('/kernels');
     else navigate('/archives');
     setMobileNavOpen(false);
@@ -358,21 +375,15 @@ const AppLayout: React.FC = () => {
           <span>Harvester</span>
         </button>
 
-        <nav className="newapi-top-nav" aria-label="顶部导航">
-          {navItems.map((item) => (
-            <button
-              type="button"
-              key={`top-${item.key}`}
-              className={currentKey === item.key ? 'is-active' : ''}
-              onClick={() => handleNavigation(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
         {competitionInfo && (
-          <Tooltip title={`当前竞赛：${competitionInfo.title}`}>
+          <Tooltip
+            title={
+              health?.active_competition?.competition === competitionInfo.id &&
+              health?.active_competition?.is_pinned
+                ? `全站主攻赛事：${competitionInfo.title}`
+                : `当前竞赛：${competitionInfo.title}`
+            }
+          >
             <button
               type="button"
               className="newapi-competition-pill"
@@ -380,7 +391,12 @@ const AppLayout: React.FC = () => {
               onClick={focusCompetitionSearch}
             >
               <Search size={16} />
-              <span>{competitionInfo.title}</span>
+              <span>
+                {health?.active_competition?.competition === competitionInfo.id &&
+                health?.active_competition?.is_pinned
+                  ? `⭐ ${competitionInfo.title}`
+                  : competitionInfo.title}
+              </span>
               <kbd>{shortcutLabel}</kbd>
             </button>
           </Tooltip>
@@ -536,6 +552,32 @@ const AppLayout: React.FC = () => {
             </div>
           )}
         </Space>
+      </Drawer>
+
+      {/* Mobile Navigation Drawer */}
+      <Drawer
+        title={(
+          <Space align="center" size={8}>
+            <span className="newapi-brand-mark" style={{ width: 36, height: 16 }}>
+              <img src={kaggleLogo} alt="Kaggle" style={{ width: 36, height: 14 }} />
+            </span>
+            <span style={{ fontWeight: 800, fontSize: 15 }}>Harvester 导航</span>
+          </Space>
+        )}
+        placement="left"
+        width={270}
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        styles={{ body: { padding: '8px 6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' } }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ flex: 1 }}>
+            {renderNavigation(true)}
+          </div>
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 12 }}>
+            {renderArchiveSummary()}
+          </div>
+        </div>
       </Drawer>
 
       <Modal

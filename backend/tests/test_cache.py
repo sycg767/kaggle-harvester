@@ -12,14 +12,18 @@ from fastapi import Response
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from harvester.cache import (
+    PersistentActiveCompetitionStore,
     PersistentCompetitionCache,
+    PersistentEnteredCompetitionsCache,
     PersistentKernelMetadataCache,
     PersistentKernelQueryCache,
     PersistentKernelScoreCache,
     PersistentSimulationEpisodeStore,
+    resolve_active_competition,
 )
 from harvester.models import (
     CompetitionInfo,
+    EnteredCompetition,
     ScoredKernel,
     SimulationEpisode,
     SimulationEpisodeAgent,
@@ -418,5 +422,104 @@ class StaleWhileRevalidateTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(store_reloaded.stats()["total_episodes_stored"], 3)
 
 
+class TestActiveCompetitionPersistenceAndResolution(unittest.TestCase):
+    def test_store_crud(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = PersistentActiveCompetitionStore(temp_dir)
+            self.assertIsNone(store.get())
+            self.assertFalse(store.stats()["active_competition_pinned"])
+
+            store.set("biohub-cell-tracking-during-development")
+            self.assertEqual(store.get(), "biohub-cell-tracking-during-development")
+            self.assertTrue(store.stats()["active_competition_pinned"])
+
+            # 重新初始化读取
+            reloaded = PersistentActiveCompetitionStore(temp_dir)
+            self.assertEqual(reloaded.get(), "biohub-cell-tracking-during-development")
+
+            # 清除
+            store.clear()
+            self.assertIsNone(store.get())
+            self.assertFalse(store.stats()["active_competition_pinned"])
+
+    def test_resolver_pinned_takes_highest_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = PersistentActiveCompetitionStore(temp_dir)
+            store.set("my-pinned-comp")
+            entered = PersistentEnteredCompetitionsCache(temp_dir)
+            entered.set([
+                EnteredCompetition(
+                    id="ongoing-comp",
+                    deadline="2099-01-01T00:00:00Z",
+                    is_simulation=False,
+                )
+            ])
+            slug, source = resolve_active_competition(
+                store=store,
+                entered_cache=entered,
+                env_default="env-comp",
+            )
+            self.assertEqual(slug, "my-pinned-comp")
+            self.assertEqual(source, "pinned")
+
+    def test_resolver_auto_selects_ongoing_regular_competition(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = PersistentActiveCompetitionStore(temp_dir)
+            entered = PersistentEnteredCompetitionsCache(temp_dir)
+            entered.set([
+                EnteredCompetition(
+                    id="ended-comp",
+                    deadline="2020-01-01T00:00:00Z",
+                    is_simulation=False,
+                ),
+                EnteredCompetition(
+                    id="ongoing-far-comp",
+                    deadline="2099-12-31T00:00:00Z",
+                    is_simulation=False,
+                ),
+                EnteredCompetition(
+                    id="ongoing-near-comp",
+                    deadline="2090-01-01T00:00:00Z",
+                    is_simulation=False,
+                ),
+                EnteredCompetition(
+                    id="ongoing-sim-comp",
+                    deadline="2089-01-01T00:00:00Z",
+                    is_simulation=True,
+                ),
+            ])
+            slug, source = resolve_active_competition(
+                store=store,
+                entered_cache=entered,
+                env_default="env-comp",
+            )
+            # 优先选择正在进行的常规比赛中较早截止的
+            self.assertEqual(slug, "ongoing-near-comp")
+            self.assertEqual(source, "auto")
+
+    def test_resolver_fallback_to_env_and_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = PersistentActiveCompetitionStore(temp_dir)
+            entered = PersistentEnteredCompetitionsCache(temp_dir)
+            # 无已参赛缓存
+            slug, source = resolve_active_competition(
+                store=store,
+                entered_cache=entered,
+                env_default="my-env-comp",
+            )
+            self.assertEqual(slug, "my-env-comp")
+            self.assertEqual(source, "env")
+
+            # 环境变量也为空
+            slug2, source2 = resolve_active_competition(
+                store=store,
+                entered_cache=entered,
+                env_default=None,
+            )
+            self.assertEqual(slug2, "biohub-cell-tracking-during-development")
+            self.assertEqual(source2, "fallback")
+
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -51,7 +51,13 @@ const formatTime = (value?: string) => {
 const labelForAgent = (agent: SimulationAgentStats, index: number) => {
   if (agent.submission_id === 55565346) return 'p46';
   if (agent.submission_id === 55555162) return 'p31';
-  return `p${index + 1}`;
+  const raw = (agent.description || agent.file_name || '').trim();
+  const match = raw.match(/^(p\d+(?:plus\d+)?|p\d+|agent[\s\-_]?\w+)/i);
+  if (match) return match[1].replace(/[:_\-—]+$/, '');
+  if (raw && !raw.toLowerCase().startsWith('agent') && raw.length <= 15) {
+    return raw.replace(/[:_\-—]+$/, '');
+  }
+  return `Agent #${index + 1}`;
 };
 
 const buildLegacyTrajectory = (agent: SimulationAgentStats): SimulationRatingPoint[] => {

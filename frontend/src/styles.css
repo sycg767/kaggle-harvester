@@ -61,9 +61,12 @@ a:hover {
   color: #2578b0;
 }
 
-.mobile-only,
+.mobile-only {
+  display: none;
+}
+
 .mobile-data-list {
-  display: none !important;
+  display: none;
 }
 
 .newapi-app {
@@ -175,15 +178,15 @@ a:hover {
 .newapi-competition-pill {
   display: inline-flex;
   min-width: 0;
-  width: 256px;
-  max-width: min(256px, 28vw);
+  width: 320px;
+  max-width: min(380px, 36vw);
   height: 32px;
   align-items: center;
   gap: 6px;
   margin-left: auto;
   padding: 0 10px 0 12px;
   color: #6b6b6b;
-  font-size: 14px;
+  font-size: 13px;
   background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 13px;
@@ -480,7 +483,8 @@ a:hover {
   min-width: 0;
   height: calc(100vh - var(--app-header-height) - 16px);
   flex: 1 1 auto;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--background);
   margin: 8px 8px 8px 0;
   border: 0;
@@ -2137,6 +2141,71 @@ a:hover {
 
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+/* ==========================================================================
+   Mobile & Responsive Adaptations (<= 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: inline-flex !important;
+  }
+
+  .newapi-sidebar {
+    display: none !important;
+  }
+
+  .newapi-content {
+    width: 100% !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    height: calc(100vh - var(--app-header-height)) !important;
+    overflow-x: hidden !important;
+  }
+
+  .newapi-header {
+    padding: 0 8px;
+    gap: 4px;
+  }
+
+  .newapi-brand span:not(.newapi-brand-mark) {
+    display: none;
+  }
+
+  .newapi-competition-pill {
+    width: auto;
+    max-width: 140px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .newapi-competition-pill kbd {
+    display: none;
+  }
+
+  .newapi-header-actions {
+    gap: 2px;
+  }
+
+  .dashboard-hero-card {
+    padding: 14px 16px !important;
+  }
+
+  .dashboard-kpi-item {
+    padding: 8px 10px !important;
+  }
+
+  .page-header {
+    padding: 12px 14px 8px !important;
+  }
+
+  .page-content {
+    padding: 4px 10px 14px !important;
+  }
 }
 
 

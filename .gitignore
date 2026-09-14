@@ -18,3 +18,7 @@ harvested_kernels/
 .ace-tool/
 data/
 backend/data/
+*.db
+*.png
+p*_main.py
+cg/

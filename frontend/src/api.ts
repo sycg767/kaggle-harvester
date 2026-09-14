@@ -12,6 +12,8 @@ export interface CompetitionInfo {
   description?: string;
   is_lower_better: boolean;
   score_direction_source: 'api' | 'leaderboard' | 'metric' | 'fallback';
+  is_simulation?: boolean;
+  tags?: string[];
 }
 
 export interface ScoredKernel {
@@ -86,6 +88,13 @@ export interface ArchiveStats {
   low_disk_space: boolean;
 }
 
+export interface ActiveCompetitionInfo {
+  competition: string;
+  source: 'pinned' | 'auto' | 'env' | 'fallback';
+  is_pinned: boolean;
+  pinned_competition?: string | null;
+}
+
 export interface HealthStatus {
   status: 'ok' | 'degraded';
   service: string;
@@ -96,6 +105,7 @@ export interface HealthStatus {
   utf8_wrapper: string;
   utf8_wrapper_exists: boolean;
   default_competition: string;
+  active_competition?: ActiveCompetitionInfo;
   archive: ArchiveStats;
   cache: Record<string, string | number>;
   auto_archive: AutoArchiveStatus;
@@ -130,6 +140,8 @@ export interface EnteredCompetition {
   deadline?: string;
   reward?: string;
   team_count?: number;
+  is_simulation?: boolean;
+  tags?: string[];
 }
 
 export interface AutoArchiveConfig {
@@ -862,5 +874,24 @@ export const api = {
 
   health(): Promise<HealthStatus> {
     return request('/health');
+  },
+
+  getActiveCompetition(options?: { signal?: AbortSignal }): Promise<ActiveCompetitionInfo> {
+    return request('/active-competition', { signal: options?.signal });
+  },
+
+  setActiveCompetition(competition: string, options?: { signal?: AbortSignal }): Promise<ActiveCompetitionInfo> {
+    return request('/active-competition', {
+      method: 'POST',
+      body: JSON.stringify({ competition }),
+      signal: options?.signal,
+    });
+  },
+
+  deleteActiveCompetition(options?: { signal?: AbortSignal }): Promise<ActiveCompetitionInfo> {
+    return request('/active-competition', {
+      method: 'DELETE',
+      signal: options?.signal,
+    });
   },
 };

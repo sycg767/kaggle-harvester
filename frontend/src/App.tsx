@@ -4,6 +4,7 @@ import { Spin } from 'antd';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const AppLayout = lazy(() => import('./components/AppLayout'));
+const SimulationArena = lazy(() => import('./components/SimulationArena'));
 const KernelList = lazy(() => import('./components/KernelList'));
 const ArchiveManager = lazy(() => import('./components/ArchiveManager'));
 
@@ -20,6 +21,7 @@ const App: React.FC = () => {
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="arena" element={<SimulationArena />} />
           <Route path="kernels" element={<KernelList />} />
           <Route path="archives" element={<ArchiveManager />} />
           <Route path="*" element={<Navigate to="/" replace />} />
