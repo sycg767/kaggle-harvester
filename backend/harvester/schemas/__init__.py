@@ -1,18 +1,4 @@
-"""Data models for kaggle-harvester.
-
-Note: Models are now partitioned into `harvester.schemas.*`.
-This module re-exports all models for 100% backwards compatibility.
-"""
-
-from __future__ import annotations
-
-from .schemas import (
-    COMPETITION_SLUG_PATTERN,
-    ActiveCompetitionInfo,
-    ArchiveEntry,
-    ArchiveRequest,
-    ArchiveResult,
-    ArchiverConfig,
+from .auto_archive import (
     AutoArchiveCheckedItem,
     AutoArchiveConfig,
     AutoArchiveItemResult,
@@ -20,12 +6,30 @@ from .schemas import (
     AutoArchiveRunLog,
     AutoArchiveSnapshot,
     AutoArchiveStatus,
+)
+from .common import (
+    COMPETITION_SLUG_PATTERN,
+    ActiveCompetitionInfo,
+    ScoreDirection,
+    SetActiveCompetitionRequest,
+    SortBy,
+    _normalize_competition_slugs,
+)
+from .kernels import (
+    ArchiveEntry,
+    ArchiveRequest,
+    ArchiveResult,
+    ArchiverConfig,
     CompetitionInfo,
-    CompetitionSubmission,
     EnrichRequest,
     EnteredCompetition,
     KernelListRequest,
     KernelSummary,
+    ScoredKernel,
+    VersionInfo,
+    VersionScoreList,
+)
+from .notifications import (
     NotificationChannelResult,
     NotificationConfig,
     NotificationConfigUpdate,
@@ -33,9 +37,8 @@ from .schemas import (
     NotificationSnapshot,
     NotificationStatus,
     NotificationTestResult,
-    ScoreDirection,
-    ScoredKernel,
-    SetActiveCompetitionRequest,
+)
+from .simulation import (
     SimulationAgentStats,
     SimulationClawbotStatus,
     SimulationClawbotTestCandidate,
@@ -51,7 +54,9 @@ from .schemas import (
     SimulationMonitorSnapshot,
     SimulationMonitorStatus,
     SimulationRatingPoint,
-    SortBy,
+)
+from .submissions import (
+    CompetitionSubmission,
     SubmissionMonitorConfig,
     SubmissionMonitorItem,
     SubmissionMonitorRunDetail,
@@ -59,9 +64,6 @@ from .schemas import (
     SubmissionMonitorSnapshot,
     SubmissionMonitorStatus,
     SubmissionScoreEvent,
-    VersionInfo,
-    VersionScoreList,
-    _normalize_competition_slugs,
 )
 
 __all__ = [
