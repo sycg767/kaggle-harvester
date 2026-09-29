@@ -17,18 +17,7 @@ import {
 import {
   Swords,
   Trophy,
-  Bot,
   RefreshCw,
-  Smartphone,
-  Clock,
-  Users,
-  Award,
-  Calendar,
-  LayoutDashboard,
-  CheckCircle2,
-  AlertCircle,
-  PlayCircle,
-  Settings,
 } from 'lucide-react';
 import {
   api,
@@ -43,8 +32,11 @@ import { competitionDisplayName } from '../competitionOptions';
 import { HARVESTER_EVENTS, dispatchCompetitionChanged } from '../events';
 import SimulationMonitorControl from './SimulationMonitorControl';
 import ScoreTrajectoryChart from './ScoreTrajectoryChart';
+import ClawbotSidebarCard from './arena/ClawbotSidebarCard';
+import ArenaStandbyView from './arena/ArenaStandbyView';
+import MedalCutoffTrack from './arena/MedalCutoffTrack';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text } = Typography;
 
 const formatDate = (value?: string) => {
   if (!value) return '—';
@@ -520,223 +512,13 @@ export const SimulationArena: React.FC = () => {
                 </Row>
 
                 {/* Thresholds Waterline Multi-Segment Indicator */}
-                {(() => {
-                  const totalTeams = thresholds?.total_teams || 6807;
-                  const goldCutoff = thresholds?.gold_cutoff_score || 1148.0;
-                  const goldRank = thresholds?.gold_cutoff_rank || 23;
-                  const silverCutoff = thresholds?.silver_cutoff_score || 921.1;
-                  const silverRank = thresholds?.silver_cutoff_rank || 340;
-                  const bronzeCutoff = thresholds?.bronze_cutoff_score || 849.5;
-                  const bronzeRank = thresholds?.bronze_cutoff_rank || 680;
-
-                  const allAgentScores = agents
-                    .map((a) => a.score ?? a.public_score)
-                    .filter((s): s is number => s !== undefined && s !== null);
-
-                  const minScore = allAgentScores.length > 0 ? Math.min(...allAgentScores) : 800;
-                  const maxScore = allAgentScores.length > 0 ? Math.max(...allAgentScores) : 950;
-
-                  const minVal = Math.min(bronzeCutoff - 120, minScore - 40, 720);
-                  const maxVal = Math.max(goldCutoff + 80, maxScore + 40, 1220);
-                  const range = Math.max(1, maxVal - minVal);
-
-                  const getPct = (score: number) => Math.min(98, Math.max(2, ((score - minVal) / range) * 100));
-
-                  const posBronze = getPct(bronzeCutoff);
-                  const posSilver = getPct(silverCutoff);
-                  const posGold = getPct(goldCutoff);
-
-                  return (
-                    <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #e2e8f0', marginBottom: 16 }}>
-                      {/* Header Info */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                        <span style={{ fontWeight: 700, color: '#1e293b' }}>
-                          🏆 奖牌线切分 (总计 {totalTeams} 支参赛队{isFinished ? ' · 终榜线' : ''})
-                        </span>
-                        <Space size={14} wrap>
-                          <Tooltip title={`Top 10 + 0.2% 队伍 (第 ${goldRank} 名及以上)`}>
-                            <span style={{ color: '#ca8a04', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                              🥇 金牌线: {goldCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#a16207' }}>(Top {goldRank})</span>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={`Top 5% 队伍 (第 ${silverRank} 名及以上)`}>
-                            <span style={{ color: '#0284c7', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                              🥈 银牌线: {silverCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#0369a1' }}>(Top {silverRank})</span>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={`Top 10% 队伍 (第 ${bronzeRank} 名及以上)`}>
-                            <span style={{ color: '#d97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                              🥉 铜牌线: {bronzeCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#b45309' }}>(Top {bronzeRank})</span>
-                            </span>
-                          </Tooltip>
-                        </Space>
-                      </div>
-
-                      {/* Visual Multi-Segment Bar Container */}
-                      <div style={{ position: 'relative', paddingTop: 26, paddingBottom: 22, margin: '0 8px' }}>
-                        {/* Dynamic Agent Pin Markers */}
-                        {agents.map((ag, idx) => {
-                          const score = ag.score ?? ag.public_score;
-                          if (score === undefined || score === null) return null;
-                          const pos = getPct(score);
-                          const meta = getAgentMeta(ag, idx);
-                          const pinColors = ['#2563eb', '#7c3aed', '#059669', '#d97706'];
-                          const pColor = pinColors[idx % pinColors.length];
-
-                          return (
-                            <Tooltip
-                              key={ag.submission_id || idx}
-                              title={`${meta.name}: ${score.toFixed(1)}分 (${ag.rank ? `第${ag.rank}名 · ` : ''}${ag.medal_tier === 'gold' ? '🥇金牌区' : ag.medal_tier === 'silver' ? '🥈银牌区' : ag.medal_tier === 'bronze' ? '🥉铜牌区' : '暂无奖牌'})`}
-                            >
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: `${pos}%`,
-                                  transform: 'translateX(-50%)',
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  cursor: 'pointer',
-                                  zIndex: 3 + idx,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    background: pColor,
-                                    color: '#ffffff',
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    padding: '1px 5px',
-                                    borderRadius: 4,
-                                    boxShadow: `0 1px 4px ${pColor}66`,
-                                    whiteSpace: 'nowrap',
-                                    lineHeight: '14px',
-                                  }}
-                                >
-                                  {meta.name.replace('Agent ', '')}: {score.toFixed(1)}
-                                </div>
-                                <div
-                                  style={{
-                                    width: 0,
-                                    height: 0,
-                                    borderLeft: '4px solid transparent',
-                                    borderRight: '4px solid transparent',
-                                    borderTop: `5px solid ${pColor}`,
-                                  }}
-                                />
-                              </div>
-                            </Tooltip>
-                          );
-                        })}
-
-                        {/* Multi-Segment Track */}
-                        <div
-                          style={{
-                            height: 12,
-                            borderRadius: 6,
-                            display: 'flex',
-                            overflow: 'hidden',
-                            background: '#e2e8f0',
-                            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)',
-                            position: 'relative',
-                          }}
-                        >
-                          {/* Below Bronze Segment */}
-                          <div
-                            style={{
-                              width: `${posBronze}%`,
-                              background: '#cbd5e1',
-                              height: '100%',
-                            }}
-                          />
-                          {/* Bronze Zone Segment */}
-                          <div
-                            style={{
-                              width: `${Math.max(0, posSilver - posBronze)}%`,
-                              background: 'linear-gradient(90deg, #fdba74, #fb923c)',
-                              height: '100%',
-                            }}
-                          />
-                          {/* Silver Zone Segment */}
-                          <div
-                            style={{
-                              width: `${Math.max(0, posGold - posSilver)}%`,
-                              background: 'linear-gradient(90deg, #7dd3fc, #38bdf8)',
-                              height: '100%',
-                            }}
-                          />
-                          {/* Gold Zone Segment */}
-                          <div
-                            style={{
-                              width: `${Math.max(0, 100 - posGold)}%`,
-                              background: 'linear-gradient(90deg, #fde047, #eab308)',
-                              height: '100%',
-                            }}
-                          />
-                        </div>
-
-                        {/* Vertical Cutoff Threshold Markers & Labels */}
-                        <div
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: `${posBronze}%`,
-                            transform: 'translateX(-50%)',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: '#b45309',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <div style={{ width: 1, height: 6, background: '#b45309', marginBottom: 2 }} />
-                          <span>🥉 {bronzeCutoff.toFixed(1)}</span>
-                        </div>
-
-                        <div
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: `${posSilver}%`,
-                            transform: 'translateX(-50%)',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: '#0369a1',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <div style={{ width: 1, height: 6, background: '#0369a1', marginBottom: 2 }} />
-                          <span>🥈 {silverCutoff.toFixed(1)}</span>
-                        </div>
-
-                        <div
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: `${posGold}%`,
-                            transform: 'translateX(-50%)',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: '#a16207',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <div style={{ width: 1, height: 6, background: '#a16207', marginBottom: 2 }} />
-                          <span>🥇 {goldCutoff.toFixed(1)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
+                <MedalCutoffTrack
+                  thresholds={thresholds}
+                  agents={agents}
+                  totalTeams={thresholds?.total_teams || 6807}
+                  isFinished={isFinished}
+                  getAgentMeta={getAgentMeta}
+                />
 
                 <ScoreTrajectoryChart
                   agents={agents}
@@ -747,376 +529,32 @@ export const SimulationArena: React.FC = () => {
 
             {/* Right: WeChat ClawBot Hub */}
             <Col xs={24} lg={9}>
-              <Card
-                className="dashboard-glow-card"
-                style={{
-                  height: '100%',
-                  borderRadius: 14,
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                }}
-                styles={{ body: { padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%' } }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <Space align="center" size={8}>
-                      <div style={{ width: 32, height: 32, borderRadius: 8, background: '#dcfce7', display: 'grid', placeItems: 'center' }}>
-                        <Bot size={18} color="#16a34a" />
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a' }}>
-                          微信 ClawBot 智能管家
-                        </div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          官方长连接 · 实时问答与战报推送
-                        </Text>
-                      </div>
-                    </Space>
-
-                    <Space size={6}>
-                      <Button
-                        size="small"
-                        icon={<RefreshCw size={12} className={testingClawbot ? 'animate-spin' : ''} />}
-                        loading={testingClawbot}
-                        onClick={() => void handleTestClawbot()}
-                        style={{ fontSize: 12 }}
-                      >
-                        探测连通性
-                      </Button>
-                      <Tooltip
-                        title={
-                          clawbot?.is_online
-                            ? 'OpenClaw 网关正在运行并保持微信长连接'
-                            : clawbot?.configured
-                            ? '已配置模型与插件，但本地/服务器 18789 端口未检测到 OpenClaw 网关运行'
-                            : '未检测到 OpenClaw 配置文件或 OPENCLAW_LLM_API_KEY 环境变量'
-                        }
-                      >
-                        <Tag
-                          color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
-                          style={{ margin: 0, fontWeight: 700 }}
-                        >
-                          {clawbot?.is_online ? '在线' : clawbot?.configured ? '离线 (未启动)' : '未就绪'}
-                        </Tag>
-                      </Tooltip>
-                    </Space>
-                  </div>
-
-                  {/* Model & Config Details */}
-                  <div style={{ background: '#f8fafc', borderRadius: 8, padding: '12px 14px', marginBottom: 14, border: '1px solid #f1f5f9' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-                      <span style={{ color: '#64748b' }}>大模型引擎:</span>
-                      <span style={{ fontWeight: 700, color: '#0f172a' }}>{clawbot?.model || 'deepseek-v4-flash-0731'}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-                      <span style={{ color: '#64748b' }}>服务商:</span>
-                      <span style={{ color: '#334155' }}>{clawbot?.provider || 'TokenRhythm Studio'}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-                      <span style={{ color: '#64748b' }}>网关探测:</span>
-                      <span style={{ color: clawbot?.is_online ? '#16a34a' : '#d97706', fontWeight: 600 }}>
-                        {clawbot?.is_online ? '活跃 (端口 18789)' : '未连接 (端口 18789)'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                      <span style={{ color: '#64748b' }}>后台巡检:</span>
-                      <span style={{ color: isFinished ? '#64748b' : '#16a34a', fontWeight: 600 }}>
-                        {isFinished ? '比赛已封榜 · 自动巡检休眠' : '每 10 分钟自动检查对局'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* WeChat Commands Quick List */}
-                  <div style={{ fontSize: 12, color: '#475569', marginBottom: 14 }}>
-                    <Space size={6} style={{ marginBottom: 6 }}>
-                      <Smartphone size={14} color="#0284c7" />
-                      <span style={{ fontWeight: 600, color: '#0f172a' }}>手机微信直接发送指令：</span>
-                    </Space>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      <Tag color="blue">战况</Tag>
-                      <Tag color="gold">分数</Tag>
-                      <Tag color="purple">排名</Tag>
-                      <Tag color="cyan">刷新</Tag>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    磁盘空间: <span style={{ fontWeight: 600, color: '#0f172a' }}>{diskFreeGB} GB</span> 可用
-                  </Text>
-                  <Tag color={health?.ready ? 'green' : 'orange'}>
-                    {health?.ready ? 'CLI 凭据已就绪' : '检查凭据'}
-                  </Tag>
-                </div>
-              </Card>
+              <ClawbotSidebarCard
+                clawbot={clawbot}
+                testingClawbot={testingClawbot}
+                onTestClawbot={handleTestClawbot}
+                isFinished={isFinished}
+                diskFreeGB={diskFreeGB}
+                healthReady={health?.ready}
+              />
             </Col>
           </Row>
         </>
       ) : (
         /* 2B. Standby & Ready View: Rendered when user selects a competition that is not yet actively monitored */
-        <Row gutter={[18, 18]} style={{ marginBottom: 22 }}>
-          <Col xs={24} lg={15}>
-            <Card
-              className="dashboard-glow-card"
-              style={{
-                borderRadius: 14,
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
-              }}
-              styles={{ body: { padding: '24px 26px' } }}
-            >
-              {/* Competition Header Info */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-                <Space align="start" size={14}>
-                  <div style={{ width: 44, height: 44, borderRadius: 10, background: '#eff6ff', display: 'grid', placeItems: 'center', border: '1px solid #dbeafe' }}>
-                    <Swords size={22} color="#2563eb" />
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 800, fontSize: 18, color: '#0f172a' }}>
-                        {currentTitle}
-                      </span>
-                      <Tag color="blue" style={{ fontWeight: 700, margin: 0 }}>
-                        {compInfo?.category || currentEnteredMeta?.category || '竞赛'}
-                      </Tag>
-                      <Tag color="orange" style={{ fontWeight: 600, margin: 0 }}>
-                        ⏳ 待最终提交后开启监控
-                      </Tag>
-                    </div>
-                    <Text type="secondary" style={{ fontSize: 13, display: 'block', marginTop: 4 }}>
-                      比赛 ID：<code>{selectedCompetition}</code>
-                    </Text>
-                  </div>
-                </Space>
-
-              </div>
-
-              {/* Competition Metadata Quick Cards */}
-              <Row gutter={[12, 12]} style={{ marginBottom: 22 }}>
-                <Col xs={24} sm={8}>
-                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #f1f5f9' }}>
-                    <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <Calendar size={14} color="#64748b" />
-                      <span>截止时间</span>
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
-                      {formatDate(compInfo?.deadline || currentEnteredMeta?.deadline)}
-                    </div>
-                  </div>
-                </Col>
-
-                <Col xs={24} sm={8}>
-                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #f1f5f9' }}>
-                    <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <Users size={14} color="#64748b" />
-                      <span>参赛队伍数</span>
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
-                      {compInfo?.team_count ?? currentEnteredMeta?.team_count ?? '—'} 支队伍
-                    </div>
-                  </div>
-                </Col>
-
-                <Col xs={24} sm={8}>
-                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #f1f5f9' }}>
-                    <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <Award size={14} color="#64748b" />
-                      <span>奖金池 / 荣誉</span>
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
-                      {compInfo?.reward || currentEnteredMeta?.reward || '—'}
-                    </div>
-                  </div>
-                </Col>
-              </Row>
-
-              {/* Ready / Standby Guidance Box */}
-              <div
-                style={{
-                  background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
-                  borderRadius: 12,
-                  padding: '20px 22px',
-                  border: '1px solid #bbf7d0',
-                  marginBottom: 20,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <CheckCircle2 size={18} color="#16a34a" />
-                  <span style={{ fontWeight: 800, fontSize: 15, color: '#166534' }}>
-                    模拟天梯对抗监控已就绪（当前保持休眠）
-                  </span>
-                </div>
-                <Paragraph style={{ fontSize: 13, color: '#15803d', lineHeight: 1.6, marginBottom: 12 }}>
-                  您已将 <strong>{currentTitle}</strong> 选为主视角。按照您的规划，当前阶段不主动拉取天梯流水以节约 API 配额；
-                  <strong>等最后提交完全结束时</strong>，您只需点击右上角<strong>「对战监控」</strong>按钮输入您的 Agent Submission ID，系统将立即开始追踪 ELO 积分、战力安全垫并生成全赛程复盘走势。
-                </Paragraph>
-
-                <Space size={10} wrap>
-                  <Button
-                    type="primary"
-                    icon={<LayoutDashboard size={14} />}
-                    onClick={() => navigate(`/kernels`)}
-                  >
-                    前往 Kernel 广场探索该赛事代码
-                  </Button>
-                </Space>
-              </div>
-
-              {/* Projected Medal Cutoffs Bracket */}
-              {(() => {
-                const totalTeams = compInfo?.team_count ?? currentEnteredMeta?.team_count ?? 8991;
-                const goldRank = Math.max(1, Math.min(10 + Math.ceil(totalTeams * 0.002), totalTeams));
-                const silverRank = Math.max(goldRank + 1, Math.ceil(totalTeams * 0.05));
-                const bronzeRank = Math.max(silverRank + 1, Math.ceil(totalTeams * 0.10));
-
-                return (
-                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #e2e8f0', marginBottom: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-                      <span style={{ fontWeight: 700, color: '#1e293b' }}>
-                        🏆 预估奖牌席位分界 (根据当前 {totalTeams.toLocaleString()} 支参赛队伍测算)
-                      </span>
-                      <Space size={14} wrap>
-                        <span style={{ color: '#ca8a04', fontWeight: 700 }}>
-                          🥇 金牌区: Top {goldRank} 名
-                        </span>
-                        <span style={{ color: '#0284c7', fontWeight: 700 }}>
-                          🥈 银牌区: Top {silverRank} 名
-                        </span>
-                        <span style={{ color: '#d97706', fontWeight: 700 }}>
-                          🥉 铜牌区: Top {bronzeRank} 名
-                        </span>
-                      </Space>
-                    </div>
-                    <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                      待您在 Kaggle 完成最终冲刺提交并填入 Submission ID 后，天梯监控模块将自动对照最新排行榜排位与 ELO 积分，实时计算您与金/银/铜牌线的安全垫差值。
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Standby Feature Slots preview */}
-              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 10 }}>
-                  开启监控后将自动激活的能力：
-                </div>
-                <Row gutter={[10, 10]}>
-                  <Col xs={24} sm={8}>
-                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, fontSize: 12, color: '#64748b' }}>
-                      ⚡ <strong>多 Agent 胜率矩阵</strong>：对比不同提交版本对抗效果
-                    </div>
-                  </Col>
-                  <Col xs={24} sm={8}>
-                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, fontSize: 12, color: '#64748b' }}>
-                      📈 <strong>全赛程 ELO 曲线</strong>：记录每场匹配胜负与分值波动
-                    </div>
-                  </Col>
-                  <Col xs={24} sm={8}>
-                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, fontSize: 12, color: '#64748b' }}>
-                      🛡️ <strong>奖牌安全垫预警</strong>：实时计算金/银/铜切分水线
-                    </div>
-                  </Col>
-                </Row>
-              </div>
-            </Card>
-          </Col>
-
-          {/* Right: WeChat ClawBot Hub in Standby */}
-          <Col xs={24} lg={9}>
-            <Card
-              className="dashboard-glow-card"
-              style={{
-                height: '100%',
-                borderRadius: 14,
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-              }}
-              styles={{ body: { padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%' } }}
-            >
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                  <Space align="center" size={8}>
-                    <div style={{ width: 32, height: 32, borderRadius: 8, background: '#dcfce7', display: 'grid', placeItems: 'center' }}>
-                      <Bot size={18} color="#16a34a" />
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a' }}>
-                        微信 ClawBot 智能管家
-                      </div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        官方长连接 · 实时待机中
-                      </Text>
-                    </div>
-                  </Space>
-
-                  <Space size={6}>
-                    <Button
-                      size="small"
-                      icon={<RefreshCw size={12} className={testingClawbot ? 'animate-spin' : ''} />}
-                      loading={testingClawbot}
-                      onClick={() => void handleTestClawbot()}
-                      style={{ fontSize: 12 }}
-                    >
-                      探测
-                    </Button>
-                    <Tag
-                      color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
-                      style={{ margin: 0, fontWeight: 700 }}
-                    >
-                      {clawbot?.is_online ? '在线' : '未连接'}
-                    </Tag>
-                  </Space>
-                </div>
-
-                <div style={{ background: '#f8fafc', borderRadius: 8, padding: '12px 14px', marginBottom: 14, border: '1px solid #f1f5f9' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-                    <span style={{ color: '#64748b' }}>关注赛事:</span>
-                    <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedCompetition}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-                    <span style={{ color: '#64748b' }}>对战巡检状态:</span>
-                    <span style={{ color: '#0284c7', fontWeight: 600 }}>休眠待命中</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <span style={{ color: '#64748b' }}>大模型引擎:</span>
-                    <span style={{ color: '#334155' }}>{clawbot?.model || 'deepseek-v4-flash-0731'}</span>
-                  </div>
-                </div>
-
-                <div style={{ fontSize: 12, color: '#475569', marginBottom: 14 }}>
-                  <Space size={6} style={{ marginBottom: 6 }}>
-                    <Smartphone size={14} color="#0284c7" />
-                    <span style={{ fontWeight: 600, color: '#0f172a' }}>手机微信随时可用：</span>
-                  </Space>
-                  <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 8 }}>
-                    在手机微信向管家发送指令，随时查询竞赛信息或唤醒对局巡检。
-                  </Paragraph>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    <Tag color="blue">战况</Tag>
-                    <Tag color="gold">分数</Tag>
-                    <Tag color="purple">排名</Tag>
-                    <Tag color="cyan">刷新</Tag>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  磁盘可用: <span style={{ fontWeight: 600, color: '#0f172a' }}>{diskFreeGB} GB</span>
-                </Text>
-                <Tag color={health?.ready ? 'green' : 'orange'}>
-                  {health?.ready ? 'CLI 凭据已就绪' : '检查凭据'}
-                </Tag>
-              </div>
-            </Card>
-          </Col>
-        </Row>
+        <ArenaStandbyView
+          selectedCompetition={selectedCompetition}
+          currentTitle={currentTitle}
+          compInfo={compInfo}
+          currentEnteredMeta={currentEnteredMeta}
+          formatDate={formatDate}
+          clawbot={clawbot}
+          testingClawbot={testingClawbot}
+          onTestClawbot={handleTestClawbot}
+          diskFreeGB={diskFreeGB}
+          healthReady={health?.ready}
+          onNavigateToKernels={() => navigate('/kernels')}
+        />
       )}
     </div>
   );

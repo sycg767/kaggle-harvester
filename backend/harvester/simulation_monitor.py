@@ -26,7 +26,7 @@ from .models import (
     SimulationEpisode,
     SimulationHistoryPoint,
     SimulationMedalThresholds,
-SimulationMonitorConfig,
+    SimulationMonitorConfig,
     SimulationEpisodePageResponse,
     SimulationRatingPoint,
     SimulationMonitorRunDetail,
@@ -34,6 +34,8 @@ SimulationMonitorConfig,
     SimulationMonitorSnapshot,
     SimulationMonitorStatus,
 )
+from .simulation.clawbot import ClawbotService
+from .simulation.agent_stats import calculate_agent_stats
 
 
 SIMULATION_FETCH_TIMEOUT_SECONDS = float(
@@ -179,217 +181,13 @@ class SimulationMonitorManager:
             )
             temp_path.replace(self._state_path)
 
-    _clawbot_status_cache: tuple[float, SimulationClawbotStatus] | None = None
-
-    @staticmethod
-    def _probe_gateway(host: str, port: int, timeout: float = 0.05) -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=timeout):
-                return True
-        except (socket.timeout, ConnectionRefusedError, OSError):
-            return False
-
-    @staticmethod
-    def _get_docker_host_ip() -> str | None:
-        try:
-            with open("/proc/net/route", "r", encoding="utf-8") as f:
-                for line in f:
-                    fields = line.strip().split()
-                    if len(fields) >= 3 and fields[1] == "00000000":
-                        val = int(fields[2], 16)
-                        return f"{val & 0xFF}.{(val >> 8) & 0xFF}.{(val >> 16) & 0xFF}.{(val >> 24) & 0xFF}"
-        except Exception:
-            pass
-        return None
-
     @classmethod
     def _get_clawbot_status(cls, force: bool = False) -> SimulationClawbotStatus:
-        import time
-        now = time.time()
-        if not force and cls._clawbot_status_cache is not None:
-            cached_time, cached_status = cls._clawbot_status_cache
-            if now - cached_time < 30.0:
-                return cached_status
-
-        # 1. 尝试定位 openclaw.json 配置文件（支持自定义路径、标准路径及容器内路径）
-        possible_paths: list[Path] = []
-        custom_cfg = os.getenv("OPENCLAW_CONFIG_PATH")
-        if custom_cfg:
-            possible_paths.append(Path(custom_cfg))
-        openclaw_home = os.getenv("OPENCLAW_HOME")
-        if openclaw_home:
-            possible_paths.append(Path(openclaw_home) / "openclaw.json")
-        try:
-            possible_paths.append(Path.home() / ".openclaw" / "openclaw.json")
-        except Exception:
-            pass
-        possible_paths.extend([
-            Path("/root/.openclaw/openclaw.json"),
-            Path("/app/.openclaw/openclaw.json"),
-            Path("data/.openclaw/openclaw.json"),
-        ])
-
-        cfg_data: dict[str, Any] | None = None
-        for p in possible_paths:
-            if p.is_file():
-                try:
-                    with open(p, "r", encoding="utf-8") as f:
-                        cfg_data = json.load(f)
-                    break
-                except Exception:
-                    pass
-
-        # 2. 提取配置信息（支持文件配置与环境变量混合）
-        provider_name = None
-        base_url = os.getenv("OPENCLAW_LLM_BASE_URL")
-        model_name = os.getenv("OPENCLAW_LLM_MODEL")
-        updated_at = None
-        gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
-        gateway_url = os.getenv("OPENCLAW_GATEWAY_URL")
-        configured = bool(os.getenv("OPENCLAW_LLM_API_KEY") or cfg_data)
-
-        if cfg_data:
-            providers = cfg_data.get("models", {}).get("providers", {})
-            if providers:
-                provider_name = next(iter(providers.keys()))
-                if not base_url:
-                    base_url = providers.get(provider_name, {}).get("baseUrl")
-            primary_model = cfg_data.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
-            if primary_model and not model_name:
-                model_name = primary_model.split("/")[-1]
-            updated_at = cfg_data.get("meta", {}).get("lastTouchedAt")
-            gw = cfg_data.get("gateway", {})
-            if "port" in gw and not os.getenv("OPENCLAW_GATEWAY_PORT"):
-                try:
-                    gateway_port = int(gw["port"])
-                except (ValueError, TypeError):
-                    pass
-
-        if not provider_name:
-            if base_url and "tokenrhythm" in base_url.lower():
-                provider_name = "TokenRhythm Studio"
-            elif base_url:
-                provider_name = "Custom Provider"
-
-        if not model_name and configured:
-            model_name = "deepseek-v4-flash-0731"
-
-        # 3. 真实在线探测 (Real-time Live Online Probing)
-        is_online = False
-        active_gateway = None
-
-        if gateway_url:
-            try:
-                parsed = urllib.parse.urlparse(gateway_url)
-                host = parsed.hostname or "127.0.0.1"
-                port = parsed.port or gateway_port
-                if cls._probe_gateway(host, port):
-                    is_online = True
-                    active_gateway = gateway_url
-            except Exception:
-                pass
-
-        if not is_online:
-            # 候选网关探测（包括本地回路、Docker 宿主别名、Linux 默认网桥及路由网关）
-            candidate_hosts = ["127.0.0.1", "localhost", "host.docker.internal", "172.17.0.1"]
-            docker_host = cls._get_docker_host_ip()
-            if docker_host and docker_host not in candidate_hosts:
-                candidate_hosts.append(docker_host)
-
-            for host in candidate_hosts:
-                if cls._probe_gateway(host, gateway_port):
-                    is_online = True
-                    active_gateway = f"http://{host}:{gateway_port}"
-                    break
-
-        res = SimulationClawbotStatus(
-            enabled=is_online,
-            is_online=is_online,
-            configured=configured,
-            provider=provider_name,
-            model=model_name,
-            base_url=base_url,
-            gateway_url=active_gateway or (gateway_url or f"http://127.0.0.1:{gateway_port}"),
-            updated_at=updated_at,
-        )
-        cls._clawbot_status_cache = (now, res)
-        return res
+        return ClawbotService.get_status(force=force)
 
     @classmethod
     def test_clawbot(cls) -> SimulationClawbotTestResult:
-        import time
-        status = cls._get_clawbot_status()
-        gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
-        gateway_url = os.getenv("OPENCLAW_GATEWAY_URL")
-
-        targets: list[tuple[str, str, int]] = []
-        if gateway_url:
-            try:
-                parsed = urllib.parse.urlparse(gateway_url)
-                targets.append((gateway_url, parsed.hostname or "127.0.0.1", parsed.port or gateway_port))
-            except Exception:
-                pass
-
-        targets.extend([
-            (f"http://127.0.0.1:{gateway_port}", "127.0.0.1", gateway_port),
-            (f"http://localhost:{gateway_port}", "localhost", gateway_port),
-            (f"http://host.docker.internal:{gateway_port}", "host.docker.internal", gateway_port),
-            (f"http://172.17.0.1:{gateway_port}", "172.17.0.1", gateway_port),
-        ])
-
-        docker_host = cls._get_docker_host_ip()
-        if docker_host and docker_host not in ["127.0.0.1", "172.17.0.1"]:
-            targets.append((f"http://{docker_host}:{gateway_port}", docker_host, gateway_port))
-
-        candidates: list[SimulationClawbotTestCandidate] = []
-        first_success_url: str | None = None
-        first_latency: float | None = None
-
-        seen_targets = set()
-        for display_url, host, port in targets:
-            if display_url in seen_targets:
-                continue
-            seen_targets.add(display_url)
-
-            start = time.perf_counter()
-            reachable = cls._probe_gateway(host, port, timeout=0.5)
-            latency = round((time.perf_counter() - start) * 1000, 1)
-
-            if reachable:
-                detail = f"TCP 端口 {port} 握手成功 ({latency}ms)"
-                if not first_success_url:
-                    first_success_url = display_url
-                    first_latency = latency
-            else:
-                detail = "连接失败 (Connection Refused 或超时)"
-
-            candidates.append(
-                SimulationClawbotTestCandidate(
-                    target=display_url,
-                    reachable=reachable,
-                    latency_ms=latency if reachable else None,
-                    detail=detail,
-                )
-            )
-
-        success = bool(first_success_url)
-        message = (
-            f"成功连接至 OpenClaw 网关 ({first_success_url})，微信长连接已就绪！"
-            if success
-            else "未能连接至任何候选 OpenClaw 网关 (端口 18789)。请确认 OpenClaw 网关是否已在宿主机或容器中运行 (openclaw gateway run)。"
-        )
-
-        return SimulationClawbotTestResult(
-            success=success,
-            message=message,
-            active_url=first_success_url,
-            latency_ms=first_latency,
-            configured=status.configured,
-            config_file_found=os.getenv("OPENCLAW_CONFIG_PATH") or (str(Path.home() / ".openclaw" / "openclaw.json") if (Path.home() / ".openclaw" / "openclaw.json").exists() else None),
-            model=status.model,
-            provider=status.provider,
-            candidates=candidates,
-        )
+        return ClawbotService.test_gateway()
 
     def snapshot(self) -> SimulationMonitorSnapshot:
         with self._state_lock:
@@ -903,220 +701,29 @@ class SimulationMonitorManager:
                 )
                 continue
 
-            system_check_names = {"对手", "系统自检"}
-            for ep in episodes:
-                if (
-                    ep.is_system_check
-                    or (
-                        ep.opponent_submission_id is None
-                        and ep.opponent_team_id is None
-                        and ep.opponent_team_name.strip() in system_check_names
-                    )
-                ):
-                    ep.is_system_check = True
-                    ep.opponent_team_name = "系统自检"
-                    ep.result = "unknown"
-                    ep.reward = None
-                    ep.score_delta = None
-                    ep.opponent_score = None
-
-            real_episodes = [ep for ep in episodes if not ep.is_system_check]
-            wins = sum(1 for ep in real_episodes if ep.result == "win")
-            losses = sum(1 for ep in real_episodes if ep.result == "loss")
-            ties = sum(1 for ep in real_episodes if ep.result == "tie")
-            system_checks = sum(1 for ep in episodes if ep.is_system_check)
-            total = len(episodes)
-            win_rate = round((wins / len(real_episodes) * 100), 1) if real_episodes else 0.0
-
-            # 匹配队伍名与 Rank
-            my_team_name = sub.team_name or ""
-            if not my_team_name and episodes:
-                my_team_name = episodes[0].my_team_name or ""
-            if not my_team_name and comp == "pokemon-tcg-ai-battle":
-                my_team_name = "GrimmsnaRL"
-
-            score = sub.public_score
-            if score is None:
-                if comp == "pokemon-tcg-ai-battle":
-                    if sub_id == 55565346:
-                        score = 843.0
-                    elif sub_id == 55555162:
-                        score = 847.8
-                if score is None and my_team_name and my_team_name.strip().lower() in team_scores:
-                    score = team_scores[my_team_name.strip().lower()]
-
-            rank: int | None = None
-            if score is not None and leaderboard_rows:
-                for idx, row in enumerate(leaderboard_rows):
-                    r_score = _parse_public_score(row.get("Score"))
-                    if r_score is not None and score >= r_score:
-                        rank = idx + 1
-                        break
-            if rank is None and my_team_name:
-                rank = team_ranks.get(my_team_name.strip().lower())
-
-            # 奖牌计算
-            bronze_cutoff = thresholds.bronze_cutoff_score if thresholds else None
-            silver_cutoff = thresholds.silver_cutoff_score if thresholds else None
-            gold_cutoff = thresholds.gold_cutoff_score if thresholds else None
-            bronze_rank = thresholds.bronze_cutoff_rank if thresholds else None
-            silver_rank = thresholds.silver_cutoff_rank if thresholds else None
-            gold_rank = thresholds.gold_cutoff_rank if thresholds else None
-            bronze_gap_score: float | None = None
-            if score is not None and bronze_cutoff is not None:
-                bronze_gap_score = round(score - bronze_cutoff, 1)
-
-            bronze_gap_rank: int | None = None
-            if rank is not None and bronze_rank is not None:
-                bronze_gap_rank = bronze_rank - rank
-
-            medal_tier: Literal["gold", "silver", "bronze", "none", "unknown"] = "unknown"
-            if rank is not None:
-                if gold_rank and rank <= gold_rank:
-                    medal_tier = "gold"
-                elif silver_rank and rank <= silver_rank:
-                    medal_tier = "silver"
-                elif bronze_rank and rank <= bronze_rank:
-                    medal_tier = "bronze"
-                else:
-                    medal_tier = "none"
-            elif score is not None and bronze_cutoff is not None:
-                if gold_cutoff and score >= gold_cutoff:
-                    medal_tier = "gold"
-                elif silver_cutoff and score >= silver_cutoff:
-                    medal_tier = "silver"
-                elif score >= bronze_cutoff:
-                    medal_tier = "bronze"
-                else:
-                    medal_tier = "none"
-
-            # 动态计算当前奖牌层安全垫 (tier_cushion_score) 与下一奖牌层冲刺差距 (next_tier_gap_score)
-            tier_cushion_score: float | None = None
-            next_tier_gap_score: float | None = None
-            next_tier_name: Literal["gold", "silver", "bronze"] | None = None
-
-            if score is not None:
-                if medal_tier == "gold":
-                    if gold_cutoff is not None:
-                        tier_cushion_score = round(score - gold_cutoff, 1)
-                    next_tier_gap_score = None
-                    next_tier_name = None
-                elif medal_tier == "silver":
-                    if silver_cutoff is not None:
-                        tier_cushion_score = round(score - silver_cutoff, 1)
-                    if gold_cutoff is not None:
-                        next_tier_gap_score = round(gold_cutoff - score, 1)
-                    next_tier_name = "gold"
-                elif medal_tier == "bronze":
-                    if bronze_cutoff is not None:
-                        tier_cushion_score = round(score - bronze_cutoff, 1)
-                    if silver_cutoff is not None:
-                        next_tier_gap_score = round(silver_cutoff - score, 1)
-                    next_tier_name = "silver"
-                else:  # none or unknown
-                    tier_cushion_score = None
-                    if bronze_cutoff is not None:
-                        next_tier_gap_score = round(bronze_cutoff - score, 1)
-                    next_tier_name = "bronze"
-
-            # 天梯变动必须使用 EpisodeService 返回的 initialScore/updatedScore。
-            # 没有真实接口数据时保持 None，绝不使用本地 Elo 估算冒充官方分数。
-            for ep in real_episodes:
-                if ep.opponent_score is None:
-                    opp_key = ep.opponent_team_name.strip().lower() if ep.opponent_team_name else ""
-                    opp_score = team_scores.get(opp_key) if opp_key else None
-                    if opp_score is None and ep.opponent_team_id:
-                        opp_score = team_scores.get(str(ep.opponent_team_id))
-                    ep.opponent_score = opp_score
-
-            # Kaggle 对局接口按最新在前返回；从当前最终分数反推每局结算后的分数。
-            # 这样每一局都有一个真实/可解释的轨迹点，而不是每次轮询只有一个点。
-            rating_trajectory: list[SimulationRatingPoint] = []
-            if score is not None:
-                chronological_episodes = sorted(
-                    real_episodes,
-                    key=lambda item: (item.end_time or item.create_time or "", item.id),
-                )
-                score_after = float(score)
-                reversed_points: list[SimulationRatingPoint] = []
-                for game_number, ep in reversed(list(enumerate(chronological_episodes, start=1))):
-                    reversed_points.append(
-                        SimulationRatingPoint(
-                            episode_id=ep.id,
-                            game_number=game_number,
-                            timestamp=ep.end_time or ep.create_time,
-                            score=round(score_after, 1),
-                            score_delta=ep.score_delta,
-                            result=ep.result,
-                        )
-                    )
-                    score_after = round(score_after - (ep.score_delta or 0.0), 1)
-                rating_trajectory = list(reversed(reversed_points))
-
-            # 提取自定义别名或智能推导别名 (如 p32, p46)
-            sub_id_str = str(sub_id)
-            agent_alias: str | None = None
-            if config.submission_aliases and isinstance(config.submission_aliases, dict):
-                agent_alias = config.submission_aliases.get(sub_id_str) or config.submission_aliases.get(sub_id)
-            if not agent_alias:
-                if sub_id == 55565346:
-                    agent_alias = "p46"
-                elif sub_id == 55555162:
-                    agent_alias = "p31"
-                else:
-                    raw_desc = (sub.description or sub.file_name or "").strip()
-                    m = re.search(r"\b(p\d+(?:plus\d+)?)\b", raw_desc, re.IGNORECASE)
-                    if m:
-                        agent_alias = m.group(1)
-
-            agent_stat = SimulationAgentStats(
-                submission_id=sub_id,
-                alias=agent_alias,
-                file_name=sub.file_name,
-                description=sub.description,
-                team_name=my_team_name,
-                date=sub.date,
-                status=sub.status,
-                public_score=score,
-                score=score,
-                public_score_display=sub.public_score_display or (f"{score:.1f}" if score is not None else None),
-                rank=rank,
-                total_episodes=total,
-                wins=wins,
-                losses=losses,
-                ties=ties,
-                system_checks=system_checks,
-                win_rate=win_rate,
-                recent_episodes=episodes[:50],
-                rating_trajectory=rating_trajectory,
-                bronze_gap_score=bronze_gap_score,
-                bronze_gap_rank=bronze_gap_rank,
-                tier_cushion_score=tier_cushion_score,
-                next_tier_gap_score=next_tier_gap_score,
-                next_tier_name=next_tier_name,
-                medal_tier=medal_tier,
-                last_updated=checked_time,
+            agent_stat, history_point = calculate_agent_stats(
+                sub=sub,
+                episodes=episodes,
+                comp=comp,
+                leaderboard_rows=leaderboard_rows,
+                team_ranks=team_ranks,
+                team_scores=team_scores,
+                thresholds=thresholds,
+                config=config,
+                checked_time=checked_time,
             )
             agents_stats.append(agent_stat)
+            new_history_points.append(history_point)
 
-            # 历史点记录
-            new_history_points.append(
-                SimulationHistoryPoint(
-                    timestamp=checked_time,
-                    submission_id=sub_id,
-                    alias=agent_alias,
-                    score=score,
-                    rank=rank,
-                    total_episodes=total,
-                    wins=wins,
-                    losses=losses,
-                    ties=ties,
-                    system_checks=system_checks,
-                    win_rate=win_rate,
-                    bronze_gap_score=bronze_gap_score,
-                    bronze_cutoff_score=bronze_cutoff,
-                )
-            )
+            agent_alias = agent_stat.alias
+            score = agent_stat.score
+            rank = agent_stat.rank
+            total = agent_stat.total_episodes
+            wins = agent_stat.wins
+            losses = agent_stat.losses
+            win_rate = agent_stat.win_rate
+            bronze_gap_score = agent_stat.bronze_gap_score
+            medal_tier = agent_stat.medal_tier
 
             # 对比增量对局与通知
             prev_cnt = prev_counts.get(str(sub_id))

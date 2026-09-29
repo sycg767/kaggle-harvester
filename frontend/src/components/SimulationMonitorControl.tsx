@@ -3,165 +3,47 @@ import {
   Alert,
   App as AntApp,
   Button,
-  Card,
-  Col,
-  Drawer,
-  Empty,
   Form,
-  Input,
-  InputNumber,
-  List,
   Modal,
-  Progress,
-  Row,
-  Select,
   Space,
   Spin,
-  Statistic,
-  Switch,
-  Table,
   Tag,
   Tooltip,
   Typography,
-  type TableColumnsType,
 } from 'antd';
 import {
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
-  CopyOutlined,
-  EditOutlined,
-  ExclamationCircleOutlined,
-  ExportOutlined,
-  EyeOutlined,
   HistoryOutlined,
-  InfoCircleOutlined,
-  PlayCircleOutlined,
   ReloadOutlined,
-  RightOutlined,
-  SaveOutlined,
   SettingOutlined,
-  TagOutlined,
-  TrophyOutlined,
 } from '@ant-design/icons';
-import { Swords, Award, Flame, MessageCircle, Bot, Zap } from 'lucide-react';
+import { Swords, MessageCircle } from 'lucide-react';
 import {
   api,
   type SimulationAgentStats,
   type SimulationClawbotTestResult,
-  type SimulationEpisode,
   type SimulationEpisodePageResponse,
-  type SimulationMedalThresholds,
   type SimulationMonitorConfig,
   type SimulationMonitorRunDetail,
-  type SimulationMonitorRunLog,
   type SimulationMonitorSnapshot,
 } from '../api';
 import DialogTitle from './DialogTitle';
 
-const { Text, Title } = Typography;
+import { formatDate } from './simulation/utils';
+import ClawbotModal from './simulation/ClawbotModal';
+import AliasEditModal from './simulation/AliasEditModal';
+import HistoryModal from './simulation/HistoryModal';
+import RunDetailModal from './simulation/RunDetailModal';
+import SettingsDrawer, { type AvailableSubmissionItem } from './simulation/SettingsDrawer';
+import CandidateSubmissionsView from './simulation/CandidateSubmissionsView';
+import ActiveBattleDashboard from './simulation/ActiveBattleDashboard';
+
+const { Text } = Typography;
 
 interface SimulationMonitorControlProps {
   currentCompetition?: string;
   buttonText?: string;
   buttonIcon?: React.ReactNode;
 }
-
-const formatDate = (value?: string) => {
-  if (!value) return '—';
-  let normalized = value.trim();
-  if (
-    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(normalized)
-    && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)
-  ) {
-    normalized = `${normalized.replace(' ', 'T')}Z`;
-  }
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-};
-
-const formatShortTime = (value?: string) => {
-  if (!value) return '—';
-  let normalized = value.trim();
-  if (
-    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(normalized)
-    && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)
-  ) {
-    normalized = `${normalized.replace(' ', 'T')}Z`;
-  }
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour12: false,
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
-const formatDuration = (seconds: number) => {
-  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
-  if (seconds < 60) return `${seconds.toFixed(1)} 秒`;
-  return `${Math.floor(seconds / 60)} 分 ${Math.round(seconds % 60)} 秒`;
-};
-
-const getMedalTag = (tier?: string) => {
-  if (tier === 'gold') {
-    return <Tag color="gold" icon={<TrophyOutlined />}>金牌线内</Tag>;
-  }
-  if (tier === 'silver') {
-    return (
-      <Tag
-        color="default"
-        style={{ borderColor: '#cbd5e1', background: '#f1f5f9', color: '#475569' }}
-        icon={<TrophyOutlined />}
-      >
-        银牌线内
-      </Tag>
-    );
-  }
-  if (tier === 'bronze') {
-    return <Tag color="orange" icon={<TrophyOutlined />}>铜牌线内</Tag>;
-  }
-  return <Tag color="default">暂无奖牌</Tag>;
-};
-
-const getShortAgentName = (agent: SimulationAgentStats, defaultIdx: number) => {
-  if (agent.alias && agent.alias.trim()) return agent.alias.trim();
-  if (agent.submission_id === 55565346) return 'p46';
-  if (agent.submission_id === 55555162) return 'p31';
-  const raw = (agent.description || agent.file_name || '').trim();
-  if (/p46/i.test(raw)) return 'p46';
-  if (/p3plus31|p31/i.test(raw)) return 'p31';
-  const match = raw.match(/^(p\d+(?:plus\d+)?|p\d+)/i);
-  if (match) {
-    let name = match[1];
-    if (/^p3plus31/i.test(name)) name = 'p31';
-    return name;
-  }
-  const fileMatch = (agent.file_name || '').match(/^(p\d+(?:plus\d+)?|p\d+)/i);
-  if (fileMatch) {
-    let name = fileMatch[1];
-    if (/^p3plus31/i.test(name)) name = 'p31';
-    return name;
-  }
-  if (raw && !raw.toLowerCase().startsWith('agent') && raw.length <= 15) {
-    return raw.replace(/[:_\-—]+$/, '');
-  }
-  return `Agent #${defaultIdx + 1}`;
-};
 
 export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> = ({
   currentCompetition,
@@ -182,15 +64,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [clawbotOpen, setClawbotOpen] = useState(false);
   const [testingClawbot, setTestingClawbot] = useState(false);
   const [clawbotTestResult, setClawbotTestResult] = useState<SimulationClawbotTestResult | null>(null);
-  const [availableSubmissions, setAvailableSubmissions] = useState<Array<{
-    submission_id: number;
-    description: string;
-    file_name: string;
-    date: string;
-    status: string;
-    public_score?: number | null;
-    team_name?: string;
-  }>>([]);
+  const [availableSubmissions, setAvailableSubmissions] = useState<AvailableSubmissionItem[]>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [episodePages, setEpisodePages] = useState<Record<number, SimulationEpisodePageResponse>>({});
   const [episodeLoading, setEpisodeLoading] = useState<Record<number, boolean>>({});
@@ -344,69 +218,60 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
     }
   }, [form, message, currentCompetition]);
 
-  // Initial fetch and auto-poll
   useEffect(() => {
-    fetchSnapshot(true);
-    const timer = setInterval(() => {
-      fetchSnapshot(true);
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [fetchSnapshot]);
-
-  const handleOpen = () => {
-    setOpen(true);
-    fetchSnapshot(true);
-    void fetchAvailableSubmissions(targetCompetition);
-  };
+    if (open) {
+      void fetchSnapshot();
+      if (!isTargetCompActive) {
+        void fetchAvailableSubmissions(targetCompetition);
+      }
+    }
+  }, [open, fetchSnapshot, isTargetCompActive, fetchAvailableSubmissions, targetCompetition]);
 
   const handleRunNow = async () => {
     setRunningNow(true);
     try {
-      const result = await api.runSimulationMonitor();
-      setSnapshot(result);
-      message.success('已触发即时对战与排行榜刷新！');
+      const updated = await api.runSimulationMonitor();
+      setSnapshot(updated);
+      message.success('已触发模拟对战最新轮次检查并成功刷新数据！');
     } catch (err: any) {
-      message.error(`执行刷新失败: ${err.message}`);
+      message.error(`立即检查失败: ${err.message}`);
     } finally {
-      if (isMounted.current) setRunningNow(false);
+      setRunningNow(false);
     }
   };
 
-  const handleSaveConfig = async (values: any) => {
+  const handleSaveConfig = async (values: SimulationMonitorConfig) => {
     setSaving(true);
     try {
       const updated = await api.updateSimulationMonitor({
         ...values,
-        notify_on_new_episodes: values.notify_on_new_matches,
-        target_submission_ids: (values.target_submission_ids || []).map((v: any) => Number(v)),
         submission_aliases: submissionAliases,
       });
       setSnapshot(updated);
       setSettingsOpen(false);
-      message.success('模拟对战监控配置已更新！');
+      message.success('已保存模拟对战监控配置！');
+      void fetchSnapshot(true);
     } catch (err: any) {
       message.error(`保存配置失败: ${err.message}`);
     } finally {
-      if (isMounted.current) setSaving(false);
+      setSaving(false);
     }
   };
 
   const handleViewLogDetail = async (logId: string) => {
     setSelectedLogId(logId);
-    setLogDetail(null);
     setLogDetailLoading(true);
     try {
       const detail = await api.getSimulationMonitorLog(logId);
-      if (isMounted.current) setLogDetail(detail);
+      setLogDetail(detail);
     } catch (err: any) {
-      if (isMounted.current) message.error(`读取日志明细失败: ${err.message}`);
+      message.error(`读取明细失败: ${err.message}`);
     } finally {
-      if (isMounted.current) setLogDetailLoading(false);
+      setLogDetailLoading(false);
     }
   };
 
   const status = snapshot?.status;
-  const config = snapshot?.config;
   const agents = status?.agents || [];
   const thresholds = status?.thresholds || status?.medal_thresholds;
 
@@ -434,15 +299,16 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       ) {
         return 'bronze';
       }
-      return 'none';
     }
-    return 'none';
+    return agent.medal_tier || undefined;
   }, [thresholds]);
 
   const agent1 = agents[0];
   const agent2 = agents[1];
+
   const agent1Page = agent1 ? episodePages[agent1.submission_id] : undefined;
   const agent2Page = agent2 ? episodePages[agent2.submission_id] : undefined;
+
   const agent1Episodes = agent1Page?.episodes ?? [];
   const agent2Episodes = agent2Page?.episodes ?? [];
 
@@ -461,221 +327,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         void fetchEpisodePage(agent.submission_id);
       }
     });
-  }, [agents, episodeLoading, episodePages, fetchEpisodePage, open]);
-
-  // Table columns for each agent stream with Replay integrated into Episode ID and score change displayed
-  const sideEpisodeColumns: TableColumnsType<SimulationEpisode> = useMemo(() => [
-    {
-      title: '对局 ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 105,
-      render: (id: number, record) => (
-        <Tooltip title="点击在 Kaggle 查看官方对战回放 ↗">
-          <a
-            href={record.replay_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="sim-episode-link"
-          >
-            #{id}
-            <ExportOutlined style={{ fontSize: 11 }} />
-          </a>
-        </Tooltip>
-      ),
-    },
-    {
-      title: '时间',
-      dataIndex: 'create_time',
-      key: 'create_time',
-      width: 100,
-      render: (time: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {formatShortTime(time)}
-        </Text>
-      ),
-    },
-    {
-      title: '对手队伍',
-      dataIndex: 'opponent_team_name',
-      key: 'opponent_team_name',
-      ellipsis: true,
-      render: (name: string, record) => {
-        const scoreLabel = record.opponent_score ? ` (${record.opponent_score.toFixed(0)}分)` : '';
-        return record.is_system_check ? (
-          <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-            系统自检
-          </Text>
-        ) : (
-          <Tooltip title={record.opponent_submission_id ? `${name}${scoreLabel} (Sub #${record.opponent_submission_id})` : `${name}${scoreLabel}`}>
-            <Text style={{ fontSize: 12 }} ellipsis>
-              {name || '对手'}{record.opponent_score ? <span style={{ color: '#94a3b8', fontSize: 11 }}> ({record.opponent_score.toFixed(0)})</span> : null}
-            </Text>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: (
-        <Tooltip title="Kaggle 官方真实对战结算天梯分加减（+ 代表获胜加分，- 代表战败扣分）">
-          <span style={{ cursor: 'help', borderBottom: '1px dashed #94a3b8' }}>
-            天梯变动
-          </span>
-        </Tooltip>
-      ),
-      dataIndex: 'result',
-      key: 'result',
-      width: 95,
-      align: 'center',
-      render: (res: string, record) => {
-        if (record.is_system_check) {
-          return (
-            <Tag color="default" style={{ margin: 0, fontSize: 11, fontWeight: 700, borderRadius: 6 }}>
-              系统自检 · 不计分
-            </Tag>
-          );
-        }
-        const delta = record.score_delta;
-        if (res === 'win' || record.reward === 1) {
-          const deltaStr = delta !== undefined && delta !== null ? `+${Math.abs(delta).toFixed(1)}` : '+3.0';
-          return (
-            <Tag color="success" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
-              {deltaStr}
-            </Tag>
-          );
-        }
-        if (res === 'loss' || record.reward === -1) {
-          const deltaStr = delta !== undefined && delta !== null ? `-${Math.abs(delta).toFixed(1)}` : '-3.0';
-          return (
-            <Tag color="error" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
-              {deltaStr}
-            </Tag>
-          );
-        }
-        if (res === 'tie' || record.reward === 0) {
-          return (
-            <Tag color="default" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
-              0.0
-            </Tag>
-          );
-        }
-          return (
-            <Tag color="default" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
-              —
-            </Tag>
-          );
-      },
-    },
-  ], []);
-
-  const candidateSubColumns: TableColumnsType<typeof availableSubmissions[0]> = useMemo(() => [
-    {
-      title: '提交 ID',
-      dataIndex: 'submission_id',
-      key: 'submission_id',
-      width: 140,
-      render: (id: number) => (
-        <Space size={4}>
-          <Text code style={{ fontSize: 13, fontWeight: 700 }}>#{id}</Text>
-          <Tooltip title="复制提交 ID">
-            <Button
-              type="text"
-              size="small"
-              icon={<CopyOutlined style={{ fontSize: 12, color: '#64748b' }} />}
-              onClick={() => {
-                void navigator.clipboard?.writeText(String(id));
-                message.success(`已复制提交 ID: #${id}`);
-              }}
-            />
-          </Tooltip>
-        </Space>
-      ),
-    },
-    {
-      title: '描述 / 模型文件名',
-      key: 'desc',
-      ellipsis: true,
-      render: (_, r) => (
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>
-            {r.description || r.file_name || '未命名提交'}
-          </div>
-          {r.description && r.file_name && r.description !== r.file_name && (
-            <div style={{ fontSize: 11, color: '#64748b' }}>{r.file_name}</div>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: '队伍 / 提交者',
-      dataIndex: 'team_name',
-      key: 'team_name',
-      width: 160,
-      render: (t: string) => <Text style={{ fontSize: 12 }}>{t || '我方团队'}</Text>,
-    },
-    {
-      title: '提交时间',
-      dataIndex: 'date',
-      key: 'date',
-      width: 150,
-      render: (d: string) => <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(d)}</Text>,
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 110,
-      render: (s: string) => {
-        const isOk = s?.toLowerCase().includes('complete') || s?.toLowerCase().includes('success');
-        const isPending = s?.toLowerCase().includes('pending') || s?.toLowerCase().includes('running');
-        return (
-          <Tag color={isOk ? 'success' : isPending ? 'processing' : 'default'} style={{ margin: 0, fontWeight: 600 }}>
-            {s || '—'}
-          </Tag>
-        );
-      },
-    },
-    {
-      title: 'Kaggle 得分',
-      dataIndex: 'public_score',
-      key: 'public_score',
-      width: 110,
-      align: 'right',
-      render: (sc?: number | null) => (
-        <span style={{ fontWeight: 800, fontSize: 13, color: sc !== undefined && sc !== null ? '#0f172a' : '#94a3b8' }}>
-          {sc !== undefined && sc !== null ? Number(sc).toFixed(1) : '—'}
-        </span>
-      ),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 130,
-      align: 'center',
-      render: (_, r) => (
-        <Button
-          size="small"
-          type="primary"
-          ghost
-          onClick={() => {
-            const currentSelected: number[] = form.getFieldValue('target_submission_ids') || [];
-            const nextSelected = currentSelected.includes(r.submission_id)
-              ? currentSelected
-              : [...currentSelected, r.submission_id].slice(-2);
-            form.setFieldsValue({
-              enabled: true,
-              competition: targetCompetition,
-              target_submission_ids: nextSelected,
-            });
-            setSettingsOpen(true);
-            message.info(`已选定智能体 #${r.submission_id}，请确认配置后点击保存开启监控`);
-          }}
-        >
-          设为监控目标
-        </Button>
-      ),
-    },
-  ], [form, message, targetCompetition]);
+  }, [agents, episodeLoading, episodePages, fetchEpisodePage, open, isTargetCompActive]);
 
   const getRatedEpisodeCount = (agent?: SimulationAgentStats) => (
     Math.max(0, (agent?.total_episodes || 0) - (agent?.system_checks || 0))
@@ -685,18 +337,13 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
 
   return (
     <>
-      {/* Top Bar Trigger Button */}
-      <Tooltip title={`${targetCompTitle} 对战天梯与智能体监控`} open={open ? false : undefined}>
-        <Button
-          type="default"
-          size={buttonText ? 'small' : undefined}
-          icon={buttonIcon || <Swords size={15} className="text-amber-500" strokeWidth={2} />}
-          onClick={handleOpen}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 500 }}
-        >
-          <span>{buttonText || '对战监控'}</span>
-        </Button>
-      </Tooltip>
+      <Button
+        icon={buttonIcon || <Swords size={14} />}
+        onClick={() => setOpen(true)}
+        style={{ borderRadius: 6, fontSize: 12, fontWeight: 500 }}
+      >
+        {buttonText || '天梯对战监控'}
+      </Button>
 
       {/* Main Dashboard Modal */}
       <Modal
@@ -846,946 +493,123 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             )}
 
             {!isTargetCompActive ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <Card
-                  size="small"
-                  className="sim-banner-card"
-                  styles={{ body: { padding: '16px 20px' } }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <Tag color="blue" style={{ margin: 0, fontWeight: 700 }}>待命就绪</Tag>
-                        <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
-                          【{targetCompTitle}】已识别为模拟/智能体对抗竞赛
-                        </span>
-                      </div>
-                      <Text type="secondary" style={{ fontSize: 13 }}>
-                        {isMonitoringActive ? (
-                          <>
-                            后台定时巡检当前正在监控其他赛事（<code>{snapshot?.config?.competition}</code>）。已为您拉取到当前赛事的 <strong>{availableSubmissions.length}</strong> 个历史提交记录。您可以随时配置并切换为此赛事的自动化巡检。
-                          </>
-                        ) : (
-                          <>
-                            当前后台未开启任何赛事的定时巡检（处于待命状态）。已为您拉取到该赛事的 <strong>{availableSubmissions.length}</strong> 个历史提交记录，您可以随时勾选智能体并开启自动化巡检。
-                          </>
-                        )}
-                      </Text>
-                    </div>
-
-                    <Space size={8}>
-                      <Button
-                        type="primary"
-                        icon={<Zap size={14} style={{ marginRight: 4 }} />}
-                        onClick={() => {
-                          const topSubs = availableSubmissions
-                            .filter((s) => s.status?.toLowerCase().includes('complete') || s.status?.toLowerCase().includes('success'))
-                            .slice(0, 2)
-                            .map((s) => s.submission_id);
-                          form.setFieldsValue({
-                            enabled: true,
-                            competition: targetCompetition,
-                            target_submission_ids: topSubs.length > 0 ? topSubs : availableSubmissions.slice(0, 2).map((s) => s.submission_id),
-                          });
-                          setSettingsOpen(true);
-                        }}
-                      >
-                        快捷选定有效提交开启
-                      </Button>
-                      <Button
-                        icon={<ReloadOutlined spin={loadingSubmissions} />}
-                        loading={loadingSubmissions}
-                        onClick={() => void fetchAvailableSubmissions(targetCompetition)}
-                      >
-                        重新拉取提交
-                      </Button>
-                    </Space>
-                  </div>
-                </Card>
-
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Flame size={16} color="#f97316" />
-                      <Text strong style={{ fontSize: 14 }}>我方候选智能体提交列表 ({availableSubmissions.length})</Text>
-                    </div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      点击「设为监控目标」即可快速填入监控目标并准备启动
-                    </Text>
-                  </div>
-
-                  <Table
-                    columns={candidateSubColumns}
-                    dataSource={availableSubmissions}
-                    rowKey="submission_id"
-                    size="small"
-                    loading={loadingSubmissions}
-                    pagination={{ pageSize: 8, showSizeChanger: false }}
-                    bordered
-                  />
-                </div>
-              </div>
+              <CandidateSubmissionsView
+                targetCompTitle={targetCompTitle}
+                targetCompetition={targetCompetition}
+                isMonitoringActive={isMonitoringActive}
+                activeMonitoredCompetition={snapshot?.config?.competition}
+                availableSubmissions={availableSubmissions}
+                loadingSubmissions={loadingSubmissions}
+                onQuickEnable={() => {
+                  const topSubs = availableSubmissions
+                    .filter((s) => s.status?.toLowerCase().includes('complete') || s.status?.toLowerCase().includes('success'))
+                    .slice(0, 2)
+                    .map((s) => s.submission_id);
+                  form.setFieldsValue({
+                    enabled: true,
+                    competition: targetCompetition,
+                    target_submission_ids: topSubs.length > 0 ? topSubs : availableSubmissions.slice(0, 2).map((s) => s.submission_id),
+                  });
+                  setSettingsOpen(true);
+                }}
+                onRefreshSubmissions={() => void fetchAvailableSubmissions(targetCompetition)}
+                onSelectSubmissionAsTarget={(subId) => {
+                  const currentSelected: number[] = form.getFieldValue('target_submission_ids') || [];
+                  const nextSelected = currentSelected.includes(subId)
+                    ? currentSelected
+                    : [...currentSelected, subId].slice(-2);
+                  form.setFieldsValue({
+                    enabled: true,
+                    competition: targetCompetition,
+                    target_submission_ids: nextSelected,
+                  });
+                  setSettingsOpen(true);
+                  message.info(`已选定智能体 #${subId}，请确认配置后点击保存开启监控`);
+                }}
+                onCopyId={(subId) => {
+                  void navigator.clipboard?.writeText(String(subId));
+                  message.success(`已复制提交 ID: #${subId}`);
+                }}
+              />
             ) : (
-              <>
-                {/* Medal Thresholds Banner: Ordered Gold -> Silver -> Bronze */}
-                {thresholds && (
-                  <Card
-                    size="small"
-                    className="sim-banner-card"
-                    styles={{ body: { padding: '12px 18px' } }}
-                  >
-                    <Row gutter={[12, 12]} align="middle">
-                      <Col xs={12} sm={6}>
-                        <Statistic
-                          title={<span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>天梯总参赛队伍</span>}
-                          value={thresholds.total_teams}
-                          suffix={<span style={{ fontSize: 12, color: '#94a3b8' }}>队</span>}
-                          valueStyle={{ fontWeight: 700, fontSize: 18 }}
-                        />
-                      </Col>
-                      <Col xs={12} sm={6}>
-                        <Statistic
-                          title={
-                            <span style={{ fontSize: 12, fontWeight: 600, color: '#ca8a04', display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <TrophyOutlined style={{ fontSize: 13, color: '#ca8a04' }} /> 金牌线
-                            </span>
-                          }
-                          value={thresholds.gold_cutoff_score ?? '—'}
-                          suffix={
-                            <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                              (第 {thresholds.gold_cutoff_rank} 名)
-                            </span>
-                          }
-                          valueStyle={{ color: '#ca8a04', fontWeight: 800, fontSize: 18 }}
-                        />
-                      </Col>
-                      <Col xs={12} sm={6}>
-                        <Statistic
-                          title={
-                            <span style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <TrophyOutlined style={{ fontSize: 13, color: '#64748b' }} /> 银牌线
-                            </span>
-                          }
-                          value={thresholds.silver_cutoff_score ?? '—'}
-                          suffix={
-                            <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                              (第 {thresholds.silver_cutoff_rank} 名)
-                            </span>
-                          }
-                          valueStyle={{ color: '#475569', fontWeight: 800, fontSize: 18 }}
-                        />
-                      </Col>
-                      <Col xs={12} sm={6}>
-                        <Statistic
-                          title={
-                            <span style={{ fontSize: 12, fontWeight: 600, color: '#d97706', display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <TrophyOutlined style={{ fontSize: 13, color: '#d97706' }} /> 铜牌线
-                            </span>
-                          }
-                          value={thresholds.bronze_cutoff_score ?? '—'}
-                          suffix={
-                            <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                              (第 {thresholds.bronze_cutoff_rank} 名)
-                            </span>
-                          }
-                          valueStyle={{ color: '#d97706', fontWeight: 800, fontSize: 18 }}
-                        />
-                      </Col>
-                    </Row>
-                  </Card>
-                )}
-
-                {/* Dual Agent Overview Cards */}
-                <div style={{ marginBottom: 18 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                    <Flame size={16} color="#f97316" />
-                    <Text strong style={{ fontSize: 14 }}>我方 2 个活跃提交实时战况</Text>
-                  </div>
-
-                  {agents.length === 0 ? (
-                    <Empty description="暂无代理数据，请点击右上角「立即刷新」拉取数据。" />
-                  ) : (
-                    <Row gutter={[16, 16]}>
-                      {agents.map((agent, idx) => {
-                        const shortName = getShortAgentName(agent, idx);
-                        const medalTier = getAgentMedal(agent);
-                        const isAboveBronze = medalTier === 'bronze' || medalTier === 'silver' || medalTier === 'gold';
-                        const scoreVal = agent.score ?? agent.public_score;
-
-                        return (
-                          <Col xs={24} md={12} key={agent.submission_id}>
-                            <Card
-                              className="sim-agent-card"
-                              styles={{ body: { padding: 18 } }}
-                              title={
-                                <div style={{ display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'space-between' }}>
-                                  <Space size={8} align="center">
-                                    <Tag color={idx === 0 ? 'blue' : 'purple'} style={{ margin: 0, fontWeight: 700 }}>
-                                      Agent #{idx + 1}
-                                    </Tag>
-                                    <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
-                                      {shortName}
-                                    </span>
-                                    <Tooltip title={`修改自定义别名（如 p32, p46，当前：${shortName}）`}>
-                                      <Button
-                                        type="text"
-                                        size="small"
-                                        icon={<EditOutlined style={{ color: '#64748b', fontSize: 13 }} />}
-                                        onClick={() => openEditAliasModal(agent.submission_id, shortName)}
-                                        style={{ width: 22, height: 22, padding: 0 }}
-                                        aria-label="修改别名"
-                                      />
-                                    </Tooltip>
-                                    {(agent.description || agent.file_name) && (
-                                      <Tooltip title={agent.description || agent.file_name}>
-                                        <InfoCircleOutlined style={{ color: '#94a3b8', fontSize: 13, cursor: 'pointer' }} />
-                                      </Tooltip>
-                                    )}
-                                  </Space>
-                                  {getMedalTag(medalTier)}
-                                </div>
-                              }
-                            >
-                              {/* Score & Rank banner - 2 Column Clean Card Layout */}
-                              <Row gutter={12}>
-                                <Col span={12}>
-                                  <div className="sim-score-box">
-                                    <span className="sim-score-title">当前天梯积分</span>
-                                    <span className="sim-score-value">
-                                      {scoreVal !== undefined && scoreVal !== null ? Number(scoreVal).toFixed(1) : '—'}
-                                    </span>
-                                  </div>
-                                </Col>
-
-                                <Col span={12}>
-                                  <div className="sim-rank-box">
-                                    <span className="sim-rank-title">当前排行榜名次</span>
-                                    <span className="sim-rank-value">
-                                      {agent.rank ? `第 ${agent.rank} 名` : '—'}
-                                    </span>
-                                  </div>
-                                </Col>
-                              </Row>
-
-                              {/* Dynamic Medal Tier Cushion Banner */}
-                              {(() => {
-                                const sc = scoreVal !== undefined && scoreVal !== null ? Number(scoreVal) : 0;
-                                let cushionTitle = '⚠️ 距离铜牌线差距';
-                                let cushionVal = `${(agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0)).toFixed(1)} 分`;
-                                let nextGapText: string | null = null;
-                                let bannerClass = 'sim-cushion-banner-danger';
-
-                                if (medalTier === 'gold') {
-                                  cushionTitle = '🥇 金牌安全垫 (高于金牌线)';
-                                  const c = agent.tier_cushion_score ?? (thresholds?.gold_cutoff_score ? sc - thresholds.gold_cutoff_score : 0);
-                                  cushionVal = `+${c.toFixed(1)} 分`;
-                                  bannerClass = 'sim-cushion-banner-gold';
-                                } else if (medalTier === 'silver') {
-                                  cushionTitle = '🥈 银牌安全垫 (高于银牌线)';
-                                  const c = agent.tier_cushion_score ?? (thresholds?.silver_cutoff_score ? sc - thresholds.silver_cutoff_score : 0);
-                                  cushionVal = `+${c.toFixed(1)} 分`;
-                                  bannerClass = 'sim-cushion-banner-silver';
-                                  const nextGap = agent.next_tier_gap_score ?? (thresholds?.gold_cutoff_score ? thresholds.gold_cutoff_score - sc : null);
-                                  if (nextGap !== null && nextGap !== undefined) {
-                                    nextGapText = `距金牌线 ${nextGap.toFixed(1)} 分`;
-                                  }
-                                } else if (medalTier === 'bronze') {
-                                  cushionTitle = '🥉 铜牌安全垫 (高于铜牌线)';
-                                  const c = agent.tier_cushion_score ?? agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
-                                  cushionVal = `+${c.toFixed(1)} 分`;
-                                  bannerClass = 'sim-cushion-banner-bronze';
-                                  const nextGap = agent.next_tier_gap_score ?? (thresholds?.silver_cutoff_score ? thresholds.silver_cutoff_score - sc : null);
-                                  if (nextGap !== null && nextGap !== undefined) {
-                                    nextGapText = `距银牌线 ${nextGap.toFixed(1)} 分`;
-                                  }
-                                } else {
-                                  cushionTitle = '⚠️ 距离铜牌线差距';
-                                  const gap = agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
-                                  cushionVal = `${gap.toFixed(1)} 分`;
-                                  bannerClass = 'sim-cushion-banner-danger';
-                                }
-
-                                return (
-                                  <div className={bannerClass}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                      <span>{cushionTitle}</span>
-                                      {nextGapText && (
-                                        <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.85, background: 'rgba(0,0,0,0.05)', padding: '1px 6px', borderRadius: 4 }}>
-                                          {nextGapText}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span style={{ fontSize: 14, fontWeight: 800 }}>
-                                      {cushionVal}
-                                    </span>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Win Rate Progress & Stats */}
-                              <div className="sim-stats-section">
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 12, color: '#334155' }}>
-                                    胜率 ({agent.win_rate.toFixed(1)}%)
-                                  </span>
-                                  <Space size={4}>
-                                    <Tag color="success" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>{agent.wins} 胜</Tag>
-                                    <Tag color="error" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>{agent.losses} 负</Tag>
-                                    {agent.ties > 0 && <Tag style={{ margin: 0, fontSize: 11 }}>{agent.ties} 平</Tag>}
-                                    <Text type="secondary" style={{ fontSize: 11, marginLeft: 2 }}>(共 {getRatedEpisodeCount(agent)} 局)</Text>
-                                  </Space>
-                                </div>
-                                <Progress
-                                  percent={agent.win_rate}
-                                  strokeColor={agent.win_rate >= 50 ? '#10b981' : '#f59e0b'}
-                                  showInfo={false}
-                                  size={['100%', 6]}
-                                />
-                              </div>
-
-                              {/* Card Footer Meta */}
-                              <div className="sim-footer-meta">
-                                <span>提交 ID: <code style={{ fontFamily: 'monospace', color: '#475569', fontWeight: 600 }}>#{agent.submission_id}</code></span>
-                                {agent.alias && (
-                                  <span>别名: <strong style={{ color: '#0284c7' }}>{agent.alias}</strong></span>
-                                )}
-                                <span>队伍: <strong style={{ color: '#1e293b' }}>{agent.team_name || '我方团队'}</strong></span>
-                              </div>
-                            </Card>
-                          </Col>
-                        );
-                      })}
-                    </Row>
-                  )}
-                </div>
-
-                {/* Match Stream Section: Split into Left and Right Columns */}
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Swords size={16} color="#3b82f6" />
-                      <Text strong style={{ fontSize: 14 }}>最新对局流水 (点击对局 ID 可观看回放)</Text>
-                    </div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      共追踪 {totalTrackedCount} 场对战记录
-                    </Text>
-                  </div>
-
-                  <Row gutter={[16, 16]}>
-                    {/* Left Column: Agent 1 Episodes */}
-                    <Col xs={24} lg={12}>
-                      <Card
-                        size="small"
-                        className="sim-agent-card"
-                        title={
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0' }}>
-                            <Space size={6}>
-                              <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>Agent #1</Tag>
-                              <span style={{ fontWeight: 700, fontSize: 13 }}>{agent1 ? getShortAgentName(agent1, 0) : 'Agent 1'} 对局流水</span>
-                            </Space>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              共 {getRatedEpisodeCount(agent1)} 局 ({agent1?.wins || 0}胜 {agent1?.losses || 0}负)
-                            </Text>
-                          </div>
-                        }
-                      >
-                        <Table
-                          columns={sideEpisodeColumns}
-                          dataSource={agent1Episodes}
-                          rowKey="id"
-                          size="small"
-                          scroll={{ x: 380 }}
-                          pagination={{
-                            current: agent1Page ? Math.floor(agent1Page.offset / agent1Page.limit) + 1 : 1,
-                            pageSize: agent1Page?.limit || 6,
-                            total: agent1Page?.total || 0,
-                            showSizeChanger: false,
-                            size: 'small',
-                            onChange: (page, pageSize) => {
-                              if (agent1) void fetchEpisodePage(agent1.submission_id, page, pageSize);
-                            },
-                          }}
-                          loading={agent1 ? Boolean(episodeLoading[agent1.submission_id]) : false}
-                          bordered
-                        />
-                      </Card>
-                    </Col>
-
-                    {/* Right Column: Agent 2 Episodes */}
-                    <Col xs={24} lg={12}>
-                      <Card
-                        size="small"
-                        className="sim-agent-card"
-                        title={
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0' }}>
-                            <Space size={6}>
-                              <Tag color="purple" style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>Agent #2</Tag>
-                              <span style={{ fontWeight: 700, fontSize: 13 }}>{agent2 ? getShortAgentName(agent2, 1) : 'Agent 2'} 对局流水</span>
-                            </Space>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              共 {getRatedEpisodeCount(agent2)} 局 ({agent2?.wins || 0}胜 {agent2?.losses || 0}负)
-                            </Text>
-                          </div>
-                        }
-                      >
-                        <Table
-                          columns={sideEpisodeColumns}
-                          dataSource={agent2Episodes}
-                          rowKey="id"
-                          size="small"
-                          scroll={{ x: 380 }}
-                          pagination={{
-                            current: agent2Page ? Math.floor(agent2Page.offset / agent2Page.limit) + 1 : 1,
-                            pageSize: agent2Page?.limit || 6,
-                            total: agent2Page?.total || 0,
-                            showSizeChanger: false,
-                            size: 'small',
-                            onChange: (page, pageSize) => {
-                              if (agent2) void fetchEpisodePage(agent2.submission_id, page, pageSize);
-                            },
-                          }}
-                          loading={agent2 ? Boolean(episodeLoading[agent2.submission_id]) : false}
-                          bordered
-                        />
-                      </Card>
-                    </Col>
-                  </Row>
-                </div>
-              </>
+              <ActiveBattleDashboard
+                thresholds={thresholds}
+                agents={agents}
+                getAgentMedal={getAgentMedal}
+                openEditAliasModal={openEditAliasModal}
+                getRatedEpisodeCount={getRatedEpisodeCount}
+                totalTrackedCount={totalTrackedCount}
+                agent1={agent1}
+                agent2={agent2}
+                agent1Episodes={agent1Episodes}
+                agent2Episodes={agent2Episodes}
+                agent1Page={agent1Page}
+                agent2Page={agent2Page}
+                episodeLoading={episodeLoading}
+                fetchEpisodePage={fetchEpisodePage}
+              />
             )}
           </div>
         </Spin>
       </Modal>
 
       {/* Settings Drawer */}
-      <Drawer
-        title="模拟对战监控设置"
-        placement="right"
-        width="min(420px, 100vw)"
+      <SettingsDrawer
         open={settingsOpen}
-        zIndex={1200}
-        forceRender
         onClose={() => setSettingsOpen(false)}
-        extra={
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            loading={saving}
-            onClick={() => form.submit()}
-          >
-            保存配置
-          </Button>
-        }
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleSaveConfig}
-          initialValues={{
-            enabled: true,
-            competition: targetCompetition,
-            interval_minutes: 10,
-            bronze_percentile: 0.10,
-            target_submission_ids: [],
-            notify_on_new_matches: true,
-            notify_on_medal_change: true,
-          }}
-        >
-          <Form.Item
-            name="enabled"
-            label="启用后台定时对战监控"
-            valuePropName="checked"
-          >
-            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-          </Form.Item>
-
-          <Form.Item
-            name="competition"
-            label="监控竞赛 Slug"
-            rules={[{ required: true, message: '请输入竞赛 Slug' }]}
-          >
-            <Input
-              placeholder={targetCompetition}
-              onChange={(e) => {
-                const val = e.target.value?.trim();
-                if (val) void fetchAvailableSubmissions(val);
-              }}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="interval_minutes"
-            label="轮询检查间隔 (分钟)"
-            rules={[{ required: true }]}
-          >
-            <InputNumber min={2} max={1440} style={{ width: '100%' }} />
-          </Form.Item>
-
-          <Form.Item
-            name="bronze_percentile"
-            label="铜牌线切分比例 (例如 0.10 代表前 10%)"
-            rules={[{ required: true }]}
-          >
-            <InputNumber min={0.01} max={0.50} step={0.01} style={{ width: '100%' }} />
-          </Form.Item>
-
-          <Form.Item
-            name="target_submission_ids"
-            label={
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                <span>🎯 监控的目标 Agent 提交 ID (支持团队成员提交)</span>
-              </div>
-            }
-            tooltip="可直接下拉勾选团队提交，或直接输入/粘贴 8 位 Submission ID"
-          >
-            <Select
-              mode="tags"
-              placeholder={loadingSubmissions ? "正在同步可用提交列表..." : "点击下拉勾选，或直接输入 8 位提交 ID"}
-              tokenSeparators={[',', ' ']}
-              loading={loadingSubmissions}
-              style={{ width: '100%' }}
-              options={availableSubmissions.map((sub) => {
-                const desc = sub.description || sub.file_name || `提交 #${sub.submission_id}`;
-                const scoreText = sub.public_score !== undefined && sub.public_score !== null ? ` · ${sub.public_score.toFixed(1)}分` : '';
-                return {
-                  value: sub.submission_id,
-                  label: `#${sub.submission_id} · ${desc}${scoreText}`,
-                };
-              })}
-            />
-          </Form.Item>
-
-          <div style={{ marginTop: -14, marginBottom: 16, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <Button
-              size="small"
-              type="dashed"
-              loading={loadingSubmissions}
-              onClick={() => {
-                if (availableSubmissions.length > 0) {
-                  const latestTwo = availableSubmissions
-                    .filter((s) => s.status?.toLowerCase().includes('complete') || s.status?.toLowerCase().includes('success'))
-                    .slice(0, 2)
-                    .map((s) => s.submission_id);
-                  form.setFieldsValue({
-                    target_submission_ids: latestTwo.length > 0 ? latestTwo : availableSubmissions.slice(0, 2).map((s) => s.submission_id),
-                  });
-                } else {
-                  void fetchAvailableSubmissions().then(() => {
-                    message.info('正在拉取提交列表，请再次点击');
-                  });
-                }
-              }}
-            >
-              ⚡ 快捷填入最新 2 个有效提交
-            </Button>
-            <Button
-              size="small"
-              type="text"
-              onClick={() => form.setFieldsValue({ target_submission_ids: [] })}
-            >
-              清空 (全自动模式)
-            </Button>
-          </div>
-
-          {/* Agent 自定义别名配置区 */}
-          {watchedTargetIds && watchedTargetIds.length > 0 && (
-            <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <TagOutlined style={{ color: '#2563eb' }} />
-                <span>Agent 自定义别名 / 代号 (如 p32, p46)</span>
-              </div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
-                为选中的提交设置容易辨识的代号，将同步应用于天梯卡片、折线走势图及微信机器人战报：
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {watchedTargetIds.map((idVal: any, idx: number) => {
-                  const subId = Number(idVal);
-                  const subObj = availableSubmissions.find((s) => s.submission_id === subId);
-                  const defaultLabel = subObj ? (subObj.description || subObj.file_name) : '';
-                  const idStr = String(subId);
-                  const currentAlias = submissionAliases[idStr] || '';
-
-                  return (
-                    <div
-                      key={idStr}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        background: '#ffffff',
-                        padding: '6px 10px',
-                        borderRadius: 6,
-                        border: '1px solid #e2e8f0',
-                      }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>#{subId}</Tag>
-                          <span
-                            style={{
-                              fontSize: 12,
-                              color: '#334155',
-                              fontWeight: 600,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                            title={defaultLabel || `Agent ${idx + 1}`}
-                          >
-                            {defaultLabel || `Agent ${idx + 1}`}
-                          </span>
-                        </div>
-                      </div>
-                      <Input
-                        size="small"
-                        placeholder="别名 (如 p46)"
-                        value={currentAlias}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setSubmissionAliases((prev) => ({ ...prev, [idStr]: val }));
-                        }}
-                        style={{ width: 120 }}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div style={{ paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
-            <Form.Item
-              name="notify_on_new_matches"
-              label="新增对局战报时发送通知"
-              valuePropName="checked"
-            >
-              <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-            </Form.Item>
-
-            <Form.Item
-              name="notify_on_medal_change"
-              label="奖牌状态升降级变动时发送通知"
-              valuePropName="checked"
-            >
-              <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-            </Form.Item>
-          </div>
-        </Form>
-      </Drawer>
+        form={form}
+        onFinish={handleSaveConfig}
+        saving={saving}
+        targetCompetition={targetCompetition}
+        loadingSubmissions={loadingSubmissions}
+        availableSubmissions={availableSubmissions}
+        watchedTargetIds={watchedTargetIds}
+        submissionAliases={submissionAliases}
+        setSubmissionAliases={setSubmissionAliases}
+        fetchAvailableSubmissions={fetchAvailableSubmissions}
+      />
 
       {/* History & Run Logs Modal */}
-      <Modal
-        title="模拟对战监控运行日志"
+      <HistoryModal
         open={historyOpen}
-        onCancel={() => setHistoryOpen(false)}
-        width={720}
-        zIndex={1100}
-        footer={null}
-      >
-        <List
-          dataSource={snapshot?.logs || []}
-          renderItem={(log) => (
-            <List.Item
-              key={log.id}
-              actions={[
-                log.details_available ? (
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<EyeOutlined />}
-                    loading={logDetailLoading && selectedLogId === log.id}
-                    onClick={() => void handleViewLogDetail(log.id)}
-                  >
-                    查看明细
-                  </Button>
-                ) : null,
-              ]}
-            >
-              <List.Item.Meta
-                avatar={
-                  log.outcome === 'success' ? (
-                     <CheckCircleOutlined style={{ color: '#10b981', fontSize: 18 }} />
-                  ) : log.outcome === 'partial' ? (
-                    <ExclamationCircleOutlined style={{ color: '#f59e0b', fontSize: 18 }} />
-                  ) : (
-                    <CloseCircleOutlined style={{ color: '#f43f5e', fontSize: 18 }} />
-                  )
-                }
-                title={
-                  <Space>
-                    <Tag>{log.trigger === 'manual' ? '手动触发' : '定时调度'}</Tag>
-                    <Text strong>{formatDate(log.started_at)}</Text>
-                    <Text type="secondary">耗时: {formatDuration(log.duration_seconds)}</Text>
-                  </Space>
-                }
-                description={
-                  <div>
-                    <span>追踪 {log.agent_count} 个代理，抓取 {log.total_episodes_found} 场对局</span>
-                    {log.new_episodes_found > 0 && (
-                      <Tag color="green" style={{ marginLeft: 6 }}>
-                        +{log.new_episodes_found} 场新对局
-                      </Tag>
-                    )}
-                    {log.error && <div style={{ color: '#f43f5e', fontSize: 12, marginTop: 4 }}>{log.error}</div>}
-                  </div>
-                }
-              />
-            </List.Item>
-          )}
-        />
-      </Modal>
+        onClose={() => setHistoryOpen(false)}
+        logs={snapshot?.logs || []}
+        selectedLogId={selectedLogId}
+        logDetailLoading={logDetailLoading}
+        onViewDetail={handleViewLogDetail}
+      />
 
       {/* Selected Run Detail Modal */}
-      <Modal
-        title="模拟对战检查明细"
+      <RunDetailModal
         open={Boolean(selectedLogId)}
-        onCancel={() => {
+        onClose={() => {
           setSelectedLogId(null);
           setLogDetail(null);
         }}
-        width={1000}
-        zIndex={1150}
-        footer={null}
-        destroyOnClose
-      >
-        <Spin spinning={logDetailLoading} tip="正在读取运行明细...">
-          {logDetail ? (
-            <div>
-              <Alert
-                type={logDetail.log.outcome === 'success' ? 'success' : logDetail.log.outcome === 'partial' ? 'warning' : 'error'}
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={
-                  <Space wrap>
-                    <span>{logDetail.log.trigger === 'manual' ? '手动检查' : '定时调度'}</span>
-                    <Text>{formatDate(logDetail.log.started_at)}</Text>
-                    <Text type="secondary">耗时 {formatDuration(logDetail.log.duration_seconds)}</Text>
-                  </Space>
-                }
-                description={
-                  <Space wrap>
-                    <span>本次抓取 {logDetail.log.total_episodes_found} 场，总计新增/补抓 {logDetail.log.new_episodes_found} 场</span>
-                    <span>代理数：{logDetail.log.agent_count}</span>
-                    {logDetail.log.error ? <span>{logDetail.log.error}</span> : null}
-                  </Space>
-                }
-              />
-
-              {logDetail.agents.length === 0 ? (
-                <Empty description="这次运行没有可用的代理明细" />
-              ) : (
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  {logDetail.agents.map((agent) => (
-                    <Card
-                      key={agent.submission_id}
-                      size="small"
-                      title={agent.description || agent.team_name || `提交 #${agent.submission_id}`}
-                      extra={<Tag color="blue">提交 #{agent.submission_id}</Tag>}
-                    >
-                      <Space wrap size={[16, 8]} style={{ marginBottom: 12 }}>
-                        <Text>队伍：<strong>{agent.team_name || '—'}</strong></Text>
-                        <Text>总对局：<strong>{agent.total_episodes}</strong></Text>
-                        <Text>胜/负/平：<strong>{agent.wins}/{agent.losses}/{agent.ties}</strong></Text>
-                        <Text>胜率：<strong>{agent.win_rate.toFixed(1)}%</strong></Text>
-                      </Space>
-                      <Table
-                        rowKey="id"
-                        size="small"
-                        bordered
-                        pagination={false}
-                        scroll={{ x: 650, y: 360 }}
-                        columns={sideEpisodeColumns}
-                        dataSource={agent.recent_episodes || []}
-                        locale={{ emptyText: '本次运行没有返回对局记录' }}
-                      />
-                    </Card>
-                  ))}
-                </Space>
-              )}
-            </div>
-          ) : !logDetailLoading ? (
-            <Empty description="暂无运行明细" />
-          ) : null}
-        </Spin>
-      </Modal>
+        logDetail={logDetail}
+        loading={logDetailLoading}
+      />
 
       {/* WeChat ClawBot Assistant Modal */}
-      <Modal
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <MessageCircle size={18} color="#16a34a" />
-            <span style={{ fontWeight: 700 }}>微信 ClawBot 智能对战助手</span>
-          </div>
-        }
+      <ClawbotModal
         open={clawbotOpen}
-        onCancel={() => setClawbotOpen(false)}
-        width={560}
-        zIndex={1100}
-        footer={[
-          <Button
-            key="test"
-            icon={<ReloadOutlined spin={testingClawbot} />}
-            loading={testingClawbot}
-            onClick={() => void handleTestClawbot()}
-          >
-            探测网关连通性
-          </Button>,
-          <Button key="close" type="primary" onClick={() => setClawbotOpen(false)}>
-            我知道了
-          </Button>,
-        ]}
-      >
-        <div style={{ paddingTop: 8 }}>
-          <Alert
-            message={status?.clawbot?.is_online ? '微信智能体双向交互已就绪' : status?.clawbot?.configured ? '微信智能体已配置，但网关离线' : '微信智能体未就绪'}
-            description={
-              status?.clawbot?.is_online
-                ? '您可以在手机微信中随时发送指令给当前机器人，直接获取最新天梯战报与排名数据，或触发后台实时刷新。'
-                : status?.clawbot?.configured
-                ? '已读取到 LLM 配置文件，但当前未探测到正在运行的 OpenClaw 网关（端口 18789）。若在 Docker 中运行，请确保已配置 OPENCLAW_GATEWAY_URL。'
-                : '未检测到 OpenClaw 配置文件或环境变量。请在 .env.deploy 中配置 OPENCLAW_LLM_API_KEY 与 OPENCLAW_GATEWAY_URL。'
-            }
-            type={status?.clawbot?.is_online ? 'success' : status?.clawbot?.configured ? 'warning' : 'info'}
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
-
-          <Card size="small" style={{ marginBottom: 16, background: '#f8fafc' }}>
-            <Row gutter={[12, 10]}>
-              <Col span={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>网关活跃状态</Text>
-                <div style={{ marginTop: 2 }}>
-                  {status?.clawbot?.is_online ? (
-                    <Tag color="success" style={{ fontWeight: 700 }}>端口 18789 活跃</Tag>
-                  ) : status?.clawbot?.configured ? (
-                    <Tag color="warning">已配置 · 网关离线</Tag>
-                  ) : (
-                    <Tag color="default">未就绪</Tag>
-                  )}
-                </div>
-              </Col>
-              <Col span={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>解析大模型引擎</Text>
-                <div style={{ marginTop: 2, fontWeight: 700, color: '#0f172a' }}>
-                  {status?.clawbot?.model || 'deepseek-v4-flash-0731'}
-                </div>
-              </Col>
-              <Col span={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>模型服务商</Text>
-                <div style={{ marginTop: 2, color: '#334155' }}>
-                  {status?.clawbot?.provider || 'TokenRhythm Studio'}
-                </div>
-              </Col>
-              <Col span={12}>
-                <Text type="secondary" style={{ fontSize: 12 }}>当前连接网关</Text>
-                <div style={{ marginTop: 2, color: '#334155', fontSize: 12, wordBreak: 'break-all' }}>
-                  {status?.clawbot?.gateway_url || 'http://127.0.0.1:18789'}
-                </div>
-              </Col>
-            </Row>
-
-            {clawbotTestResult && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
-                <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: clawbotTestResult.success ? '#166534' : '#b45309' }}>
-                  诊断详情：{clawbotTestResult.message}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {clawbotTestResult.candidates.map((c) => (
-                    <div key={c.target} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, background: '#fff', padding: '3px 8px', borderRadius: 4, border: '1px solid #f1f5f9' }}>
-                      <Text code style={{ fontSize: 11 }}>{c.target}</Text>
-                      <Tag color={c.reachable ? 'success' : 'default'} style={{ margin: 0, fontSize: 11, padding: '0 4px' }}>
-                        {c.detail}
-                      </Tag>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
-
-          <Title level={5} style={{ fontSize: 14, marginBottom: 8 }}>
-            📱 手机微信常用指令速查
-          </Title>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
-              <Space>
-                <Tag color="blue" style={{ margin: 0, fontWeight: 700 }}>战况 / 查战况</Tag>
-                <Text style={{ fontSize: 13 }}>获取双 Agent 实时积分、排位、胜率及最新一局对战</Text>
-              </Space>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
-              <Space>
-                <Tag color="gold" style={{ margin: 0, fontWeight: 700 }}>分数 / 排名</Tag>
-                <Text style={{ fontSize: 13 }}>快速汇总金银铜牌线切分点与我方安全垫</Text>
-              </Space>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
-              <Space>
-                <Tag color="purple" style={{ margin: 0, fontWeight: 700 }}>刷新 / 立即检查</Tag>
-                <Text style={{ fontSize: 13 }}>触发后端立刻向 Kaggle 同步一次最新对局数据</Text>
-              </Space>
-            </div>
-          </div>
-        </div>
-      </Modal>
+        onClose={() => setClawbotOpen(false)}
+        status={status}
+        testing={testingClawbot}
+        testResult={clawbotTestResult}
+        onTest={handleTestClawbot}
+      />
 
       {/* Quick Edit Agent Alias Modal */}
-      <Modal
-        title={(
-          <DialogTitle onClose={() => setAliasModalOpen(false)}>
-            <Space size={8} align="center">
-              <TagOutlined style={{ color: '#2563eb' }} />
-              <span style={{ fontWeight: 600, fontSize: 16 }}>设置 Agent 自定义别名</span>
-            </Space>
-          </DialogTitle>
-        )}
+      <AliasEditModal
         open={aliasModalOpen}
-        onCancel={() => setAliasModalOpen(false)}
-        width={420}
-        zIndex={1250}
-        footer={[
-          <Button key="cancel" onClick={() => setAliasModalOpen(false)}>
-            取消
-          </Button>,
-          <Button
-            key="submit"
-            type="primary"
-            loading={savingAlias}
-            onClick={handleSaveAlias}
-          >
-            保存别名
-          </Button>,
-        ]}
-      >
-        <div style={{ paddingTop: 10 }}>
-          <div style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>
-            为提交 <code>#{editingSubId}</code> 赋予专属代号（如 <code>p32</code>、<code>p46</code>、<code>主力模型</code> 等），将立即同步至全景天梯卡片、折线走势图与微信机器人战报：
-          </div>
-          <Input
-            size="large"
-            placeholder="例如: p32 / p46"
-            value={editingAliasValue}
-            onChange={(e) => setEditingAliasValue(e.target.value)}
-            onPressEnter={handleSaveAlias}
-            autoFocus
-          />
-          <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: '#94a3b8' }}>快捷建议：</span>
-            {['p32', 'p46', 'p31', 'Agent-A', '主力模型'].map((sug) => (
-              <Button
-                key={sug}
-                size="small"
-                type="dashed"
-                style={{ fontSize: 11 }}
-                onClick={() => setEditingAliasValue(sug)}
-              >
-                {sug}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </Modal>
+        onClose={() => setAliasModalOpen(false)}
+        subId={editingSubId}
+        aliasValue={editingAliasValue}
+        onChangeAliasValue={setEditingAliasValue}
+        saving={savingAlias}
+        onSave={handleSaveAlias}
+      />
     </>
   );
 };

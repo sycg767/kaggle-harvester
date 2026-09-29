@@ -3,51 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   App as AntApp,
-  AutoComplete,
   Button,
   Card,
-  Checkbox,
-  Col,
-  Descriptions,
   Empty,
-  Input,
-  InputNumber,
-  Modal,
-  Pagination,
-  Progress,
-  Row,
-  Select,
   Space,
   Spin,
   Statistic,
-  Switch,
   Table,
-  Tag,
-  Tooltip,
   Typography,
   theme,
-  type TableColumnsType,
   type InputRef,
 } from 'antd';
 import {
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
-  CloudDownloadOutlined,
   CodeOutlined,
-  EyeOutlined,
-  ExportOutlined,
-  LoadingOutlined,
-  MinusCircleOutlined,
   ReloadOutlined,
-  SearchOutlined,
-  StarFilled,
-  StarOutlined,
   ThunderboltOutlined,
   TrophyOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
-import { Filter } from 'lucide-react';
 import {
   api,
   type ActiveCompetitionInfo,
@@ -60,14 +32,6 @@ import {
 } from '../api';
 import { buildEnteredCompetitionOptions } from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
-import {
-  kaggleAuthorUrl,
-  kaggleKernelUrl,
-  kaggleKernelVersionUrl,
-  kaggleOwnerFromRef,
-} from '../kaggleUrls';
-import DialogTitle from './DialogTitle';
-import CopyButton from './CopyButton';
 import { KernelVersionModal } from './KernelVersionModal';
 import { KernelArchiveModal } from './KernelArchiveModal';
 import { resolveScoreDirection, saveScoreDirection, type ScoreDirection } from '../scoreDirection';
@@ -77,128 +41,29 @@ import {
   dispatchDefaultCompetitionChanged,
   HARVESTER_EVENTS,
 } from '../events';
+import {
+  DEFAULT_COMPETITION,
+  RECENT_COMPETITIONS_KEY,
+  MOBILE_PAGE_SIZE,
+  SCORE_SORT_BEST,
+  isScoreSort,
+  resolveApiScoreSort,
+  comparePublicScores,
+  buildSortOptions,
+  type ArchiveVersionChoice,
+  readRecentCompetitions,
+  formatDate,
+  formatCacheAge,
+  scoreDirectionSourceLabel,
+  waitForRefreshPoll,
+  renderVersionStatus,
+} from './kernels/kernelUtils';
+import KernelFilterBar from './kernels/KernelFilterBar';
+import KernelBatchBar from './kernels/KernelBatchBar';
+import MobileKernelCardList from './kernels/MobileKernelCardList';
+import { buildKernelTableColumns } from './kernels/kernelTableColumns';
 
 const { Text } = Typography;
-const DEFAULT_COMPETITION = 'biohub-cell-tracking-during-development';
-const RECENT_COMPETITIONS_KEY = 'harvester.recentCompetitions';
-const MOBILE_PAGE_SIZE = 10;
-/** UI 里 scoreAscending = 最佳优先，scoreDescending = 倒序；真正 API 方向按竞赛 metric 映射。 */
-const SCORE_SORT_BEST = 'scoreAscending';
-const SCORE_SORT_REVERSE = 'scoreDescending';
-
-const isScoreSort = (value: string) =>
-  value === SCORE_SORT_BEST || value === SCORE_SORT_REVERSE;
-
-/** 把「最佳优先 / 倒序」映射为 Kaggle 数值升序或降序。 */
-const resolveApiScoreSort = (sortBy: string, isLowerBetter: boolean): string => {
-  if (!isScoreSort(sortBy)) return sortBy;
-  const bestFirst = sortBy === SCORE_SORT_BEST;
-  if (isLowerBetter) {
-    return bestFirst ? 'scoreAscending' : 'scoreDescending';
-  }
-  return bestFirst ? 'scoreDescending' : 'scoreAscending';
-};
-
-/** 本地按公开分重排：最佳优先始终把更好的分数排在前面。 */
-const comparePublicScores = (
-  leftScore: number | null | undefined,
-  rightScore: number | null | undefined,
-  sortBy: string,
-  isLowerBetter: boolean,
-): number => {
-  if (leftScore === undefined || leftScore === null) return 1;
-  if (rightScore === undefined || rightScore === null) return -1;
-  const bestFirst = sortBy === SCORE_SORT_BEST;
-  const numericAscending = isLowerBetter ? bestFirst : !bestFirst;
-  const delta = leftScore - rightScore;
-  return numericAscending ? delta : -delta;
-};
-
-const buildSortOptions = (isLowerBetter: boolean) => [
-  {
-    value: SCORE_SORT_BEST,
-    label: isLowerBetter
-      ? '公开分数 · 最佳优先（低→高）'
-      : '公开分数 · 最佳优先（高→低）',
-  },
-  {
-    value: SCORE_SORT_REVERSE,
-    label: isLowerBetter
-      ? '公开分数 · 倒序（高→低）'
-      : '公开分数 · 倒序（低→高）',
-  },
-  { value: 'hotness', label: '热度' },
-  { value: 'dateRun', label: '运行时间' },
-  { value: 'dateCreated', label: '创建时间' },
-  { value: 'voteCount', label: '投票数（非分数榜）' },
-];
-type ArchiveVersionChoice = 'best' | 'latest' | `version:${number}`;
-
-const readRecentCompetitions = () => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(RECENT_COMPETITIONS_KEY) || '[]');
-    if (Array.isArray(stored)) {
-      return stored.filter((value): value is string => typeof value === 'string');
-    }
-  } catch {
-    // 缓存格式异常时回退到默认竞赛，不影响页面使用。
-  }
-  return [];
-};
-
-const formatDate = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
-};
-
-const formatCacheAge = (seconds: number) => {
-  if (seconds < 60) return '刚刚';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
-  return `${Math.floor(seconds / 86400)} 天前`;
-};
-
-const scoreDirectionSourceLabel = (source?: CompetitionInfo['score_direction_source'] | 'user' | 'unknown') => ({
-  api: '竞赛 API',
-  leaderboard: '公开排行榜',
-  metric: '评价指标推断',
-  fallback: '兼容默认值',
-  user: '用户确认',
-  unknown: '未确认',
-}[source || 'unknown']);
-
-const waitForRefreshPoll = (milliseconds: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
-  const timer = window.setTimeout(resolve, milliseconds);
-  signal.addEventListener('abort', () => {
-    window.clearTimeout(timer);
-    reject(new DOMException('请求已取消', 'AbortError'));
-  }, { once: true });
-});
-
-const renderVersionStatus = (value?: string) => {
-  const normalized = (value || '').trim().toLowerCase().replace(/[\s_-]/g, '');
-  if (['complete', 'completed', 'success', 'succeeded'].includes(normalized)) {
-    return <Tag color="success" icon={<CheckCircleOutlined />}>已完成</Tag>;
-  }
-  if (['running', 'active'].includes(normalized)) {
-    return <Tag color="processing" icon={<LoadingOutlined />}>运行中</Tag>;
-  }
-  if (['queued', 'pending', 'submitted'].includes(normalized)) {
-    return <Tag color="gold" icon={<ClockCircleOutlined />}>排队中</Tag>;
-  }
-  if (['failed', 'error'].includes(normalized)) {
-    return <Tag color="error" icon={<CloseCircleOutlined />}>失败</Tag>;
-  }
-  if (normalized.includes('cancel')) {
-    const label = normalized.includes('request') ? '取消中' : '已取消';
-    return <Tag color="warning" icon={<MinusCircleOutlined />}>{label}</Tag>;
-  }
-  if (normalized === 'draft') {
-    return <Tag>草稿</Tag>;
-  }
-  return <Tag>{value || '未知'}</Tag>;
-};
 
 const KernelList: React.FC = () => {
   const { message } = AntApp.useApp();
@@ -703,116 +568,18 @@ const KernelList: React.FC = () => {
     }
   };
 
-  const columns: TableColumnsType<ScoredKernel> = [
-    {
-      title: '分数',
-      dataIndex: 'public_score',
-      width: 110,
-      sorter: (a, b) => {
-        const isLowerBetter = confirmedDirection === 'minimize';
-        // 表头点击：第一次按「最佳优先」，再点则倒序。
-        return comparePublicScores(
-          a.public_score,
-          b.public_score,
-          SCORE_SORT_BEST,
-          isLowerBetter,
-        );
-      },
-      render: (score?: number) => (
-        <Space>
-          <TrophyOutlined style={{ color: getScoreColor(score) }} />
-          <Text strong style={{ color: getScoreColor(score) }}>
-            {score === undefined || score === null ? '—' : score.toFixed(4)}
-          </Text>
-        </Space>
-      ),
-    },
-    {
-      title: 'Kernel',
-      key: 'kernel',
-      width: 290,
-      render: (_, record) => (
-        <div style={{ minWidth: 0 }}>
-          <a
-            href={kaggleKernelUrl(record.ref)}
-            target="_blank"
-            rel="noreferrer"
-            style={{ display: 'block', overflow: 'hidden', fontWeight: 600, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {record.title || record.ref}
-          </a>
-          <Text type="secondary" ellipsis style={{ display: 'block', fontSize: 12 }}>
-            {record.ref}
-          </Text>
-        </div>
-      ),
-    },
-    {
-      title: '作者',
-      dataIndex: 'author',
-      width: 135,
-      ellipsis: true,
-      render: (author: string, record: ScoredKernel) => {
-        const username = kaggleOwnerFromRef(record.ref);
-        return (
-          <Space align="start">
-            <UserOutlined style={{ marginTop: 4 }} />
-            <a
-              href={kaggleAuthorUrl(username)}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`打开 @${username} 的 Kaggle 主页`}
-            >
-              <span style={{ display: 'block' }}>{author || username}</span>
-              <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
-                @{username}
-              </Text>
-            </a>
-          </Space>
-        );
-      },
-    },
-    {
-      title: '投票',
-      dataIndex: 'total_votes',
-      width: 85,
-      sorter: (a, b) => a.total_votes - b.total_votes,
-      render: (votes: number) => <Space><StarOutlined style={{ color: token.colorWarning }} />{votes}</Space>,
-    },
-    {
-      title: '最后运行',
-      dataIndex: 'last_run_time',
-      width: 170,
-      render: (value?: string) => <Space><ClockCircleOutlined /><Text type="secondary">{formatDate(value)}</Text></Space>,
-    },
-    {
-      title: '本地状态',
-      width: 120,
-      render: (_, record) => {
-        const values = archivedVersions.get(record.ref);
-        return values?.length ? (
-          <Tooltip title={values.map((value) => `v${value}`).join('、')}>
-            <Tag color="success" icon={<CheckCircleOutlined />}>{values.length} 个版本</Tag>
-          </Tooltip>
-        ) : <Text type="secondary">未归档</Text>;
-      },
-    },
-    {
-      title: '操作',
-      fixed: 'right',
-      width: 125,
-      render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="查看版本历史">
-            <Button icon={<EyeOutlined />} aria-label={`查看 ${record.ref} 的版本`} onClick={() => showVersions(record)} />
-          </Tooltip>
-          <Tooltip title="归档最佳版本">
-            <Button type="primary" icon={<CloudDownloadOutlined />} aria-label={`归档 ${record.ref}`} onClick={() => openArchiveDialog([record])} />
-          </Tooltip>
-        </Space>
-      ),
-    },
-  ];
+  const columns = useMemo(
+    () =>
+      buildKernelTableColumns({
+        confirmedDirection,
+        getScoreColor,
+        archivedVersions,
+        warningColor: token.colorWarning,
+        onShowVersions: showVersions,
+        onOpenArchive: openArchiveDialog,
+      }),
+    [confirmedDirection, getScoreColor, archivedVersions, token.colorWarning],
+  );
 
   return (
     <div className="page-shell">
@@ -846,228 +613,47 @@ const KernelList: React.FC = () => {
           </Card>
         </div>
 
-      <Card size="small" className="data-toolbar">
-        <Row gutter={[8, 8]} align="middle" className="toolbar-primary-row">
-          {/* 竞赛切换 */}
-          <Col xs={24} md={8} lg={8} className="toolbar-competition-control">
-            <Space.Compact style={{ width: '100%' }}>
-              <AutoComplete
-                className="overview-competition-select"
-                style={{ width: '100%' }}
-                value={competitionInput}
-                options={competitionOptions}
-                onChange={setCompetitionInput}
-                onSelect={(value) => {
-                  const next = String(value);
-                  setCompetitionInput(next);
-                  void loadKernels(false, next);
-                }}
-                filterOption={filterCompetitionOption}
-                defaultActiveFirstOption={false}
-                notFoundContent={
-                  enteredLoading
-                    ? '加载已参加竞赛…'
-                    : enteredError || '无匹配竞赛，可直接输入 slug'
-                }
-              >
-                <Input
-                  ref={competitionInputRef}
-                  aria-label="选择或输入 Kaggle 竞赛标识"
-                  prefix={<TrophyOutlined />}
-                  suffix={enteredLoading ? <LoadingOutlined spin /> : undefined}
-                  placeholder={
-                    enteredCompetitions.length
-                      ? `已参加 ${enteredCompetitions.length} 个 · 点选或输入`
-                      : '加载已参加竞赛 / 输入 slug'
-                  }
-                  onPressEnter={() => loadKernels(false)}
-                />
-              </AutoComplete>
-              <Tooltip title="刷新已参加竞赛列表">
-                <Button
-                  icon={<ReloadOutlined />}
-                  loading={enteredLoading}
-                  aria-label="刷新已参加竞赛"
-                  onClick={() => void loadEnteredCompetitions(true)}
-                />
-              </Tooltip>
-              <Tooltip
-                title={
-                  activeCompInfo?.competition === competition && activeCompInfo?.is_pinned
-                    ? '当前竞赛已设为「全站主攻赛事」。点击取消。'
-                    : '设为全站主攻赛事'
-                }
-              >
-                <Button
-                  icon={
-                    activeCompInfo?.competition === competition && activeCompInfo?.is_pinned ? (
-                      <StarFilled style={{ color: '#faad14' }} />
-                    ) : activeCompInfo?.competition === competition ? (
-                      <StarOutlined style={{ color: '#faad14' }} />
-                    ) : (
-                      <StarOutlined />
-                    )
-                  }
-                  loading={settingDefault}
-                  aria-label="设为全站默认主攻赛事"
-                  onClick={togglePinActiveCompetition}
-                >
-                  {activeCompInfo?.competition === competition && activeCompInfo?.is_pinned
-                    ? '主攻'
-                    : undefined}
-                </Button>
-              </Tooltip>
-            </Space.Compact>
-          </Col>
-
-          {/* 实时本地关键词过滤 */}
-          <Col xs={24} md={7} lg={7}>
-            <Input
-              allowClear
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="过滤当前 Notebook 标题、作者..."
-              aria-label="过滤当前 Notebook"
-            />
-          </Col>
-
-          {/* 排序方式 */}
-          <Col xs={14} md={5} lg={5} className="desktop-sort-control">
-            <Select
-              aria-label="Kernel 排序方式"
-              value={sortBy}
-              onChange={setSortBy}
-              style={{ width: '100%' }}
-              options={buildSortOptions(confirmedDirection !== 'maximize')}
-            />
-          </Col>
-
-          {/* 快捷操作与高级展开 */}
-          <Col xs={10} md={4} lg={4} style={{ textAlign: 'right' }}>
-            <Space size={4}>
-              <Button
-                type="primary"
-                icon={<SearchOutlined />}
-                loading={loading}
-                onClick={() => loadKernels(false)}
-                title="重新向 Kaggle 检索榜单"
-              >
-                查询
-              </Button>
-              <Button
-                icon={<Filter size={14} />}
-                onClick={() => setMobileFiltersOpen((curr) => !curr)}
-                title="高级设置 (分页与取分限制)"
-              >
-                高级
-              </Button>
-            </Space>
-          </Col>
-        </Row>
-
-        {/* 快捷过滤 Pills 与状态指示 */}
-        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <Space size={6} wrap>
-            <span style={{ fontSize: 12, color: '#64748b' }}>过滤:</span>
-            <Button
-              size="small"
-              type={scoreFilter === 'all' && !archivedOnly ? 'primary' : 'default'}
-              onClick={() => { setScoreFilter('all'); setArchivedOnly(false); }}
-              style={{ borderRadius: 12, fontSize: 11 }}
-            >
-              全部 ({kernels.length})
-            </Button>
-            <Button
-              size="small"
-              type={scoreFilter === 'scored' && !archivedOnly ? 'primary' : 'default'}
-              onClick={() => { setScoreFilter('scored'); setArchivedOnly(false); }}
-              style={{ borderRadius: 12, fontSize: 11 }}
-            >
-              🔥 仅看有分 ({scoredKernels.length})
-            </Button>
-            <Button
-              size="small"
-              type={archivedOnly ? 'primary' : 'default'}
-              onClick={() => setArchivedOnly((curr) => !curr)}
-              style={{ borderRadius: 12, fontSize: 11 }}
-            >
-              💾 仅看本地已归档
-            </Button>
-          </Space>
-
-          <Space wrap size={6} className="kernel-filter-status">
-            {cacheInfo && (
-              <Tooltip
-                title={
-                  cacheInfo.state === 'HIT'
-                    ? '本次未访问 Kaggle，直接读取磁盘快照'
-                    : cacheInfo.state === 'STALE'
-                    ? backgroundRefreshing
-                      ? '正在展示上次成功榜单，后台同步检查新版本'
-                      : '后台检查未完成，继续展示上次成功榜单'
-                    : '本次结果已写入磁盘缓存'
-                }
-              >
-                <Tag color={backgroundRefreshing ? 'processing' : cacheInfo.state === 'STALE' ? 'orange' : cacheInfo.state === 'HIT' ? 'green' : undefined}>
-                  {backgroundRefreshing
-                    ? `后台更新中 · ${formatCacheAge(cacheInfo.age_seconds)}`
-                    : cacheInfo.state === 'HIT'
-                    ? `缓存 · ${formatCacheAge(cacheInfo.age_seconds)}`
-                    : cacheInfo.state === 'REFRESH'
-                    ? '已强制刷新'
-                    : cacheInfo.state === 'UPDATE'
-                    ? '榜单已更新'
-                    : cacheInfo.state === 'STALE'
-                    ? '使用旧榜单'
-                    : '已建立缓存'}
-                </Tag>
-              </Tooltip>
-            )}
-            {competitionInfo && confirmedDirection && (
-              <Tooltip title={competitionInfo.score_direction_source === 'fallback' ? '该方向由你确认并保存在当前浏览器' : '已根据竞赛信息或公开榜单识别'}>
-                <Tag color={competitionInfo.score_direction_source === 'fallback' ? 'cyan' : 'blue'}>
-                  {confirmedDirection === 'minimize' ? '越低越好' : '越高越好'}
-                </Tag>
-              </Tooltip>
-            )}
-            <Text type="secondary" className="kernel-score-count">匹配 {displayKernels.length}/{kernels.length} 条</Text>
-          </Space>
-        </div>
-
-        {/* 高级配置折叠区 */}
-        <div className={`toolbar-advanced${mobileFiltersOpen ? ' is-open' : ''}`}>
-          <div className="toolbar-divider" />
-          <Row gutter={[8, 8]} align="middle">
-            <Col xs={24} md={6}>
-              <Select
-                aria-label="分数筛选"
-                value={scoreFilter}
-                onChange={setScoreFilter}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 'all', label: '全部分数' },
-                  { value: 'scored', label: '已有分数' },
-                  { value: 'unscored', label: '暂无分数' },
-                ]}
-              />
-            </Col>
-            {!isScoreSort(sortBy) && (
-              <>
-                <Col xs={12} md={6}>
-                  <InputNumber aria-label="每页 Kernel 数量" min={10} max={200} step={10} value={pageSize} onChange={(value) => setPageSize(value || 50)} style={{ width: '100%' }} addonBefore="每页" />
-                </Col>
-                <Col xs={12} md={6}>
-                  <InputNumber aria-label="读取页数" min={1} max={10} value={maxPages} onChange={(value) => setMaxPages(value || 1)} style={{ width: '100%' }} addonBefore="页数" />
-                </Col>
-                <Col xs={24} md={6}>
-                  <Select aria-label="读取分数数量" value={scoreLimit} onChange={setScoreLimit} style={{ width: '100%' }} options={[10, 20, 30, 50].map((value) => ({ value, label: `读取前 ${value} 条分数` }))} />
-                </Col>
-              </>
-            )}
-          </Row>
-        </div>
-      </Card>
+        <KernelFilterBar
+          competitionInput={competitionInput}
+          setCompetitionInput={setCompetitionInput}
+          competitionInputRef={competitionInputRef}
+          competitionOptions={competitionOptions}
+          filterCompetitionOption={filterCompetitionOption}
+          enteredLoading={enteredLoading}
+          enteredError={enteredError}
+          enteredCompetitions={enteredCompetitions}
+          competition={competition}
+          activeCompInfo={activeCompInfo}
+          settingDefault={settingDefault}
+          togglePinActiveCompetition={togglePinActiveCompetition}
+          loadEnteredCompetitions={loadEnteredCompetitions}
+          loadKernels={loadKernels}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          sortOptions={buildSortOptions(confirmedDirection !== 'maximize')}
+          loading={loading}
+          mobileFiltersOpen={mobileFiltersOpen}
+          setMobileFiltersOpen={setMobileFiltersOpen}
+          scoreFilter={scoreFilter}
+          setScoreFilter={setScoreFilter}
+          archivedOnly={archivedOnly}
+          setArchivedOnly={setArchivedOnly}
+          kernelsCount={kernels.length}
+          scoredCount={scoredKernels.length}
+          displayCount={displayKernels.length}
+          cacheInfo={cacheInfo}
+          backgroundRefreshing={backgroundRefreshing}
+          competitionInfo={competitionInfo}
+          confirmedDirection={confirmedDirection}
+          pageSize={pageSize}
+          setPageSize={setPageSize}
+          maxPages={maxPages}
+          setMaxPages={setMaxPages}
+          scoreLimit={scoreLimit}
+          setScoreLimit={setScoreLimit}
+        />
 
       {competitionInfo?.score_direction_source === 'fallback' && !confirmedDirection && (
         <Alert
@@ -1141,42 +727,12 @@ const KernelList: React.FC = () => {
         />
       )}
 
-      {!!selectedRowKeys.length && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 28,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 1000,
-            background: '#ffffff',
-            boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-            border: '1px solid #d9d9d9',
-            borderRadius: 24,
-            padding: '8px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 16,
-          }}
-        >
-          <Text strong>
-            已选择 <span style={{ color: '#1677ff' }}>{selectedRowKeys.length}</span> 个 Kernel
-          </Text>
-          <Space>
-            <Button size="small" onClick={() => setSelectedRowKeys([])}>
-              取消选择
-            </Button>
-            <Button
-              size="small"
-              type="primary"
-              icon={<CloudDownloadOutlined />}
-              onClick={() => openArchiveDialog(selectedKernels)}
-            >
-              批量归档
-            </Button>
-          </Space>
-        </div>
-      )}
+      <KernelBatchBar
+        selectedCount={selectedRowKeys.length}
+        selectedKernels={selectedKernels}
+        onClearSelection={() => setSelectedRowKeys([])}
+        onBatchArchive={openArchiveDialog}
+      />
 
       <Card className="data-panel desktop-data-table" styles={{ body: { padding: 0 } }}>
         <Table<ScoredKernel>
@@ -1196,72 +752,23 @@ const KernelList: React.FC = () => {
         />
       </Card>
 
-      <div className="mobile-data-list" aria-label="Kernel 列表">
-        {!displayKernels.length && !loading && (
-          <div className="mobile-empty-state"><Empty description="暂无 Kernel 数据" /></div>
-        )}
-        {mobileKernels.map((kernel) => {
-          const owner = kaggleOwnerFromRef(kernel.ref);
-          const archived = archivedVersions.get(kernel.ref);
-          const selected = selectedRowKeys.includes(kernel.ref);
-          return (
-            <article className="mobile-data-card" key={kernel.ref}>
-              <div className="mobile-data-card-head">
-                <Checkbox
-                  checked={selected}
-                  aria-label={`选择 ${kernel.ref}`}
-                  onChange={(event) => setSelectedRowKeys((current) => (
-                    event.target.checked
-                      ? [...current, kernel.ref]
-                      : current.filter((value) => value !== kernel.ref)
-                  ))}
-                />
-                <div className="mobile-data-card-title">
-                  <a className="kernel-title" href={kaggleKernelUrl(kernel.ref)} target="_blank" rel="noreferrer">
-                    {kernel.title || kernel.ref}
-                  </a>
-                  <span className="kernel-ref-line"><span className="kernel-ref">{kernel.ref}</span><CopyButton value={kernel.ref} label="复制 Kernel ref" /></span>
-                </div>
-                <span className="score-value" style={{ color: getScoreColor(kernel.public_score) }}>
-                  {kernel.public_score === undefined || kernel.public_score === null
-                    ? '—'
-                    : kernel.public_score.toFixed(4)}
-                </span>
-              </div>
-              <div className="mobile-data-card-meta">
-                <a href={kaggleAuthorUrl(owner)} target="_blank" rel="noreferrer">
-                  <UserOutlined /> @{owner}
-                </a>
-                <span><StarOutlined /> {kernel.total_votes} 票</span>
-                <span><ClockCircleOutlined /> {formatDate(kernel.last_run_time)}</span>
-                {archived?.length
-                  ? <Tag color="success">已归档 {archived.length} 个版本</Tag>
-                  : <span>未归档</span>}
-              </div>
-              <div className="mobile-data-card-actions">
-                <Button icon={<EyeOutlined />} onClick={() => showVersions(kernel)}>版本历史</Button>
-                <Button type="primary" icon={<CloudDownloadOutlined />} onClick={() => openArchiveDialog([kernel])}>
-                  归档
-                </Button>
-              </div>
-            </article>
-          );
-        })}
-        {displayKernels.length > MOBILE_PAGE_SIZE && (
-          <div className="mobile-list-footer">
-            <Text type="secondary">总计：{displayKernels.length}</Text>
-            <Pagination
-              simple
-              size="small"
-              current={mobilePage}
-              pageSize={MOBILE_PAGE_SIZE}
-              total={displayKernels.length}
-              showSizeChanger={false}
-              onChange={setMobilePage}
-            />
-          </div>
-        )}
-      </div>
+      <MobileKernelCardList
+        displayKernels={displayKernels}
+        mobileKernels={mobileKernels}
+        loading={loading}
+        selectedRowKeys={selectedRowKeys}
+        archivedVersions={archivedVersions}
+        mobilePage={mobilePage}
+        onPageChange={setMobilePage}
+        onToggleSelect={(ref, checked) =>
+          setSelectedRowKeys((current) =>
+            checked ? [...current, ref] : current.filter((val) => val !== ref),
+          )
+        }
+        getScoreColor={getScoreColor}
+        onShowVersions={showVersions}
+        onOpenArchive={openArchiveDialog}
+      />
       </div>
 
       <KernelVersionModal
