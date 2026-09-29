@@ -6,4 +6,5 @@ export { default as KernelFreshnessBanner } from './KernelFreshnessBanner';
 export { buildKernelTableColumns } from './kernelTableColumns';
 export { useKernelArchive } from './useKernelArchive';
 export { useKernelVersions } from './useKernelVersions';
+export { useKernelListState } from './useKernelListState';
 export * from './kernelUtils';
