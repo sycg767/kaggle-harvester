@@ -3,40 +3,21 @@ import {
   Alert,
   App as AntApp,
   Button,
-  Col,
-  Drawer,
-  Empty,
   Form,
-  Input,
-  InputNumber,
-  List,
   Modal,
-  Row,
-  Select,
   Space,
-  Switch,
-  Spin,
-  Table,
   Tag,
-  Tooltip,
-  Typography,
-  type TableColumnsType,
 } from 'antd';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
-  CloseCircleOutlined,
   ExclamationCircleOutlined,
-  HistoryOutlined,
   ReloadOutlined,
-  RightOutlined,
   SaveOutlined,
-  SearchOutlined,
 } from '@ant-design/icons';
 import { Gauge } from 'lucide-react';
 import {
   api,
-  type AutoArchiveCheckedItem,
   type AutoArchiveConfig,
   type AutoArchiveRunDetail,
   type AutoArchiveRunLog,
@@ -45,14 +26,14 @@ import {
 } from '../api';
 import { buildEnteredCompetitionOptions, competitionDisplayName } from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
-import {
-  kaggleAuthorUrl,
-  kaggleKernelUrl,
-  kaggleOwnerFromRef,
-} from '../kaggleUrls';
 import DialogTitle from './DialogTitle';
-
-const { Text } = Typography;
+import {
+  AutoArchiveConfigForm,
+  AutoArchiveDetailDrawer,
+  AutoArchiveLogsList,
+  formatDate,
+  SummaryItem,
+} from './auto-archive';
 
 interface AutoArchiveControlProps {
   currentCompetition: string;
@@ -60,122 +41,6 @@ interface AutoArchiveControlProps {
   buttonText?: string;
   buttonIcon?: React.ReactNode;
 }
-
-interface SummaryItemProps {
-  label: string;
-  children: React.ReactNode;
-  tabular?: boolean;
-}
-
-const SummaryItem: React.FC<SummaryItemProps> = ({ label, children, tabular = false }) => (
-  <div className="auto-archive-summary-item">
-    <span className="auto-archive-summary-label">{label}</span>
-    <div className={`auto-archive-summary-value${tabular ? ' is-tabular' : ''}`}>{children}</div>
-  </div>
-);
-
-const formatDate = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
-};
-
-const formatDuration = (seconds: number) => {
-  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
-  if (seconds < 60) return `${seconds.toFixed(1)} 秒`;
-  return `${Math.floor(seconds / 60)} 分 ${Math.round(seconds % 60)} 秒`;
-};
-
-const renderRunOutcome = (log: AutoArchiveRunLog) => {
-  if (log.outcome === 'success') {
-    return <Tag color="success" icon={<CheckCircleOutlined />}>成功</Tag>;
-  }
-  if (log.outcome === 'partial') {
-    return (
-      <Tooltip title={log.error || '部分 Kernel 处理失败'}>
-        <Tag color="warning" icon={<ExclamationCircleOutlined />}>部分失败</Tag>
-      </Tooltip>
-    );
-  }
-  return (
-    <Tooltip title={log.error || '检查失败'}>
-      <Tag color="error" icon={<CloseCircleOutlined />}>失败</Tag>
-    </Tooltip>
-  );
-};
-
-const renderCheckedAction = (item: AutoArchiveCheckedItem) => {
-  if (item.action === 'archived') {
-    return <Tag color="success" icon={<CheckCircleOutlined />}>已归档</Tag>;
-  }
-  if (item.action === 'skipped') return <Tag color="blue">已处理</Tag>;
-  if (item.action === 'failed') {
-    return (
-      <Tooltip title={item.error || '归档失败'}>
-        <Tag color="error" icon={<CloseCircleOutlined />}>失败</Tag>
-      </Tooltip>
-    );
-  }
-  return <Tag>未命中</Tag>;
-};
-
-const detailColumns: TableColumnsType<AutoArchiveCheckedItem> = [
-  {
-    title: '竞赛',
-    dataIndex: 'competition',
-    width: 150,
-    ellipsis: true,
-    render: (value?: string) => value || '—',
-  },
-  {
-    title: '分数',
-    dataIndex: 'public_score',
-    width: 92,
-    sorter: (a, b) => (a.public_score ?? Number.POSITIVE_INFINITY) - (b.public_score ?? Number.POSITIVE_INFINITY),
-    render: (value?: number) => value === undefined || value === null ? '—' : <Text strong>{value.toFixed(4)}</Text>,
-  },
-  {
-    title: 'Kernel',
-    key: 'kernel',
-    width: 300,
-    render: (_, item) => (
-      <div style={{ minWidth: 0 }}>
-        <a href={kaggleKernelUrl(item.ref)} target="_blank" rel="noreferrer" className="kernel-title">
-          {item.title || item.ref}
-        </a>
-        <Text type="secondary" className="kernel-ref">{item.ref}</Text>
-      </div>
-    ),
-  },
-  {
-    title: '作者',
-    dataIndex: 'author',
-    width: 135,
-    ellipsis: true,
-    render: (value: string, item) => {
-      const owner = kaggleOwnerFromRef(item.ref);
-      return <a href={kaggleAuthorUrl(owner)} target="_blank" rel="noreferrer">{value || owner}</a>;
-    },
-  },
-  {
-    title: '最后运行',
-    dataIndex: 'last_run_time',
-    width: 170,
-    render: formatDate,
-  },
-  {
-    title: '处理结果',
-    key: 'action',
-    width: 110,
-    render: (_, item) => renderCheckedAction(item),
-  },
-  {
-    title: '版本',
-    dataIndex: 'version_number',
-    width: 75,
-    render: (value?: number) => value ? `v${value}` : '—',
-  },
-];
 
 const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   currentCompetition,
@@ -196,10 +61,8 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<AutoArchiveRunLog | null>(null);
   const [runDetail, setRunDetail] = useState<AutoArchiveRunDetail | null>(null);
-  const [detailSearch, setDetailSearch] = useState('');
-  const [detailAction, setDetailAction] = useState('all');
   const [narrowViewport, setNarrowViewport] = useState(
-    () => window.matchMedia('(max-width: 768px)').matches,
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
   );
   const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
   const [enteredLoading, setEnteredLoading] = useState(false);
@@ -212,6 +75,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   }, [onArchiveComplete]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
     const query = window.matchMedia('(max-width: 768px)');
     const update = () => setNarrowViewport(query.matches);
     query.addEventListener('change', update);
@@ -346,8 +210,6 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
     setSelectedLog(log);
     setRunDetail(null);
     setDetailError(null);
-    setDetailSearch('');
-    setDetailAction('all');
     setDetailOpen(true);
     setDetailLoading(true);
     try {
@@ -359,17 +221,6 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
       setDetailLoading(false);
     }
   };
-
-  const detailItems = useMemo(() => {
-    const query = detailSearch.trim().toLowerCase();
-    return (runDetail?.items || []).filter((item) => {
-      if (detailAction !== 'all' && item.action !== detailAction) return false;
-      if (!query) return true;
-      return [item.ref, item.title, item.author]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(query));
-    });
-  }, [detailAction, detailSearch, runDetail?.items]);
 
   const status = snapshot?.status;
   const enabled = snapshot?.config.enabled ?? false;
@@ -469,131 +320,16 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
           </div>
         </div>
 
-        <Form<AutoArchiveConfig>
+        <AutoArchiveConfigForm
           form={form}
-          layout="vertical"
           disabled={loading || running}
-          initialValues={{
-            enabled: false,
-            competitions: currentCompetition ? [currentCompetition] : [],
-            score_thresholds: {},
-            interval_minutes: 30,
-            include_outputs: false,
-            score_direction: 'auto',
-          }}
-        >
-          <Row gutter={16}>
-            <Col xs={24} sm={16}>
-              <Form.Item
-                name="competitions"
-                label="监控竞赛"
-                rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个竞赛' }]}
-                extra={
-                  enteredError
-                    ? `已参加列表读取失败：${enteredError}。仍可选择当前页竞赛或已保存项。`
-                    : (
-                      <span>
-                        已参加竞赛 · 可多选
-                        {' · '}
-                        <Button
-                          type="link"
-                          size="small"
-                          style={{ padding: 0, height: 'auto' }}
-                          loading={enteredLoading}
-                          onClick={() => void loadEnteredCompetitions(true)}
-                        >
-                          刷新
-                        </Button>
-                      </span>
-                    )
-                }
-              >
-                <Select
-                  mode="multiple"
-                  allowClear
-                  showSearch
-                  loading={enteredLoading}
-                  optionFilterProp="label"
-                  placeholder="选择竞赛"
-                  aria-label="自动归档监控竞赛"
-                  options={competitionSelectOptions}
-                  maxTagCount="responsive"
-                  maxTagTextLength={28}
-                  listHeight={280}
-                  popupMatchSelectWidth={false}
-                  styles={{ popup: { root: { minWidth: 320 } } }}
-                  style={{ width: '100%' }}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Form.Item name="interval_minutes" label="刷新间隔" rules={[{ required: true }]}>
-                <Select aria-label="自动归档刷新间隔" options={[
-                  { value: 1, label: '1 分钟' },
-                  { value: 2, label: '2 分钟' },
-                  { value: 5, label: '5 分钟' },
-                  { value: 10, label: '10 分钟' },
-                  { value: 30, label: '30 分钟' },
-                  { value: 60, label: '1 小时' },
-                  { value: 180, label: '3 小时' },
-                  { value: 360, label: '6 小时' },
-                ]} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item noStyle shouldUpdate={(prev, next) => prev.competitions !== next.competitions}>
-            {() => {
-              const competitions = (form.getFieldValue('competitions') as string[] | undefined) || [];
-              if (!competitions.length) return null;
-              return (
-                <div style={{ marginBottom: 16 }}>
-                  <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                    各竞赛分数阈值（启用时必填）
-                  </Text>
-                  <Row gutter={[16, 12]}>
-                    {competitions.map((slug) => (
-                      <Col xs={24} sm={12} key={slug}>
-                        <Form.Item
-                          name={['score_thresholds', slug]}
-                          label={competitionTitleById.get(slug) || slug}
-                          rules={[{ required: true, message: `请设置阈值` }]}
-                          style={{ marginBottom: 4 }}
-                          extra={<Text type="secondary" style={{ fontSize: 12 }}>{slug}</Text>}
-                        >
-                          <InputNumber
-                            aria-label={`${slug} 分数阈值`}
-                            precision={6}
-                            style={{ width: '100%' }}
-                            placeholder="例如 7.0"
-                          />
-                        </Form.Item>
-                      </Col>
-                    ))}
-                  </Row>
-                </div>
-              );
-            }}
-          </Form.Item>
-          <Space size="large" wrap>
-            <Form.Item name="enabled" valuePropName="checked" label="定时任务" style={{ marginBottom: 16 }}>
-              <Switch checkedChildren="已启用" unCheckedChildren="已关闭" />
-            </Form.Item>
-            <Form.Item name="include_outputs" valuePropName="checked" label="归档内容" style={{ marginBottom: 16 }}>
-              <Switch checkedChildren="包含输出" unCheckedChildren="仅源码" />
-            </Form.Item>
-          </Space>
-          <Form.Item
-            name="score_direction"
-            label="分数方向"
-            extra="自动识别失败时任务会停止，不会按默认方向归档。多竞赛方向不一致时请拆分配置。"
-          >
-            <Select options={[
-              { value: 'auto', label: '自动识别（仅接受可靠来源）' },
-              { value: 'minimize', label: '越低越好' },
-              { value: 'maximize', label: '越高越好' },
-            ]} />
-          </Form.Item>
-        </Form>
+          competitionSelectOptions={competitionSelectOptions}
+          competitionTitleById={competitionTitleById}
+          enteredLoading={enteredLoading}
+          enteredError={enteredError}
+          onRefreshCompetitions={() => void loadEnteredCompetitions(true)}
+          currentCompetition={currentCompetition}
+        />
 
         <div className="auto-archive-summary-grid" role="group" aria-label="自动归档运行状态">
           <SummaryItem label="任务状态">
@@ -635,195 +371,21 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
           />
         )}
 
-        <div className="dialog-section-heading">
-          <HistoryOutlined />
-          <Text strong>运行记录</Text>
-          <Text type="secondary" className="dialog-section-hint">弹窗打开时每 5 秒更新</Text>
-        </div>
-        <List<AutoArchiveRunLog>
-          className="auto-archive-log-list"
-          size="small"
-          dataSource={snapshot?.logs || []}
-          pagination={{ pageSize: 5, hideOnSinglePage: true }}
-          locale={{ emptyText: <Text type="secondary">定时任务尚未完成过检查</Text> }}
-          renderItem={(log) => (
-            <List.Item
-              className="auto-archive-log-row"
-              role="button"
-              tabIndex={0}
-              aria-label={`查看 ${formatDate(log.finished_at)} 的检查详情`}
-              actions={[
-                <Tooltip title="查看本次检查的 Kernel 明细" key="detail">
-                  <Button
-                    type="text"
-                    icon={<RightOutlined />}
-                    aria-label={`打开 ${formatDate(log.finished_at)} 的检查详情`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void showRunDetail(log);
-                    }}
-                  />
-                </Tooltip>,
-              ]}
-              onClick={() => void showRunDetail(log)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  void showRunDetail(log);
-                }
-              }}
-            >
-              <List.Item.Meta
-                title={(
-                  <Space size={6} wrap>
-                    <Text strong>{formatDate(log.finished_at)}</Text>
-                    <Tag icon={log.trigger === 'scheduled' ? <ClockCircleOutlined /> : undefined}>
-                      {log.trigger === 'scheduled' ? '定时' : '手动'}
-                    </Tag>
-                    {renderRunOutcome(log)}
-                  </Space>
-                )}
-                description={(
-                  <Space size={12} wrap className="auto-archive-log-summary">
-                    <span>检查 <Text strong>{log.checked_count}</Text></span>
-                    <span>命中 <Text strong>{log.matched_count}</Text></span>
-                    <span>新增 <Text type={log.archived_count > 0 ? 'success' : undefined} strong>{log.archived_count}</Text></span>
-                    <span>跳过 <Text>{log.skipped_count}</Text></span>
-                    {log.failed_count > 0 && <span>失败 <Text type="danger" strong>{log.failed_count}</Text></span>}
-                    <Text type="secondary">耗时 {formatDuration(log.duration_seconds)}</Text>
-                    {!log.details_available && <Text type="secondary">仅汇总</Text>}
-                  </Space>
-                )}
-              />
-            </List.Item>
-          )}
+        <AutoArchiveLogsList
+          logs={snapshot?.logs || []}
+          onSelectLog={(log) => void showRunDetail(log)}
         />
       </Modal>
 
-      <Drawer
-        className="newapi-detail-drawer"
-        title={(
-          <DialogTitle onClose={() => setDetailOpen(false)}>
-            <Space size={8} wrap>
-              <HistoryOutlined />
-              <span>检查详情</span>
-              <Text type="secondary">{formatDate(selectedLog?.finished_at)}</Text>
-            </Space>
-          </DialogTitle>
-        )}
-        closable={false}
-        extra={selectedLog ? renderRunOutcome(selectedLog) : null}
+      <AutoArchiveDetailDrawer
         open={detailOpen}
-        width={narrowViewport ? '100%' : 980}
-        zIndex={1100}
+        loading={detailLoading}
+        error={detailError}
+        selectedLog={selectedLog}
+        runDetail={runDetail}
+        narrowViewport={narrowViewport}
         onClose={() => setDetailOpen(false)}
-      >
-        {detailLoading ? (
-          <div style={{ padding: 64, textAlign: 'center' }}><Spin /></div>
-        ) : detailError ? (
-          <Alert type="error" showIcon message="运行明细读取失败" description={detailError} />
-        ) : runDetail && selectedLog ? (
-          <>
-            <div className="auto-archive-summary-grid" role="group" aria-label="本次检查汇总">
-              <SummaryItem label="触发方式">
-                {selectedLog.trigger === 'scheduled' ? '定时检查' : '手动检查'}
-              </SummaryItem>
-              <SummaryItem label="完成时间" tabular>{formatDate(selectedLog.finished_at)}</SummaryItem>
-              <SummaryItem label="耗时" tabular>{formatDuration(selectedLog.duration_seconds)}</SummaryItem>
-              <SummaryItem label="检查 / 命中" tabular>
-                {selectedLog.checked_count} / {selectedLog.matched_count}
-              </SummaryItem>
-              <SummaryItem label="新增 / 跳过" tabular>
-                {selectedLog.archived_count} / {selectedLog.skipped_count}
-              </SummaryItem>
-              <SummaryItem label="失败" tabular>{selectedLog.failed_count}</SummaryItem>
-            </div>
-
-            {!runDetail.log.details_available && (
-              <Alert
-                type="info"
-                showIcon
-                message="该记录创建于详细日志启用前，仅保留汇总数据。"
-                style={{ marginTop: 16 }}
-              />
-            )}
-
-            {runDetail.log.details_available && (
-              <>
-                <Row gutter={[12, 12]} style={{ marginTop: 16, marginBottom: 12 }}>
-                  <Col xs={24} sm={16}>
-                    <Input
-                      aria-label="筛选检查明细"
-                      allowClear
-                      prefix={<SearchOutlined />}
-                      value={detailSearch}
-                      placeholder="筛选 Kernel、作者或 ref"
-                      onChange={(event) => setDetailSearch(event.target.value)}
-                    />
-                  </Col>
-                  <Col xs={24} sm={8}>
-                    <Select
-                      aria-label="检查明细处理结果筛选"
-                      value={detailAction}
-                      style={{ width: '100%' }}
-                      onChange={setDetailAction}
-                      options={[
-                        { value: 'all', label: '全部处理结果' },
-                        { value: 'not_matched', label: '未命中阈值' },
-                        { value: 'archived', label: '新增归档' },
-                        { value: 'skipped', label: '已处理 / 跳过' },
-                        { value: 'failed', label: '处理失败' },
-                      ]}
-                    />
-                  </Col>
-                </Row>
-                <div className="desktop-data-table">
-                  <Table<AutoArchiveCheckedItem>
-                    size="small"
-                    rowKey="ref"
-                    columns={detailColumns}
-                    dataSource={detailItems}
-                    pagination={{
-                      defaultPageSize: 10,
-                      pageSizeOptions: [10, 25, 50],
-                      showSizeChanger: true,
-                      showTotal: (total) => `显示 ${total} / ${runDetail.items.length} 个 Kernel`,
-                    }}
-                    scroll={{ x: 900 }}
-                  />
-                </div>
-                <div className="mobile-data-list auto-archive-detail-list">
-                  {!detailItems.length && <Empty description="没有符合条件的 Kernel" />}
-                  {detailItems.map((item) => {
-                    const owner = kaggleOwnerFromRef(item.ref);
-                    return (
-                      <article className="mobile-data-card" key={item.ref}>
-                        <div className="mobile-data-card-head">
-                          <div className="mobile-data-card-title">
-                            <a className="kernel-title" href={kaggleKernelUrl(item.ref)} target="_blank" rel="noreferrer">
-                              {item.title || item.ref}
-                            </a>
-                            <span className="kernel-ref">{item.ref}</span>
-                          </div>
-                          <span className="score-value">
-                            {item.public_score === undefined || item.public_score === null ? '—' : item.public_score.toFixed(4)}
-                          </span>
-                        </div>
-                        <div className="mobile-data-card-meta">
-                          <a href={kaggleAuthorUrl(owner)} target="_blank" rel="noreferrer">@{item.author || owner}</a>
-                          <span>{formatDate(item.last_run_time)}</span>
-                          {item.version_number && <span>v{item.version_number}</span>}
-                          {renderCheckedAction(item)}
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </>
-        ) : null}
-      </Drawer>
+      />
     </>
   );
 };
