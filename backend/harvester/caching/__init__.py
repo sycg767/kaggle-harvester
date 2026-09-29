@@ -1,22 +1,27 @@
-from __future__ import annotations
-
 """
-Compatibility facade for harvester.cache.
-All underlying cache classes are modularized in harvester.caching.
+Modular caching package for Kaggle Harvester.
 """
 
-from .caching import (
-    CurrentScoreCacheHit,
-    KernelMetadataCacheHit,
-    KernelQueryCacheHit,
+from .competitions import (
     PersistentActiveCompetitionStore,
+    resolve_active_competition,
+)
+from .episodes import (
+    PersistentSimulationEpisodeStore,
+)
+from .metadata import (
+    KernelMetadataCacheHit,
+    PersistentKernelMetadataCache,
+)
+from .queries import (
+    KernelQueryCacheHit,
     PersistentCompetitionCache,
     PersistentEnteredCompetitionsCache,
-    PersistentKernelMetadataCache,
     PersistentKernelQueryCache,
+)
+from .scores import (
+    CurrentScoreCacheHit,
     PersistentKernelScoreCache,
-    PersistentSimulationEpisodeStore,
-    resolve_active_competition,
 )
 
 __all__ = [
