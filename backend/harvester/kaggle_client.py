@@ -41,18 +41,22 @@ from .client import (
     KaggleWebServiceClient,
     archive_kernel_impl,
     competition_slug_from_ref,
+    detect_score_direction_from_leaderboard,
     download_simulation_leaderboard_data,
     enrich_kernel_metadata_impl,
     enrich_kernel_summaries_impl,
     extract_current_public_score,
     extract_output_zip,
     extract_public_score,
+    fetch_competition_info_impl,
     fetch_kernel_type_sdk,
     get_kernel_runtime_metadata,
     get_versions_via_cli,
     get_versions_via_web_api,
     infer_score_direction_from_metric,
     is_simulation_competition,
+    list_competition_submissions_impl,
+    list_entered_competitions_impl,
     list_kernels_by_score_sdk,
     list_simulation_episodes_for_submission,
     locate_utf8_wrapper,
@@ -76,6 +80,7 @@ _parse_competition_submission = parse_competition_submission
 _extract_public_score = extract_public_score
 _extract_current_public_score = extract_current_public_score
 _infer_score_direction_from_metric = infer_score_direction_from_metric
+_detect_score_direction_from_leaderboard = detect_score_direction_from_leaderboard
 
 
 class KaggleClient:
@@ -170,251 +175,29 @@ class KaggleClient:
         self, page_size: int = 100
     ) -> list[EnteredCompetition]:
         """列出当前账号已参加的竞赛（Kaggle group=entered）。"""
-        size = max(1, min(int(page_size), 200))
-        rows = self._run_kaggle_json(
-            [
-                "competitions",
-                "list",
-                "--group",
-                "entered",
-                "--format",
-                "json",
-                "--page-size",
-                str(size),
-            ],
-            timeout=90,
+        return list_entered_competitions_impl(
+            run_kaggle_json_fn=self._run_kaggle_json,
+            page_size=page_size,
         )
-
-        # 尝试通过 Python Kaggle SDK 补充 tags 与真实 description/title (若 SDK 可用且非纯单测 mock)
-        tags_by_slug: dict[str, list[str]] = {}
-        title_by_slug: dict[str, str] = {}
-        desc_by_slug: dict[str, str] = {}
-        try:
-            from kaggle.api.kaggle_api_extended import KaggleApi
-
-            api = KaggleApi()
-            api.authenticate()
-            resp = api.competitions_list(group="entered", page_size=size)
-            for c in getattr(resp, "competitions", []) or []:
-                c_slug = _competition_slug_from_ref(
-                    getattr(c, "ref", None) or getattr(c, "id", None)
-                )
-                if c_slug:
-                    tags_by_slug[c_slug] = [
-                        t.name.lower()
-                        for t in (getattr(c, "tags", []) or [])
-                        if getattr(t, "name", None)
-                    ]
-                    if getattr(c, "title", None):
-                        title_by_slug[c_slug] = str(c.title).strip()
-                    if getattr(c, "description", None):
-                        desc_by_slug[c_slug] = str(c.description).strip()
-        except Exception:
-            pass
-
-        results: list[EnteredCompetition] = []
-        seen: set[str] = set()
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            slug = _competition_slug_from_ref(
-                row.get("ref") or row.get("id") or row.get("competitionId")
-            )
-            if not slug or slug in seen:
-                continue
-            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,119}", slug):
-                continue
-            seen.add(slug)
-            team_count = row.get("teamCount")
-            if team_count is None:
-                team_count = row.get("team_count")
-            try:
-                team_count_int = int(team_count) if team_count is not None else None
-            except (TypeError, ValueError):
-                team_count_int = None
-
-            raw_title = str(row.get("title") or "").strip()
-            if not raw_title and slug in title_by_slug:
-                raw_title = title_by_slug[slug]
-
-            tags = tags_by_slug.get(slug, [])
-            desc = desc_by_slug.get(slug, "")
-            is_sim = _is_simulation_competition(
-                slug, tags=tags, title=raw_title, description=desc
-            )
-
-            results.append(
-                EnteredCompetition(
-                    id=slug,
-                    title=raw_title or slug,
-                    category=str(row.get("category") or ""),
-                    deadline=(
-                        str(row.get("deadline"))
-                        if row.get("deadline") not in (None, "")
-                        else None
-                    ),
-                    reward=(
-                        str(row.get("reward"))
-                        if row.get("reward") not in (None, "")
-                        else None
-                    ),
-                    team_count=team_count_int,
-                    is_simulation=is_sim,
-                    tags=tags,
-                )
-            )
-        return results
 
     def fetch_competition_info(
         self, competition: Optional[str] = None, refresh: bool = False
     ) -> CompetitionInfo:
         """Fetch competition overview via Kaggle CLI."""
-        comp = competition or self.competition_slug
-        now = time.monotonic()
-        if not refresh and comp in self._competition_info_memory:
-            cached_at, cached_info = self._competition_info_memory[comp]
-            if now - cached_at < 3600.0:
-                return cached_info.model_copy(deep=True)
-        try:
-            result = self._run_kaggle_json(
-                ["competitions", "list", "--search", comp, "--format", "json"]
-            )
-            data = next(
-                (
-                    item
-                    for item in result
-                    if item.get("ref") == comp or item.get("id") == comp
-                ),
-                result[0] if result else None,
-            )
-            if data:
-                raw_direction = next(
-                    (
-                        data.get(key)
-                        for key in (
-                            "isLowerBetter",
-                            "isLowerIsBetter",
-                            "lowerIsBetter",
-                        )
-                        if data.get(key) is not None
-                    ),
-                    None,
-                )
-                source = "api"
-                if isinstance(raw_direction, str):
-                    lowered = raw_direction.strip().lower()
-                    raw_direction = (
-                        True if lowered in {"true", "1", "yes"}
-                        else False if lowered in {"false", "0", "no"}
-                        else None
-                    )
-                is_lower_better = (
-                    raw_direction if isinstance(raw_direction, bool) else None
-                )
-                if is_lower_better is None:
-                    is_lower_better = self._detect_score_direction_from_leaderboard(comp)
-                    source = "leaderboard"
-                evaluation_metric = (
-                    data.get("evaluationMetric")
-                    or data.get("evaluation")
-                    or data.get("evaluationMetricName")
-                )
-                if is_lower_better is None:
-                    is_lower_better = _infer_score_direction_from_metric(
-                        str(evaluation_metric or "")
-                    )
-                    source = "metric"
-                if is_lower_better is None:
-                    # 无法从平台证据推断时保持兼容默认值，并通过 source 明确标记。
-                    is_lower_better = True
-                    source = "fallback"
-
-                tags_list = [
-                    t.get("name", "").lower()
-                    for t in (data.get("tags") or [])
-                    if isinstance(t, dict) and t.get("name")
-                ]
-                desc_text = str(data.get("description") or "")
-                raw_title_info = str(data.get("title") or comp)
-                is_sim = _is_simulation_competition(
-                    comp, tags=tags_list, title=raw_title_info, description=desc_text
-                )
-
-                info = CompetitionInfo(
-                    id=comp,
-                    title=raw_title_info,
-                    category=data.get("category", ""),
-                    deadline=data.get("deadline"),
-                    reward=data.get("reward"),
-                    team_count=data.get("teamCount"),
-                    kernel_count=data.get("kernelCount"),
-                    evaluation_metric=evaluation_metric,
-                    description=desc_text or None,
-                    is_lower_better=is_lower_better,
-                    score_direction_source=source,
-                    is_simulation=is_sim,
-                    tags=tags_list,
-                )
-                self._competition_info_memory[comp] = (now, info)
-                return info.model_copy(deep=True)
-        except Exception as exc:
-            if competition and competition != self.competition_slug:
-                raise RuntimeError(f"无法读取竞赛 {comp}：{exc}") from exc
-
-        # 默认竞赛在离线时仍可展示基础身份。
-        info = CompetitionInfo(
-            id=comp,
-            title=(
-                "ROGII Wellbore Geology Prediction"
-                if comp == self.COMPETITION_SLUG
-                else comp
-            ),
-            is_lower_better=True,
-            score_direction_source="fallback",
+        return fetch_competition_info_impl(
+            run_kaggle_json_fn=self._run_kaggle_json,
+            competition=competition,
+            default_competition=self.competition_slug,
+            refresh=refresh,
+            memory_cache=self._competition_info_memory,
+            detect_direction_fn=self._detect_score_direction_from_leaderboard,
         )
-        self._competition_info_memory[comp] = (now, info)
-        return info.model_copy(deep=True)
 
     def _detect_score_direction_from_leaderboard(
         self, competition: str
     ) -> bool | None:
         """根据公开榜单从优到劣的分数顺序判断优化方向。"""
-        try:
-            from kagglesdk.competitions.services.competition_api_service import (
-                CompetitionApiClient,
-            )
-            from kagglesdk.competitions.types.competition_api_service import (
-                ApiGetLeaderboardRequest,
-            )
-            from kagglesdk.kaggle_http_client import KaggleHttpClient
-
-            request = ApiGetLeaderboardRequest()
-            request.competition_name = competition
-            request.override_public = True
-            request.page_size = 20
-            response = CompetitionApiClient(KaggleHttpClient()).get_leaderboard(
-                request
-            )
-            scores = [
-                score
-                for score in (
-                    _parse_public_score(item.score)
-                    for item in (response.submissions or [])
-                )
-                if score is not None
-            ]
-            if len(scores) < 2:
-                return None
-            best = scores[0]
-            comparison = next(
-                (score for score in scores[1:] if abs(score - best) > 1e-12),
-                None,
-            )
-            if comparison is None:
-                return None
-            return best < comparison
-        except Exception:
-            return None
+        return detect_score_direction_from_leaderboard(competition)
 
     def _parse_competition_output(self, text: str) -> CompetitionInfo:
         """Parse the verbose competition list output."""
@@ -666,41 +449,12 @@ class KaggleClient:
         page_size: int = 10,
     ) -> list[CompetitionSubmission]:
         """列出当前账号在竞赛中的提交记录（含 Public Score）。"""
-        comp = (competition or self.competition_slug).strip()
-        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,119}", comp):
-            raise ValueError(f"竞赛标识无效：{comp}")
-        size = max(1, min(int(page_size), 50))
-        try:
-            # CLI 会主动裁掉 submittedBy、teamName 和 errorDescription；SDK
-            # 使用相同接口但保留完整字段，团队提交和失败原因依赖这些信息。
-            from kaggle.api.kaggle_api_extended import KaggleApi
-
-            api = KaggleApi()
-            api.authenticate()
-            submissions = api.competition_submissions(comp, page_size=size) or []
-            rows = [item.to_dict() for item in submissions if item is not None]
-        except Exception:
-            # 兼容缺少新版 SDK 的环境；此路径仍可显示基本提交信息。
-            rows = self._run_kaggle_json(
-                [
-                    "competitions",
-                    "submissions",
-                    comp,
-                    "--format",
-                    "json",
-                    "--page-size",
-                    str(size),
-                ],
-                timeout=90,
-            )
-        results: list[CompetitionSubmission] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            submission = _parse_competition_submission(row)
-            if submission is not None:
-                results.append(submission)
-        return results
+        return list_competition_submissions_impl(
+            run_kaggle_json_fn=self._run_kaggle_json,
+            competition=competition,
+            default_competition=self.competition_slug,
+            page_size=page_size,
+        )
 
     def list_datasets(self) -> list[dict]:
         """List competition datasets."""

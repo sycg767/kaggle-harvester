@@ -44,6 +44,12 @@ from .versions import (
     get_versions_via_web_api,
     list_kernels_by_score_sdk,
 )
+from .competitions import (
+    detect_score_direction_from_leaderboard,
+    fetch_competition_info_impl,
+    list_competition_submissions_impl,
+    list_entered_competitions_impl,
+)
 
 __all__ = [
     "UTF8_WRAPPER_NAME",
@@ -76,4 +82,8 @@ __all__ = [
     "get_versions_via_cli",
     "get_versions_via_web_api",
     "list_kernels_by_score_sdk",
+    "detect_score_direction_from_leaderboard",
+    "fetch_competition_info_impl",
+    "list_competition_submissions_impl",
+    "list_entered_competitions_impl",
 ]
