@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
-import io
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 import time
-import zipfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -42,12 +39,21 @@ from .client import (
     UTF8_WRAPPER_NAME,
     VIEW_MODEL,
     KaggleWebServiceClient,
+    archive_kernel_impl,
     competition_slug_from_ref,
     download_simulation_leaderboard_data,
+    enrich_kernel_metadata_impl,
+    enrich_kernel_summaries_impl,
     extract_current_public_score,
+    extract_output_zip,
     extract_public_score,
+    fetch_kernel_type_sdk,
+    get_kernel_runtime_metadata,
+    get_versions_via_cli,
+    get_versions_via_web_api,
     infer_score_direction_from_metric,
     is_simulation_competition,
+    list_kernels_by_score_sdk,
     list_simulation_episodes_for_submission,
     locate_utf8_wrapper,
     parse_competition_output,
@@ -109,70 +115,13 @@ class KaggleClient:
 
     def _fetch_kernel_type_sdk(self, kernel_ref: str) -> str:
         """读取单个 Kernel 的稳定运行类型，不下载源码或输出。"""
-        if "/" not in kernel_ref:
-            return ""
-        owner, slug = kernel_ref.split("/", 1)
-        from kagglesdk.kaggle_http_client import KaggleHttpClient
-        from kagglesdk.kernels.services.kernels_api_service import (
-            KernelsApiClient,
-        )
-        from kagglesdk.kernels.types.kernels_api_service import (
-            ApiGetKernelRequest,
-        )
-
-        request = ApiGetKernelRequest()
-        request.user_name = owner
-        request.kernel_slug = slug
-        response = KernelsApiClient(KaggleHttpClient()).get_kernel(request)
-        data = response.to_dict()
-        metadata = data.get("metadata") or {}
-        blob = data.get("blob") or {}
-        return str(
-            metadata.get("kernelType")
-            or blob.get("kernelType")
-            or ""
-        ).strip().lower()
+        return fetch_kernel_type_sdk(kernel_ref)
 
     def get_kernel_runtime_metadata(
         self, kernel_ref: str, version_number: int
     ) -> dict[str, Any]:
         """读取指定平台版本的 GPU、Internet 和机器规格。"""
-        if "/" not in kernel_ref or version_number <= 0:
-            return {}
-        owner, slug = kernel_ref.split("/", 1)
-        from kagglesdk.kaggle_http_client import KaggleHttpClient
-        from kagglesdk.kernels.services.kernels_api_service import (
-            KernelsApiClient,
-        )
-        from kagglesdk.kernels.types.kernels_api_service import (
-            ApiGetKernelRequest,
-        )
-
-        request = ApiGetKernelRequest()
-        request.user_name = owner
-        request.kernel_slug = slug
-        request.version_label = f"v{version_number}"
-        response = KernelsApiClient(KaggleHttpClient()).get_kernel(request)
-        metadata = response.to_dict().get("metadata") or {}
-        aliases = {
-            "enableGpu": ("enableGpu", "enable_gpu", "isGpuEnabled"),
-            "enableInternet": (
-                "enableInternet",
-                "enable_internet",
-                "isInternetEnabled",
-            ),
-            "machineShape": ("machineShape", "machine_shape"),
-        }
-        result: dict[str, Any] = {}
-        for target, source_names in aliases.items():
-            for source_name in source_names:
-                if source_name in metadata and metadata[source_name] is not None:
-                    result[target] = metadata[source_name]
-                    break
-        if result:
-            result["runtimeMetadataSource"] = "kaggle_sdk_version"
-            result["runtimeMetadataVersion"] = version_number
-        return result
+        return get_kernel_runtime_metadata(kernel_ref, version_number)
 
     def enrich_kernel_metadata(
         self,
@@ -180,52 +129,12 @@ class KaggleClient:
         retry_seconds: int = 3600,
     ) -> bool:
         """从永久缓存补类型，仅为新出现或退避到期的 Kernel 查询详情。"""
-        if self._metadata_cache is None or not kernels:
-            return False
-
-        refs = [item.ref for item in kernels]
-        cached = self._metadata_cache.get_many(refs)
-        now = time.time()
-        missing: list[str] = []
-        known: dict[str, Optional[str]] = {}
-        changed = False
-        by_ref = {item.ref: item for item in kernels}
-
-        for item in kernels:
-            hit = cached.get(item.ref)
-            current = (item.kernel_type or "").strip().lower()
-            if current:
-                if hit is None or hit.kernel_type != current:
-                    known[item.ref] = current
-                continue
-            if hit and hit.kernel_type:
-                item.kernel_type = hit.kernel_type
-                changed = True
-                continue
-            if hit is None or now - hit.checked_at >= retry_seconds:
-                missing.append(item.ref)
-
-        fetched: dict[str, Optional[str]] = {}
-        if missing:
-            worker_count = min(4, len(missing))
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = {
-                    executor.submit(self._fetch_kernel_type_sdk, ref): ref
-                    for ref in missing
-                }
-                for future in as_completed(futures):
-                    ref = futures[future]
-                    try:
-                        kernel_type = future.result()
-                    except Exception:
-                        kernel_type = ""
-                    fetched[ref] = kernel_type or None
-                    if kernel_type:
-                        by_ref[ref].kernel_type = kernel_type
-                        changed = True
-
-        self._metadata_cache.merge_checked({**known, **fetched})
-        return changed
+        return enrich_kernel_metadata_impl(
+            metadata_cache=self._metadata_cache,
+            kernels=kernels,
+            retry_seconds=retry_seconds,
+            fetch_type_fn=self._fetch_kernel_type_sdk,
+        )
 
     # ------------------------------------------------------------------
     #  Low-level helpers
@@ -587,67 +496,12 @@ class KaggleClient:
         max_pages: int,
     ) -> list[KernelSummary]:
         """通过 Kaggle SDK 的公开分数顺序读取精确竞赛 Kernel。"""
-        from kagglesdk.kaggle_http_client import KaggleHttpClient
-        from kagglesdk.kernels.services.kernels_api_service import (
-            KernelsApiClient,
+        return list_kernels_by_score_sdk(
+            competition=competition,
+            descending=descending,
+            page_size=page_size,
+            max_pages=max_pages,
         )
-        from kagglesdk.kernels.types.kernels_api_service import (
-            ApiListKernelsRequest,
-            KernelsListSortType,
-        )
-
-        client = KernelsApiClient(KaggleHttpClient())
-        sdk_sort = (
-            KernelsListSortType.SCORE_DESCENDING
-            if descending
-            else KernelsListSortType.SCORE_ASCENDING
-        )
-        requested_page_size = min(max(page_size, 1), 100)
-        results: list[KernelSummary] = []
-        seen_refs: set[str] = set()
-        page_token = ""
-
-        for page in range(1, max_pages + 1):
-            request = ApiListKernelsRequest()
-            request.competition = competition
-            request.sort_by = sdk_sort
-            request.page_size = requested_page_size
-            request.page = page
-            if page_token:
-                request.page_token = page_token
-
-            response = client.list_kernels(request)
-            rows = response.kernels or []
-            added = 0
-            for row in rows:
-                data = row.to_dict()
-                ref = data.get("ref", "")
-                if not ref or ref in seen_refs:
-                    continue
-                seen_refs.add(ref)
-                added += 1
-                results.append(
-                    KernelSummary(
-                        ref=ref,
-                        title=data.get("title", ""),
-                        author=data.get("author", ""),
-                        last_run_time=data.get("lastRunTime"),
-                        total_votes=data.get("totalVotes", 0) or 0,
-                        vote_count=data.get("totalVotes", 0) or 0,
-                        kernel_type=data.get("kernelType", ""),
-                        category=data.get("category", ""),
-                        competition=competition,
-                        is_competition_kernel=True,
-                    )
-                )
-
-            page_token = response.next_page_token or ""
-            if not rows or not added or (
-                not page_token and len(rows) < requested_page_size
-            ):
-                break
-
-        return results
 
     def _parse_kernel_list_output(
         self, text: str, competition: str
@@ -707,119 +561,16 @@ class KaggleClient:
         重新请求 Kaggle Web 接口。这样“刷新分数榜”才能拿到重算后的新分。
         返回值对齐 Kaggle 列表 Score（Best Score），不是详情页当前版本 Public Score。
         """
-        comp = competition or self.competition_slug
-
-        # Build base entries from summaries
-        base = {
-            s.ref: ScoredKernel(
-                ref=s.ref,
-                title=s.title,
-                author=s.author,
-                vote_count=s.total_votes,
-                total_votes=s.total_votes,
-                kernel_type=s.kernel_type,
-                category=s.category,
-                last_run_time=s.last_run_time,
-                competition=comp,
-                is_competition_kernel=s.is_competition_kernel,
-            )
-            for s in summaries
-        }
-
-        # 分数接口成本较高，仅处理调用方明确要求的前 N 条。
-        summary_by_ref = {summary.ref: summary for summary in summaries}
-        refs_to_enrich = list(base)
-        if score_limit is not None:
-            refs_to_enrich = refs_to_enrich[: max(score_limit, 0)]
-
-        refs_to_fetch: list[str] = []
-        for ref in refs_to_enrich:
-            summary = summary_by_ref[ref]
-            if force_refresh:
-                refs_to_fetch.append(ref)
-                continue
-            cached = (
-                self._score_cache.get_current(ref, summary.last_run_time)
-                if self._score_cache is not None
-                else None
-            )
-            if cached is None:
-                refs_to_fetch.append(ref)
-                continue
-            base[ref].public_score = cached.public_score
-            base[ref].public_score_display = cached.public_score_display
-
-        refs_to_enrich = refs_to_fetch
-        if not self._token or not refs_to_enrich:
-            return list(base.values())
-
-        ws: KaggleWebServiceClient | None = None
-        try:
-            ws = KaggleWebServiceClient(self._token)
-
-            def fetch_current_score(
-                ref: str,
-            ) -> tuple[
-                str,
-                Optional[float],
-                bool,
-                Optional[int],
-                Optional[int],
-            ]:
-                if "/" not in ref:
-                    return ref, None, False, None, None
-                owner, slug = ref.split("/", 1)
-                try:
-                    view = ws.post(VIEW_MODEL, {
-                        "authorUserName": owner,
-                        "kernelSlug": slug,
-                        "tab": "output",
-                    })
-                    score, score_version, current_version = (
-                        _extract_current_public_score(view)
-                    )
-                    return ref, score, True, score_version, current_version
-                except Exception:
-                    return ref, None, False, None, None
-
-            worker_count = min(4, len(refs_to_enrich))
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = {
-                    executor.submit(fetch_current_score, ref): ref
-                    for ref in refs_to_enrich
-                }
-                for future in as_completed(futures):
-                    (
-                        ref,
-                        current_score,
-                        fetch_succeeded,
-                        score_version,
-                        current_version,
-                    ) = future.result()
-                    if current_score is not None:
-                        base[ref].public_score = current_score
-                        base[ref].public_score_display = f"{current_score:.4f}"
-                    if self._score_cache is not None and fetch_succeeded:
-                        summary = summary_by_ref[ref]
-                        self._score_cache.set_current(
-                            ref,
-                            summary.last_run_time,
-                            current_score,
-                            (
-                                f"{current_score:.4f}"
-                                if current_score is not None
-                                else None
-                            ),
-                            score_version_number=score_version,
-                            current_version_number=current_version,
-                        )
-        except Exception:
-            pass
-        finally:
-            if ws is not None:
-                ws.close()
-
-        return list(base.values())
+        ws_cls = globals().get("KaggleWebServiceClient", KaggleWebServiceClient)
+        return enrich_kernel_summaries_impl(
+            token=self._token,
+            score_cache=self._score_cache,
+            summaries=summaries,
+            competition=competition or self.competition_slug,
+            score_limit=score_limit,
+            force_refresh=force_refresh,
+            web_service_cls=ws_cls,
+        )
 
     def get_kernel_versions(
         self, kernel_ref: str, refresh: bool = False
@@ -864,117 +615,17 @@ class KaggleClient:
         cached_versions: Optional[dict[int, VersionInfo]] = None,
     ) -> VersionScoreList:
         """通过 Kaggle 内部接口读取完整版本历史与公开分数。"""
-        ref_parts = kernel_ref.split("/")
-        if len(ref_parts) != 2:
-            raise ValueError(f"Invalid kernel ref: {kernel_ref}")
-        owner, slug = ref_parts
-        if not self._token:
-            raise RuntimeError("KAGGLE_API_TOKEN 未配置，无法读取版本分数。")
-
-        ws = KaggleWebServiceClient(self._token)
-        try:
-            view = ws.post(VIEW_MODEL, {
-                "authorUserName": owner,
-                "kernelSlug": slug,
-                "tab": "output",
-            })
-            kernel_id = (view.get("kernel") or {}).get("id")
-            if not kernel_id:
-                raise RuntimeError(f"Kaggle 未返回 Kernel ID：{kernel_ref}")
-
-            total = int(view.get("totalVersionCount") or 0)
-            data = ws.post(LIST_VERSIONS, {
-                "kernelId": int(kernel_id),
-                "sortOption": "VERSION_ID",
-                "pageSize": max(total, 200),
-            })
-            items = data.get("items") or []
-            if not isinstance(items, list):
-                items = []
-
-            def build_version(item: dict) -> VersionInfo:
-                version = item.get("version") or {}
-                run = item.get("run") or {}
-                blob = item.get("blob") or {}
-                version_number = int(version.get("versionNumber") or 0)
-                cached_hit = (
-                    cached_versions.get(version_number)
-                    if cached_versions
-                    else None
-                )
-                # 只有已出分的版本才可复用缓存，避免把 null 永久短路。
-                if cached_hit is not None and cached_hit.public_lb_numeric is not None:
-                    return cached_versions[version_number]
-                score_numeric: Optional[float] = None
-                if version_number > 0:
-                    try:
-                        version_view = ws.post(VIEW_MODEL, {
-                            "authorUserName": owner,
-                            "kernelSlug": slug,
-                            "tab": "output",
-                            "versionNumber": version_number,
-                        })
-                        submission = version_view.get("submission") or {}
-                        score_numeric = _parse_public_score(
-                            submission.get("scoreFormatted")
-                        )
-                    except Exception:
-                        pass
-                return VersionInfo(
-                    version_number=version_number,
-                    title=version.get("versionName") or run.get("title") or "",
-                    status=str(run.get("status") or "").lower(),
-                    date_created=blob.get("dateCreated") or run.get("dateCreated") or "",
-                    public_lb=(
-                        str(score_numeric) if score_numeric is not None else None
-                    ),
-                    public_lb_numeric=score_numeric,
-                    script_version_id=version.get("id"),
-                )
-
-            versions: list[VersionInfo] = []
-            worker_count = min(4, max(len(items), 1))
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = [executor.submit(build_version, item) for item in items]
-                for future in as_completed(futures):
-                    versions.append(future.result())
-            versions.sort(key=lambda item: item.version_number, reverse=True)
-            return VersionScoreList(
-                owner_slug=owner,
-                kernel_slug=slug,
-                versions=versions,
-            )
-        finally:
-            ws.close()
+        ws_cls = globals().get("KaggleWebServiceClient", KaggleWebServiceClient)
+        return get_versions_via_web_api(
+            token=self._token,
+            kernel_ref=kernel_ref,
+            cached_versions=cached_versions,
+            web_service_cls=ws_cls,
+        )
 
     def _get_versions_via_cli(self, kernel_ref: str) -> VersionScoreList:
         """Fallback: parse version info from kernel metadata."""
-        ref_parts = kernel_ref.split("/")
-        if len(ref_parts) != 2:
-            raise ValueError(f"Invalid kernel ref: {kernel_ref}")
-        owner, slug = ref_parts
-
-        # Pull the kernel metadata
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self._run_kaggle(
-                ["kernels", "pull", kernel_ref, "-p", tmpdir, "-m"]
-            )
-            metadata_path = Path(tmpdir) / "kernel-metadata.json"
-            if metadata_path.exists():
-                meta = json.loads(metadata_path.read_text(encoding="utf-8"))
-                version = VersionInfo(
-                    version_number=meta.get("versionNumber", 0),
-                    title=meta.get("title", ""),
-                    status=meta.get("status", ""),
-                    date_created=meta.get("creationDate", ""),
-                )
-                return VersionScoreList(
-                    owner_slug=owner,
-                    kernel_slug=slug,
-                    versions=[version] if version.version_number else [],
-                )
-
-        return VersionScoreList(owner_slug=owner, kernel_slug=slug, versions=[])
+        return get_versions_via_cli(self._run_kaggle, kernel_ref)
 
     # ------------------------------------------------------------------
     #  Kernel archiving
@@ -988,155 +639,22 @@ class KaggleClient:
         include_outputs: bool = False,
     ) -> dict:
         """通过 Kaggle 内部只读接口把指定版本保存到本地。"""
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-        if not self._token:
-            raise RuntimeError("KAGGLE_API_TOKEN 未配置，无法读取 Kernel 源码。")
-        owner, slug = kernel_ref.split("/", 1)
-        ws = KaggleWebServiceClient(self._token)
-        try:
-            initial = ws.post(VIEW_MODEL, {
-                "authorUserName": owner,
-                "kernelSlug": slug,
-                "tab": "output",
-            })
-            kernel = initial.get("kernel") or {}
-            kernel_id = int(kernel.get("id") or 0)
-            if not kernel_id:
-                raise RuntimeError(f"Kaggle 未返回 Kernel ID：{kernel_ref}")
-
-            total = int(initial.get("totalVersionCount") or 0)
-            version_data = ws.post(LIST_VERSIONS, {
-                "kernelId": kernel_id,
-                "sortOption": "VERSION_ID",
-                "pageSize": max(total, 200),
-            })
-            version_items = version_data.get("items") or []
-            selected_item = next(
-                (
-                    item for item in version_items
-                    if int((item.get("version") or {}).get("versionNumber") or 0) == version
-                ),
-                None,
-            ) if version is not None else None
-            if selected_item is None:
-                if version is None:
-                    raise RuntimeError("未指定可下载的 Kernel 版本。")
-                raise RuntimeError(f"Kaggle 未找到版本 v{version}：{kernel_ref}")
-
-            version_info = selected_item.get("version") or {}
-            run_info = selected_item.get("run") or {}
-            version_number = int(version_info.get("versionNumber") or version)
-            session_id = int(run_info.get("id") or 0)
-            if not session_id:
-                raise RuntimeError(f"Kaggle 未返回版本 v{version_number} 的运行会话。")
-
-            view = ws.post(VIEW_MODEL, {
-                "authorUserName": owner,
-                "kernelSlug": slug,
-                "tab": "output",
-                "versionNumber": version_number,
-            })
-            kernel_run = view.get("kernelRun") or {}
-            source_text = ws.post_text(
-                "kernels.KernelsService/GetKernelSessionSource",
-                {
-                    "kernelSessionId": session_id,
-                    "includeOutputIfAvailable": include_outputs,
-                },
-            )
-
-            try:
-                parsed_source = json.loads(source_text)
-            except json.JSONDecodeError:
-                parsed_source = None
-            if isinstance(parsed_source, dict) and isinstance(parsed_source.get("cells"), list):
-                extension = ".ipynb"
-            else:
-                language = str(kernel_run.get("language") or "").lower()
-                extension = ".r" if language == "r" or "language_r" in language else ".py"
-            source_path = output_path / f"{slug}{extension}"
-            source_path.write_text(source_text, encoding="utf-8")
-
-            data_sources = view.get("dataSources") or []
-            dataset_sources = [
-                str(item.get("mountSlug") or "").removeprefix("datasets/")
-                for item in data_sources
-                if str(item.get("mountSlug") or "").startswith("datasets/")
-            ]
-            competition_sources = [
-                str(item.get("mountSlug") or "").removeprefix("competitions/")
-                for item in data_sources
-                if str(item.get("mountSlug") or "").startswith("competitions/")
-            ]
-            metadata = {
-                "title": version_info.get("versionName") or kernel.get("title") or slug,
-                "versionNumber": version_number,
-                "scriptVersionId": int(version_info.get("id") or 0),
-                "kernelSessionId": session_id,
-                "status": str(run_info.get("status") or "").lower(),
-                "creationDate": run_info.get("dateCreated") or "",
-                "language": kernel_run.get("language") or "",
-                "kernelType": kernel_run.get("kernelVersionType") or "",
-                "datasetSources": dataset_sources,
-                "competitionSources": competition_sources,
-            }
-            try:
-                runtime_metadata = self.get_kernel_runtime_metadata(
-                    kernel_ref, version_number
-                )
-            except Exception:
-                runtime_metadata = {}
-            if "enableGpu" not in runtime_metadata:
-                gpu_enabled = kernel_run.get("isGpuEnabled")
-                if gpu_enabled is not None:
-                    runtime_metadata["enableGpu"] = gpu_enabled
-            if "machineShape" not in runtime_metadata:
-                accelerator_type = kernel_run.get("acceleratorType")
-                if accelerator_type:
-                    runtime_metadata["machineShape"] = accelerator_type
-            if runtime_metadata and "runtimeMetadataSource" not in runtime_metadata:
-                runtime_metadata["runtimeMetadataSource"] = "kernel_run"
-                runtime_metadata["runtimeMetadataVersion"] = version_number
-            metadata.update(runtime_metadata)
-            (output_path / "kernel-metadata.json").write_text(
-                json.dumps(metadata, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-
-            if include_outputs:
-                download_url = view.get("downloadAllFilesUrl")
-                if download_url:
-                    outputs_path = output_path / "outputs"
-                    outputs_path.mkdir(parents=True, exist_ok=True)
-                    archive_bytes = ws.get_bytes(str(download_url))
-                    self._extract_output_zip(archive_bytes, outputs_path)
-
-            return {
-                "owner_slug": owner,
-                "kernel_slug": slug,
-                "selected_version": version_number,
-                "script_version_id": int(version_info.get("id") or 0),
-                "source_path": str(source_path),
-                "metadata": metadata,
-            }
-        finally:
-            ws.close()
+        ws_cls = globals().get("KaggleWebServiceClient", KaggleWebServiceClient)
+        return archive_kernel_impl(
+            token=self._token,
+            kernel_ref=kernel_ref,
+            output_dir=output_dir,
+            version=version,
+            include_outputs=include_outputs,
+            web_service_cls=ws_cls,
+            runtime_metadata_fn=self.get_kernel_runtime_metadata,
+            extract_output_fn=self._extract_output_zip,
+        )
 
     @staticmethod
     def _extract_output_zip(archive_bytes: bytes, output_path: Path) -> None:
         """安全解压 Kaggle 输出压缩包，禁止成员路径越出 outputs 目录。"""
-        root = output_path.resolve()
-        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-            for member in archive.infolist():
-                target = (root / member.filename).resolve()
-                try:
-                    target.relative_to(root)
-                except ValueError as exc:
-                    raise RuntimeError(
-                        f"Kaggle 输出压缩包包含越界路径：{member.filename}"
-                    ) from exc
-            archive.extractall(root)
+        extract_output_zip(archive_bytes, output_path)
 
     # ------------------------------------------------------------------
     #  Competition data info

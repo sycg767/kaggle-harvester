@@ -31,6 +31,19 @@ from .web import (
     VIEW_MODEL,
     KaggleWebServiceClient,
 )
+from .archive import (
+    archive_kernel_impl,
+    enrich_kernel_metadata_impl,
+    extract_output_zip,
+    fetch_kernel_type_sdk,
+    get_kernel_runtime_metadata,
+)
+from .versions import (
+    enrich_kernel_summaries_impl,
+    get_versions_via_cli,
+    get_versions_via_web_api,
+    list_kernels_by_score_sdk,
+)
 
 __all__ = [
     "UTF8_WRAPPER_NAME",
@@ -54,4 +67,13 @@ __all__ = [
     "LIST_VERSIONS",
     "VIEW_MODEL",
     "KaggleWebServiceClient",
+    "archive_kernel_impl",
+    "enrich_kernel_metadata_impl",
+    "extract_output_zip",
+    "fetch_kernel_type_sdk",
+    "get_kernel_runtime_metadata",
+    "enrich_kernel_summaries_impl",
+    "get_versions_via_cli",
+    "get_versions_via_web_api",
+    "list_kernels_by_score_sdk",
 ]
