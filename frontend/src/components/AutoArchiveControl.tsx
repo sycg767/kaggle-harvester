@@ -57,6 +57,8 @@ const { Text } = Typography;
 interface AutoArchiveControlProps {
   currentCompetition: string;
   onArchiveComplete?: () => void;
+  buttonText?: string;
+  buttonIcon?: React.ReactNode;
 }
 
 interface SummaryItemProps {
@@ -178,6 +180,8 @@ const detailColumns: TableColumnsType<AutoArchiveCheckedItem> = [
 const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   currentCompetition,
   onArchiveComplete,
+  buttonText,
+  buttonIcon,
 }) => {
   const { message } = AntApp.useApp();
   const [form] = Form.useForm<AutoArchiveConfig>();
@@ -260,10 +264,17 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   }, []);
 
   const competitionSelectOptions = useMemo(
-    () => buildEnteredCompetitionOptions(enteredCompetitions, [
-      ...(snapshot?.config.competitions || []),
-      currentCompetition,
-    ]),
+    () => buildEnteredCompetitionOptions(
+      enteredCompetitions,
+      [
+        ...(snapshot?.config.competitions || []),
+        currentCompetition,
+      ],
+      {
+        currentSlug: currentCompetition,
+        excludeEnded: true,
+      },
+    ),
     [currentCompetition, enteredCompetitions, snapshot?.config.competitions],
   );
 
@@ -371,9 +382,14 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
   return (
     <>
       <Space size={4} className="auto-archive-trigger">
-        {enabled && <Tag color="success">已启用</Tag>}
-        <Button icon={<ClockCircleOutlined />} aria-label="自动归档" onClick={() => void showSettings()}>
-          自动归档
+        {enabled && !buttonText && <Tag color="success">已启用</Tag>}
+        <Button
+          size={buttonText ? 'small' : undefined}
+          icon={buttonIcon || <ClockCircleOutlined />}
+          aria-label={buttonText || '自动归档'}
+          onClick={() => void showSettings()}
+        >
+          {buttonText || '自动归档'}
         </Button>
       </Space>
 

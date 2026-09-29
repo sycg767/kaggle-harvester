@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -9,29 +9,41 @@ import {
   Tag,
   Space,
   Spin,
+  Select,
+  Tooltip,
   App as AntApp,
 } from 'antd';
 import {
   Swords,
   Zap,
   Archive,
-  RefreshCw,
   LayoutDashboard,
   Bell,
   Activity,
-  ChevronRight,
-  Database,
   HardDrive,
   CheckCircle2,
   AlertCircle,
+  Play,
+  Send,
+  Star,
+  ChevronRight,
+  TrendingUp,
+  FolderOpen,
 } from 'lucide-react';
 import {
   api,
   type HealthStatus,
   type CompetitionInfo,
   type ArchiveStats,
+  type EnteredCompetition,
 } from '../api';
-import { HARVESTER_EVENTS } from '../events';
+import {
+  dispatchCompetitionChanged,
+  dispatchDefaultCompetitionChanged,
+  HARVESTER_EVENTS,
+} from '../events';
+import { buildEnteredCompetitionOptions, competitionDisplayName } from '../competitionOptions';
+import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import NotificationCenter from './NotificationCenter';
 import SubmissionMonitorControl from './SubmissionMonitorControl';
 import SimulationMonitorControl from './SimulationMonitorControl';
@@ -51,6 +63,27 @@ const formatBytes = (value = 0) => {
   return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
 };
 
+const formatRelativeTime = (timeStr?: string | null) => {
+  if (!timeStr) return '';
+  try {
+    const target = new Date(timeStr);
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - target.getTime()) / 1000);
+    if (diffSec < 0) {
+      const futureSec = Math.abs(diffSec);
+      if (futureSec < 60) return `${futureSec} 秒后`;
+      if (futureSec < 3600) return `${Math.floor(futureSec / 60)} 分钟后`;
+      return `${Math.floor(futureSec / 3600)} 小时后`;
+    }
+    if (diffSec < 60) return '刚刚';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+    return `${Math.floor(diffSec / 86400)} 天前`;
+  } catch {
+    return timeStr;
+  }
+};
+
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
@@ -59,17 +92,27 @@ export const Dashboard: React.FC = () => {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [competitionInfo, setCompetitionInfo] = useState<CompetitionInfo | null>(null);
   const [archiveStats, setArchiveStats] = useState<ArchiveStats | null>(null);
+  const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
   const [currentCompetition, setCurrentCompetition] = useState<string>(() => {
     return localStorage.getItem('harvester.competition') || 'pokemon-tcg-ai-battle';
   });
 
-  const loadDashboardData = useCallback(async (quiet = false) => {
+  // Action loading states for 1-click execution
+  const [runningAutoArchive, setRunningAutoArchive] = useState(false);
+  const [runningSubmissionCheck, setRunningSubmissionCheck] = useState(false);
+  const [runningSimulationCheck, setRunningSimulationCheck] = useState(false);
+  const [testingNotifications, setTestingNotifications] = useState(false);
+  const [togglingPin, setTogglingPin] = useState(false);
+  const [refreshingComp, setRefreshingComp] = useState(false);
+
+  const loadDashboardData = useCallback(async (quiet = false, forceRefresh = false) => {
     if (!quiet) setLoading(true);
 
     try {
-      const [h, a] = await Promise.all([
+      const [h, a, entered] = await Promise.all([
         api.health().catch(() => null),
         api.getArchiveStats().catch(() => null),
+        getEnteredCompetitions(forceRefresh ? { refresh: true } : undefined).catch(() => []),
       ]);
       if (h) {
         setHealth(h);
@@ -80,12 +123,39 @@ export const Dashboard: React.FC = () => {
         }
       }
       if (a) setArchiveStats(a);
+      if (entered) setEnteredCompetitions(entered);
+      if (forceRefresh) {
+        const curComp = localStorage.getItem('harvester.competition') || currentCompetition;
+        if (curComp) {
+          api.getCompetition(curComp, { refresh: true })
+            .then((info) => {
+              if (info) setCompetitionInfo(info);
+            })
+            .catch(() => null);
+        }
+      }
     } catch (err: any) {
       if (!quiet) message.error(`加载仪表盘数据失败: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [message, currentCompetition]);
+
+  const handleRefreshCompetitionMeta = async () => {
+    if (refreshingComp) return;
+    setRefreshingComp(true);
+    try {
+      const info = await api.getCompetition(currentCompetition, { refresh: true });
+      if (info) setCompetitionInfo(info);
+      const items = await getEnteredCompetitions({ refresh: true });
+      if (items) setEnteredCompetitions(items);
+      message.success(`已从 Kaggle 同步最新赛事信息（当前 ${info.team_count ?? 0} 支队伍）`);
+    } catch (err: any) {
+      message.error(`同步失败: ${err.message}`);
+    } finally {
+      setRefreshingComp(false);
+    }
+  };
 
   useEffect(() => {
     void loadDashboardData();
@@ -126,6 +196,100 @@ export const Dashboard: React.FC = () => {
     };
   }, []);
 
+  const handleSelectCompetition = (newComp: string) => {
+    if (!newComp || newComp === currentCompetition) return;
+    setCurrentCompetition(newComp);
+    localStorage.setItem('harvester.competition', newComp);
+    dispatchCompetitionChanged(newComp);
+    message.success(`已切换当前工作区至竞赛: ${newComp}`);
+  };
+
+  const togglePinActiveCompetition = async () => {
+    const isPinned =
+      health?.active_competition?.competition === currentCompetition &&
+      health?.active_competition?.is_pinned;
+    setTogglingPin(true);
+    try {
+      if (isPinned) {
+        const res = await api.deleteActiveCompetition();
+        setHealth((prev) => (prev ? { ...prev, active_competition: res } : null));
+        message.success('已取消固定全站主攻赛事，恢复智能默认模式');
+      } else {
+        const res = await api.setActiveCompetition(currentCompetition);
+        setHealth((prev) => (prev ? { ...prev, active_competition: res } : null));
+        message.success(`已将「${currentCompetition}」设为全站主攻赛事`);
+      }
+      dispatchDefaultCompetitionChanged(currentCompetition);
+    } catch (err: any) {
+      message.error(`设置主攻赛事失败: ${err.message}`);
+    } finally {
+      setTogglingPin(false);
+    }
+  };
+
+  // 1-Click Instant Action Handlers
+  const handleRunAutoArchiveNow = async () => {
+    setRunningAutoArchive(true);
+    try {
+      const snap = await api.runAutoArchive();
+      message.success(
+        `自动归档执行成功！检查 ${snap.status.checked_count} 个版本，命中 ${snap.status.matched_count} 个`
+      );
+      void loadDashboardData(true);
+    } catch (err: any) {
+      message.error(`自动归档执行失败: ${err.message}`);
+    } finally {
+      setRunningAutoArchive(false);
+    }
+  };
+
+  const handleRunSubmissionCheckNow = async () => {
+    setRunningSubmissionCheck(true);
+    try {
+      const snap = await api.runSubmissionMonitor();
+      message.success(
+        `出分检查完成！检查 ${snap.status.checked_count} 条提交，当前 ${snap.status.pending_count} 条等待出分`
+      );
+      void loadDashboardData(true);
+    } catch (err: any) {
+      message.error(`出分检查执行失败: ${err.message}`);
+    } finally {
+      setRunningSubmissionCheck(false);
+    }
+  };
+
+  const handleRunSimulationCheckNow = async () => {
+    setRunningSimulationCheck(true);
+    try {
+      const snap = await api.runSimulationMonitor();
+      message.success(
+        `对战战报更新完成！本次检查发现 ${snap.status.new_episodes_this_run || 0} 场新对局`
+      );
+      void loadDashboardData(true);
+    } catch (err: any) {
+      message.error(`对战检查失败: ${err.message}`);
+    } finally {
+      setRunningSimulationCheck(false);
+    }
+  };
+
+  const handleTestNotifications = async () => {
+    setTestingNotifications(true);
+    try {
+      const res = await api.testNotifications();
+      if (res.success) {
+        message.success(`通知通道测试成功！${res.channels.map((c) => c.channel).join('、')} 连接正常`);
+      } else {
+        const failed = res.channels.filter((c) => !c.success).map((c) => `${c.channel}: ${c.message}`).join('; ');
+        message.warning(`部分通知通道连通异常: ${failed || '未配置任何有效通道'}`);
+      }
+    } catch (err: any) {
+      message.error(`通知测试失败: ${err.message}`);
+    } finally {
+      setTestingNotifications(false);
+    }
+  };
+
   const isSimulation = Boolean(
     competitionInfo?.is_simulation ||
     currentCompetition === 'pokemon-tcg-ai-battle' ||
@@ -133,11 +297,38 @@ export const Dashboard: React.FC = () => {
   );
 
   const compTitle = competitionInfo?.title || currentCompetition;
+  const isPinned =
+    health?.active_competition?.competition === currentCompetition &&
+    health?.active_competition?.is_pinned;
+
+  const competitionOptions = useMemo(() => {
+    return buildEnteredCompetitionOptions(
+      enteredCompetitions,
+      [currentCompetition, health?.default_competition],
+      {
+        activeSlug: health?.active_competition?.competition,
+        currentSlug: currentCompetition,
+        excludeEnded: true,
+      }
+    );
+  }, [enteredCompetitions, currentCompetition, health]);
+
+  // Derived live metrics
+  const simMonitorStatus = health?.simulation_monitor;
+  const isSimCompMatch = Boolean(
+    simMonitorStatus?.competition &&
+    currentCompetition &&
+    simMonitorStatus.competition === currentCompetition
+  );
+  const isSimMonitoringActive = Boolean(simMonitorStatus?.enabled ?? simMonitorStatus?.scheduler_alive);
+  const activeAgent1 = isSimCompMatch ? simMonitorStatus?.agents?.[0] : undefined;
+  const latestSubmission = health?.submission_monitor?.recent_items?.[0];
+  const autoArchiveStatus = health?.auto_archive;
 
   return (
     <div
       style={{
-        padding: '12px 16px 36px 16px',
+        padding: '16px 20px 48px 20px',
         maxWidth: 1440,
         margin: '0 auto',
         width: '100%',
@@ -146,100 +337,114 @@ export const Dashboard: React.FC = () => {
       }}
     >
       {loading && !health ? (
-        <div style={{ display: 'grid', placeItems: 'center', padding: '80px 0', gap: 12 }}>
+        <div style={{ display: 'grid', placeItems: 'center', padding: '100px 0', gap: 12 }}>
           <Spin size="large" />
-          <span style={{ color: '#64748b', fontSize: 13 }}>正在加载指挥中心全景数据...</span>
+          <span style={{ color: '#64748b', fontSize: 13 }}>正在加载指挥中心全景态势数据...</span>
         </div>
       ) : (
         <>
-          {/* 1. Active Competition Status Banner */}
+          {/* =========================================================
+              1. Interactive Active Competition Workspace Hero
+              ========================================================= */}
           <Card
             className="dashboard-glow-card dashboard-hero-card"
             style={{
               marginBottom: 20,
-              borderRadius: 14,
+              borderRadius: 10,
               border: '1px solid #e2e8f0',
-              background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.02)',
+              background: '#ffffff',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
             }}
-            styles={{ body: { padding: '20px 22px' } }}
+            styles={{ body: { padding: '20px 24px' } }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-              <div style={{ flex: 1, minWidth: 260 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+              <div style={{ flex: 1, minWidth: 320 }}>
+                {/* Meta labels */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                   <Tag
                     color={isSimulation ? 'gold' : 'blue'}
-                    style={{ margin: 0, fontWeight: 700, borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    style={{ margin: 0, fontWeight: 600, borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                   >
                     {isSimulation ? <Swords size={13} /> : <Activity size={13} />}
-                    {isSimulation ? '智能体对抗 / 模拟竞赛' : '标准赛题 / 预测建模'}
-                  </Tag>
-                  <Tag style={{ margin: 0, borderRadius: 6, background: '#f1f5f9', borderColor: '#e2e8f0', color: '#475569' }}>
-                    Slug: <code>{currentCompetition}</code>
+                    {isSimulation ? '智能体博弈 · Simulation' : '标准赛题 · 预测建模'}
                   </Tag>
                   {competitionInfo?.team_count ? (
-                    <Tag color="cyan" style={{ margin: 0, borderRadius: 6 }}>
-                      参赛队伍: {competitionInfo.team_count} 队
+                    <Tag style={{ margin: 0, borderRadius: 4 }}>
+                      {competitionInfo.team_count} 支队伍参赛
                     </Tag>
                   ) : null}
                   {competitionInfo?.kernel_count ? (
-                    <Tag color="geekblue" style={{ margin: 0, borderRadius: 6 }}>
-                      开源代码: {competitionInfo.kernel_count} 篇
+                    <Tag style={{ margin: 0, borderRadius: 4 }}>
+                      {competitionInfo.kernel_count} 篇开源代码
                     </Tag>
                   ) : null}
                 </div>
 
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span>{compTitle}</span>
-                  <a
-                    href={`https://www.kaggle.com/competitions/${currentCompetition}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 12, color: '#2563eb', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}
-                  >
-                    Kaggle 官网 ↗
-                  </a>
+                {/* Primary Competition Switcher Bar */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <Select
+                    value={currentCompetition}
+                    onChange={handleSelectCompetition}
+                    options={competitionOptions}
+                    style={{ minWidth: 360, maxWidth: 560 }}
+                    size="large"
+                    showSearch
+                    placeholder="切换当前竞赛..."
+                  />
+                  <Tooltip title={isPinned ? '已固定为主攻赛事（新设备默认展示）' : '设为全站主攻赛事'}>
+                    <Button
+                      type={isPinned ? 'primary' : 'default'}
+                      icon={<Star size={14} fill={isPinned ? '#ffffff' : 'none'} />}
+                      loading={togglingPin}
+                      onClick={togglePinActiveCompetition}
+                      style={{ height: 40, borderRadius: 8, fontWeight: 500 }}
+                    >
+                      {isPinned ? '已设为主攻' : '☆ 设为主攻'}
+                    </Button>
+                  </Tooltip>
                 </div>
 
-                <Text type="secondary" style={{ fontSize: 13, display: 'block', maxWidth: 760 }}>
+                <Text type="secondary" style={{ fontSize: 13, display: 'block', maxWidth: 760, lineHeight: 1.6 }}>
                   {isSimulation
-                    ? `当前处于模拟对战竞技态，后台支持针对我方双 Agent 自动化轮询天梯排位、对局流水与金银铜安全垫。`
-                    : `当前处于标准竞赛模式，支持自动化监控我方队伍最新提交出分、高分开源 Notebooks 智能归档与依赖提取。`}
+                    ? '当前处于对抗竞技模式，后台实时追踪双 Agent 天梯胜率、对局流水战报与金银铜牌安全垫线。'
+                    : '当前处于标准竞赛模式，支持自动化监控自提交最新出分，优先开源高分 Notebooks 智能归档与依赖提取。'}
                 </Text>
               </div>
 
-              {/* Quick Jump Action Pills */}
-              <Space wrap size={8}>
+              {/* Direct Workspace Jump Action Pills */}
+              <Space wrap size={10} style={{ alignSelf: 'center' }}>
                 {isSimulation ? (
                   <Button
                     type="primary"
                     icon={<Swords size={15} />}
                     onClick={() => navigate('/arena')}
-                    style={{ background: '#d97706', borderColor: '#d97706', fontWeight: 600 }}
+                    style={{ height: 38, borderRadius: 8, fontWeight: 600, background: '#d97706', borderColor: '#d97706' }}
                   >
-                    进入天梯对抗专页
+                    天梯对抗专页
                   </Button>
                 ) : null}
                 <Button
-                  type={!isSimulation ? 'primary' : 'default'}
+                  type="primary"
                   icon={<LayoutDashboard size={15} />}
                   onClick={() => navigate('/kernels')}
-                  style={{ fontWeight: 600 }}
+                  style={{ height: 38, borderRadius: 8, fontWeight: 600 }}
                 >
-                  浏览开源 Notebooks
+                  开源代码广场
                 </Button>
                 <Button
                   icon={<Archive size={15} />}
                   onClick={() => navigate('/archives')}
-                  style={{ fontWeight: 600 }}
+                  style={{ height: 38, borderRadius: 8, fontWeight: 600 }}
                 >
-                  本地已归档代码
+                  本地归档仓库
                 </Button>
               </Space>
             </div>
           </Card>
 
-          {/* 2. Core Feature Control Hub (4 Main Modules) */}
+          {/* =========================================================
+              2. Core Control Hub (4 Live Dynamic Cards)
+              ========================================================= */}
           <div style={{ marginBottom: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <Space align="center" size={8}>
@@ -247,117 +452,239 @@ export const Dashboard: React.FC = () => {
                   <Zap size={16} color="#0284c7" />
                 </div>
                 <span style={{ fontWeight: 800, fontSize: 16, color: '#0f172a' }}>
-                  核心功能与控制中枢
+                  实时监控与自动化调度中枢
                 </span>
-                <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>
-                  一键配置 · 实时运行
+                <Tag color="processing" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>
+                  实时态势 · 一键直达
                 </Tag>
               </Space>
             </div>
 
             <Row gutter={[16, 16]}>
-              {/* Module 1: 通知中心 */}
+              {/* Card 1: 智能自动归档 */}
               <Col xs={24} sm={12} xl={6}>
                 <Card
                   className="dashboard-glow-card"
                   style={{
                     height: '100%',
-                    borderRadius: 12,
+                    borderRadius: 10,
                     border: '1px solid #e2e8f0',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)',
+                    background: '#ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                   }}
-                  styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
+                  styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fef2f2', display: 'grid', placeItems: 'center' }}>
-                        <Bell size={19} color="#ef4444" />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 8, background: '#eff6ff', display: 'grid', placeItems: 'center' }}>
+                        <Archive size={18} color="#1677ff" />
                       </div>
-                      <Tag color="volcano" style={{ margin: 0 }}>多通道通知</Tag>
+                      <Tag color={autoArchiveStatus?.running ? 'success' : 'default'} style={{ margin: 0, fontWeight: 500, borderRadius: 4 }}>
+                        {autoArchiveStatus?.running ? '● 运行中' : '○ 已暂停'}
+                      </Tag>
                     </div>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', marginBottom: 4 }}>
-                      通知中心
+
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginBottom: 8 }}>
+                      智能自动归档
                     </div>
-                    <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 14 }}>
-                      支持飞书、企业微信、钉钉、Slack、ntfy 及邮件多通道推送配置与连通测试。
-                    </Paragraph>
+
+                    {/* Live Metrics Box */}
+                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12, minHeight: 90, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>累计已归档:</span>
+                        <strong style={{ fontSize: 16, color: '#0f172a' }}>
+                          {archiveStats?.total_archives ?? 0} <span style={{ fontSize: 11, fontWeight: 400, color: '#94a3b8' }}>版本</span>
+                        </strong>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, fontSize: 12, color: '#64748b' }}>
+                        <span>上次巡检:</span>
+                        <span>{formatRelativeTime(autoArchiveStatus?.last_checked_at) || '尚未运行'}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, fontSize: 12, color: '#64748b' }}>
+                        <span>命中高分:</span>
+                        <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                          {autoArchiveStatus?.matched_count ? `命中 ${autoArchiveStatus.matched_count} 个` : '0 个新版本'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ paddingTop: 10, borderTop: '1px solid #f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
-                    <NotificationCenter />
+
+                  {/* Dual Action Controls */}
+                  <div style={{ paddingTop: 10, borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<Play size={12} />}
+                      loading={runningAutoArchive}
+                      onClick={handleRunAutoArchiveNow}
+                      style={{ borderRadius: 6, fontSize: 12, fontWeight: 500 }}
+                    >
+                      立即巡检
+                    </Button>
+                    <AutoArchiveControl currentCompetition={currentCompetition} buttonText="配置与历史" />
                   </div>
                 </Card>
               </Col>
 
-              {/* Module 2: 出分监控 */}
+              {/* Card 2: 提交流水监控 */}
               <Col xs={24} sm={12} xl={6}>
                 <Card
                   className="dashboard-glow-card"
                   style={{
                     height: '100%',
-                    borderRadius: 12,
+                    borderRadius: 10,
                     border: '1px solid #e2e8f0',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)',
+                    background: '#ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                   }}
-                  styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
+                  styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ecfdf5', display: 'grid', placeItems: 'center' }}>
-                        <Activity size={19} color="#10b981" />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 8, background: '#f0fdf4', display: 'grid', placeItems: 'center' }}>
+                        <Activity size={18} color="#16a34a" />
                       </div>
-                      <Tag color="green" style={{ margin: 0 }}>自动巡检</Tag>
+                      <Tag color={health?.submission_monitor?.running ? 'success' : 'default'} style={{ margin: 0, fontWeight: 500, borderRadius: 4 }}>
+                        {health?.submission_monitor?.running ? '● 巡检中' : '○ 待命'}
+                      </Tag>
                     </div>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', marginBottom: 4 }}>
-                      提交出分监控
+
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginBottom: 8 }}>
+                      提交流水监控
                     </div>
-                    <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 14 }}>
-                      后台定时拉取队伍提交历史，实时解析最新 Public Leaderboard 分数与状态变动。
-                    </Paragraph>
+
+                    {/* Live Metrics Box */}
+                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12, minHeight: 90, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>最新出分:</span>
+                        <strong style={{ fontSize: 16, color: '#0f172a' }}>
+                          {latestSubmission?.public_score != null ? (
+                            <span style={{ color: '#16a34a' }}>{latestSubmission.public_score.toFixed(4)}</span>
+                          ) : (
+                            <span style={{ color: '#94a3b8' }}>暂无最新分</span>
+                          )}
+                        </strong>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, fontSize: 12, color: '#64748b' }}>
+                        <span>待出分队列:</span>
+                        <span style={{ color: health?.submission_monitor?.pending_count ? '#d97706' : '#64748b', fontWeight: 600 }}>
+                          {health?.submission_monitor?.pending_count || 0} 条队列中
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, fontSize: 12, color: '#64748b' }}>
+                        <span>上次检查:</span>
+                        <span>{formatRelativeTime(health?.submission_monitor?.last_checked_at) || '尚未检查'}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ paddingTop: 10, borderTop: '1px solid #f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
-                    <SubmissionMonitorControl currentCompetition={currentCompetition} />
+
+                  {/* Dual Action Controls */}
+                  <div style={{ paddingTop: 10, borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<Play size={12} />}
+                      loading={runningSubmissionCheck}
+                      onClick={handleRunSubmissionCheckNow}
+                      style={{ borderRadius: 6, fontSize: 12, fontWeight: 500 }}
+                    >
+                      立即查分
+                    </Button>
+                    <SubmissionMonitorControl currentCompetition={currentCompetition} buttonText="配置与历史" />
                   </div>
                 </Card>
               </Col>
 
-              {/* Module 3: 模拟对战监控 OR 开源广场快捷入口 (Context-Aware!) */}
+              {/* Card 3: 模拟对战监控 OR 开源广场 */}
               <Col xs={24} sm={12} xl={6}>
                 {isSimulation ? (
                   <Card
                     className="dashboard-glow-card"
                     style={{
                       height: '100%',
-                      borderRadius: 12,
+                      borderRadius: 10,
                       border: '1px solid #e2e8f0',
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)',
+                      background: '#ffffff',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
                     }}
-                    styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
+                    styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                   >
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fffbeb', display: 'grid', placeItems: 'center' }}>
-                          <Swords size={19} color="#f59e0b" />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: '#fffbeb', display: 'grid', placeItems: 'center' }}>
+                          <Swords size={18} color="#d97706" />
                         </div>
-                        <Tag color="gold" style={{ margin: 0 }}>天梯对抗</Tag>
+                        <Tag
+                          color={isSimCompMatch && isSimMonitoringActive ? 'gold' : 'default'}
+                          style={{ margin: 0, fontWeight: 500, borderRadius: 4 }}
+                        >
+                          {isSimCompMatch && isSimMonitoringActive ? '天梯对抗 (监控中)' : '天梯对抗 (待命)'}
+                        </Tag>
                       </div>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', marginBottom: 4 }}>
-                        智能体对战监控
+
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginBottom: 8 }}>
+                        智能体天梯对战
                       </div>
-                      <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 14 }}>
-                        针对当前模拟赛追踪天梯积分、胜率对局流水与金银铜牌安全垫。
-                      </Paragraph>
+
+                      {/* Live Metrics Box */}
+                      <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12, minHeight: 90, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        {isSimCompMatch && activeAgent1 ? (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: 12, color: '#64748b' }}>天梯当前排位:</span>
+                              <strong style={{ fontSize: 16, color: '#d97706' }}>
+                                {activeAgent1.rank ? `Rank #${activeAgent1.rank}` : 'Rank #—'}
+                              </strong>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, fontSize: 12, color: '#64748b' }}>
+                              <span>主 Agent 胜率:</span>
+                              <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                                {activeAgent1.win_rate != null ? `${activeAgent1.win_rate}%` : '—'}
+                                {activeAgent1.wins != null ? ` (${activeAgent1.wins}胜)` : ''}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, fontSize: 12, color: '#64748b' }}>
+                              <span>铜牌安全垫:</span>
+                              <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                                {activeAgent1.bronze_gap_score != null ? `+${activeAgent1.bronze_gap_score.toFixed(1)} 分` : '—'}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ textAlign: 'center', padding: '6px 0' }}>
+                            <div style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
+                              {isSimCompMatch ? '暂无追踪的智能体数据' : '后台未开启此赛事的实时监控'}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                              点击下方「配置与战报」可开启巡检
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ paddingTop: 10, borderTop: '1px solid #f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
-                      <SimulationMonitorControl currentCompetition={currentCompetition} />
+
+                    {/* Dual Action Controls */}
+                    <div style={{ paddingTop: 10, borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<Play size={12} />}
+                        loading={runningSimulationCheck}
+                        onClick={handleRunSimulationCheckNow}
+                        style={{ borderRadius: 6, fontSize: 12, fontWeight: 500, background: '#d97706', borderColor: '#d97706' }}
+                      >
+                        抓取新战报
+                      </Button>
+                      <SimulationMonitorControl currentCompetition={currentCompetition} buttonText="配置与战报" />
                     </div>
                   </Card>
                 ) : (
@@ -365,124 +692,196 @@ export const Dashboard: React.FC = () => {
                     className="dashboard-glow-card"
                     style={{
                       height: '100%',
-                      borderRadius: 12,
+                      borderRadius: 10,
                       border: '1px solid #e2e8f0',
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)',
+                      background: '#ffffff',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
                     }}
-                    styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
+                    styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                   >
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eff6ff', display: 'grid', placeItems: 'center' }}>
-                          <LayoutDashboard size={19} color="#2563eb" />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: '#eff6ff', display: 'grid', placeItems: 'center' }}>
+                          <LayoutDashboard size={18} color="#1677ff" />
                         </div>
-                        <Tag color="blue" style={{ margin: 0 }}>开源广场</Tag>
+                        <Tag color="blue" style={{ margin: 0, borderRadius: 4 }}>开源高分</Tag>
                       </div>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', marginBottom: 4 }}>
+
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginBottom: 8 }}>
                         开源 Notebooks
                       </div>
-                      <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 14 }}>
-                        快速检索竞赛高赞与高分开源 Notebooks，对比历史版本与演化。
-                      </Paragraph>
+
+                      <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12, minHeight: 90, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: 12, color: '#64748b' }}>已发现代码:</span>
+                          <strong style={{ fontSize: 16, color: '#0f172a' }}>
+                            {competitionInfo?.kernel_count ?? '100+'} <span style={{ fontSize: 11, fontWeight: 400, color: '#94a3b8' }}>篇</span>
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, fontSize: 12, color: '#64748b' }}>
+                          <span>榜单状态:</span>
+                          <span style={{ color: '#1677ff', fontWeight: 600 }}>就绪可按分排序</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, fontSize: 12, color: '#64748b' }}>
+                          <span>快速检索:</span>
+                          <span style={{ color: '#64748b' }}>支持批量归档</span>
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ paddingTop: 10, borderTop: '1px solid #f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+
+                    <div style={{ paddingTop: 10, borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Button
-                        type="default"
-                        size="middle"
-                        icon={<LayoutDashboard size={15} color="#2563eb" />}
+                        type="primary"
+                        size="small"
+                        icon={<LayoutDashboard size={12} />}
                         onClick={() => navigate('/kernels')}
-                        style={{ fontWeight: 500 }}
+                        style={{ borderRadius: 6, fontWeight: 500 }}
                       >
                         进入广场
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<Archive size={12} />}
+                        onClick={() => navigate('/archives')}
+                        style={{ borderRadius: 6, fontWeight: 500 }}
+                      >
+                        已归档 ({archiveStats?.total_archives ?? 0})
                       </Button>
                     </div>
                   </Card>
                 )}
               </Col>
 
-              {/* Module 4: 自动归档 */}
+              {/* Card 4: 多通道通知中心 */}
               <Col xs={24} sm={12} xl={6}>
                 <Card
                   className="dashboard-glow-card"
                   style={{
                     height: '100%',
-                    borderRadius: 12,
+                    borderRadius: 10,
                     border: '1px solid #e2e8f0',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)',
+                    background: '#ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                   }}
-                  styles={{ body: { padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' } }}
+                  styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f5f3ff', display: 'grid', placeItems: 'center' }}>
-                        <Archive size={19} color="#8b5cf6" />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 8, background: '#fef2f2', display: 'grid', placeItems: 'center' }}>
+                        <Bell size={18} color="#ef4444" />
                       </div>
-                      <Tag color="purple" style={{ margin: 0 }}>自动下载</Tag>
+                      <Tag color={health?.notifications?.worker_alive ? 'success' : 'default'} style={{ margin: 0, fontWeight: 500, borderRadius: 4 }}>
+                        {health?.notifications?.worker_alive ? '● 通道正常' : '○ 待命中'}
+                      </Tag>
                     </div>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', marginBottom: 4 }}>
-                      智能自动归档
+
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', marginBottom: 8 }}>
+                      通知服务中心
                     </div>
-                    <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 14 }}>
-                      按设定的高分阈值或排名定时自动下载开源 Notebook 源码、依赖与输出。
-                    </Paragraph>
+
+                    {/* Live Metrics Box */}
+                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12, minHeight: 90, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>待发送队列:</span>
+                        <strong style={{ fontSize: 16, color: '#0f172a' }}>
+                          {health?.notifications?.pending_count || 0} <span style={{ fontSize: 11, fontWeight: 400, color: '#94a3b8' }}>条</span>
+                        </strong>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, fontSize: 12, color: '#64748b' }}>
+                        <span>上次投递:</span>
+                        <span>{formatRelativeTime(health?.notifications?.last_sent_at) || '无近期投递'}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, fontSize: 12, color: '#64748b' }}>
+                        <span>服务状态:</span>
+                        <span style={{ color: health?.notifications?.last_error ? '#ef4444' : '#16a34a', fontWeight: 600 }}>
+                          {health?.notifications?.last_error ? '异常报警' : '就绪待发'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ paddingTop: 10, borderTop: '1px solid #f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
-                    <AutoArchiveControl currentCompetition={currentCompetition} />
+
+                  {/* Dual Action Controls */}
+                  <div style={{ paddingTop: 10, borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Button
+                      size="small"
+                      icon={<Send size={12} />}
+                      loading={testingNotifications}
+                      onClick={handleTestNotifications}
+                      style={{ borderRadius: 6, fontSize: 12 }}
+                    >
+                      测试发送
+                    </Button>
+                    <NotificationCenter buttonText="通道配置" />
                   </div>
                 </Card>
               </Col>
             </Row>
           </div>
 
-          {/* 3. System Health & Storage Overview (Useful Data Cards instead of Duplicate Links) */}
+          {/* =========================================================
+              3. Infrastructure & Storage Guard Overview
+              ========================================================= */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <Space align="center" size={8}>
                 <div style={{ width: 28, height: 28, borderRadius: 6, background: '#f1f5f9', display: 'grid', placeItems: 'center' }}>
-                  <Database size={16} color="#475569" />
+                  <HardDrive size={16} color="#475569" />
                 </div>
                 <span style={{ fontWeight: 800, fontSize: 15, color: '#0f172a' }}>
-                  本地存储与运行态势
+                  本地存储与服务就绪态势
                 </span>
               </Space>
             </div>
 
-            <Row gutter={[16, 16]}>
+            <Row gutter={[16, 16]} style={{ display: 'flex', alignItems: 'stretch' }}>
               {/* Stat 1: 本地归档资产 */}
               <Col xs={24} md={8}>
                 <Card
                   size="small"
                   className="dashboard-glow-card"
-                  style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
-                  styles={{ body: { padding: '16px 18px' } }}
+                  style={{
+                    height: '100%',
+                    minHeight: 116,
+                    borderRadius: 10,
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                  }}
+                  styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' } }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>本地已归档资产</div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                        <span style={{ fontSize: 22, fontWeight: 800, color: '#0f172a' }}>
-                          {archiveStats?.total_archives ?? health?.archive?.total_archives ?? 0}
-                        </span>
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>个版本</span>
-                        <span style={{ fontSize: 12, color: '#64748b' }}>
-                          ({archiveStats?.unique_kernels ?? health?.archive?.unique_kernels ?? 0} 个唯一 Kernel)
-                        </span>
-                      </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>本地已归档资产</span>
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => navigate('/archives')}
+                        style={{ padding: 0, fontWeight: 600, color: '#1677ff', height: 'auto', lineHeight: 'normal' }}
+                      >
+                        查看归档 →
+                      </Button>
                     </div>
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() => navigate('/archives')}
-                      style={{ padding: 0, fontWeight: 600 }}
-                    >
-                      查看归档 →
-                    </Button>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minHeight: 30 }}>
+                      <span style={{ fontSize: 22, fontWeight: 700, color: '#0f172a' }}>
+                        {archiveStats?.total_archives ?? health?.archive?.total_archives ?? 0}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#94a3b8' }}>个版本</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>
+                        ({archiveStats?.unique_kernels ?? health?.archive?.unique_kernels ?? 0} 个 Kernel)
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10, paddingTop: 8, borderTop: '1px solid #f8fafc' }}>
+                    占用: {formatBytes(archiveStats?.total_size_bytes ?? 0)} · 跨 {archiveStats?.unique_competitions ?? 1} 场竞赛
                   </div>
                 </Card>
               </Col>
@@ -492,24 +891,37 @@ export const Dashboard: React.FC = () => {
                 <Card
                   size="small"
                   className="dashboard-glow-card"
-                  style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
-                  styles={{ body: { padding: '16px 18px' } }}
+                  style={{
+                    height: '100%',
+                    minHeight: 116,
+                    borderRadius: 10,
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                  }}
+                  styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' } }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>本地磁盘剩余</div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontSize: 22, fontWeight: 800, color: archiveStats?.low_disk_space ? '#ef4444' : '#0f172a' }}>
-                          {formatBytes(archiveStats?.disk_free_bytes ?? health?.archive?.disk_free_bytes ?? 0)}
-                        </span>
-                        {archiveStats?.low_disk_space ? (
-                          <Tag color="error" style={{ margin: 0, fontSize: 11 }}>磁盘紧缺</Tag>
-                        ) : (
-                          <Tag color="success" style={{ margin: 0, fontSize: 11 }}>空间充裕</Tag>
-                        )}
-                      </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>本地磁盘可用容量</span>
+                      <HardDrive size={16} color="#94a3b8" />
                     </div>
-                    <HardDrive size={22} color="#94a3b8" style={{ marginTop: 2 }} />
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minHeight: 30 }}>
+                      <span style={{ fontSize: 22, fontWeight: 700, color: archiveStats?.low_disk_space ? '#ef4444' : '#0f172a' }}>
+                        {formatBytes(archiveStats?.disk_free_bytes ?? health?.archive?.disk_free_bytes ?? 0)}
+                      </span>
+                      {archiveStats?.low_disk_space ? (
+                        <Tag color="error" style={{ margin: 0, fontSize: 11, borderRadius: 4 }}>磁盘紧缺</Tag>
+                      ) : (
+                        <Tag color="success" style={{ margin: 0, fontSize: 11, borderRadius: 4 }}>空间充裕</Tag>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10, paddingTop: 8, borderTop: '1px solid #f8fafc' }}>
+                    保护阈值: 2.0 GB · 低于阈值将暂停自动下载
                   </div>
                 </Card>
               </Col>
@@ -519,35 +931,39 @@ export const Dashboard: React.FC = () => {
                 <Card
                   size="small"
                   className="dashboard-glow-card"
-                  style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
-                  styles={{ body: { padding: '16px 18px' } }}
+                  style={{
+                    height: '100%',
+                    minHeight: 116,
+                    borderRadius: 10,
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                  }}
+                  styles={{ body: { padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' } }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>后端与 Kaggle CLI</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                        {health?.ready ? (
-                          <>
-                            <CheckCircle2 size={16} color="#10b981" />
-                            <span style={{ fontSize: 14, fontWeight: 700, color: '#10b981' }}>正常在线 · 巡检待命</span>
-                          </>
-                        ) : (
-                          <>
-                            <AlertCircle size={16} color="#f59e0b" />
-                            <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>环境就绪中</span>
-                          </>
-                        )}
-                      </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>后端与 Kaggle CLI</span>
                     </div>
-                    <Button
-                      type="link"
-                      size="small"
-                      icon={<RefreshCw size={13} />}
-                      onClick={() => void loadDashboardData()}
-                      style={{ padding: 0, fontWeight: 600 }}
-                    >
-                      检查
-                    </Button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 30 }}>
+                      {health?.ready ? (
+                        <>
+                          <CheckCircle2 size={18} color="#16a34a" />
+                          <span style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>正常在线 · 就绪</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle size={18} color="#f59e0b" />
+                          <span style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>环境就绪中</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10, paddingTop: 8, borderTop: '1px solid #f8fafc' }}>
+                    CLI: {health?.kaggle_cli ? '已就绪' : '未检测到'} · Token: {health?.token_configured ? '已配置' : '未配置'}
                   </div>
                 </Card>
               </Col>

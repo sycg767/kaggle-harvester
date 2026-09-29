@@ -114,21 +114,32 @@ class PersistentKernelQueryCache:
 
 
 class PersistentCompetitionCache:
-    """永久保存竞赛基础信息，仅由显式刷新替换。"""
+    """保存竞赛基础信息；默认 1 小时 TTL，过期后重新请求以获取动态参赛人数/截止时间，支持降级回退。"""
 
     # v2 增加了真实分数方向及其证据来源，旧快照需要重新获取一次。
     SCHEMA_VERSION = 2
+    DEFAULT_TTL_SECONDS = 3600.0
 
-    def __init__(self, harvest_root: str | Path) -> None:
+    def __init__(
+        self,
+        harvest_root: str | Path,
+        default_ttl_seconds: float = DEFAULT_TTL_SECONDS,
+    ) -> None:
         self._root = Path(harvest_root).resolve() / "_cache" / "competitions"
         self._root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self.default_ttl_seconds = default_ttl_seconds
 
     def _path(self, competition: str) -> Path:
         digest = hashlib.sha256(competition.encode("utf-8")).hexdigest()
         return self._root / f"{digest}.json"
 
-    def get(self, competition: str) -> Optional[CompetitionInfo]:
+    def get(
+        self,
+        competition: str,
+        max_age_seconds: Optional[float] = DEFAULT_TTL_SECONDS,
+        allow_stale: bool = False,
+    ) -> Optional[CompetitionInfo]:
         path = self._path(competition)
         if not path.exists():
             return None
@@ -139,6 +150,19 @@ class PersistentCompetitionCache:
                 return None
             if payload.get("competition") != competition:
                 return None
+            if not allow_stale and max_age_seconds is not None:
+                updated_at_str = payload.get("updated_at")
+                if not updated_at_str:
+                    return None
+                try:
+                    updated_at = datetime.fromisoformat(updated_at_str)
+                    if updated_at.tzinfo is None:
+                        updated_at = updated_at.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+                    if age > max_age_seconds:
+                        return None
+                except Exception:
+                    return None
             return CompetitionInfo(**payload["data"])
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
             return None
@@ -168,18 +192,28 @@ class PersistentCompetitionCache:
 
 
 class PersistentEnteredCompetitionsCache:
-    """已参加竞赛列表缓存；默认命中磁盘，仅 refresh 时重拉 Kaggle。"""
+    """已参加竞赛列表缓存；默认 1 小时 TTL，支持过期重新拉取和网络异常降级。"""
 
     SCHEMA_VERSION = 2
+    DEFAULT_TTL_SECONDS = 3600.0
 
-    def __init__(self, harvest_root: str | Path) -> None:
+    def __init__(
+        self,
+        harvest_root: str | Path,
+        default_ttl_seconds: float = DEFAULT_TTL_SECONDS,
+    ) -> None:
         self._path = (
             Path(harvest_root).resolve() / "_cache" / "entered_competitions.json"
         )
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self.default_ttl_seconds = default_ttl_seconds
 
-    def get(self) -> Optional[list[EnteredCompetition]]:
+    def get(
+        self,
+        max_age_seconds: Optional[float] = DEFAULT_TTL_SECONDS,
+        allow_stale: bool = False,
+    ) -> Optional[list[EnteredCompetition]]:
         if not self._path.exists():
             return None
         try:
@@ -187,6 +221,19 @@ class PersistentEnteredCompetitionsCache:
                 payload = json.loads(self._path.read_text(encoding="utf-8"))
             if payload.get("schema_version") != self.SCHEMA_VERSION:
                 return None
+            if not allow_stale and max_age_seconds is not None:
+                updated_at_str = payload.get("updated_at")
+                if not updated_at_str:
+                    return None
+                try:
+                    updated_at = datetime.fromisoformat(updated_at_str)
+                    if updated_at.tzinfo is None:
+                        updated_at = updated_at.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+                    if age > max_age_seconds:
+                        return None
+                except Exception:
+                    return None
             items = payload.get("items")
             if not isinstance(items, list):
                 return None
@@ -758,7 +805,7 @@ def resolve_active_competition(
             return pinned, "pinned"
 
     if entered_cache is not None:
-        items = entered_cache.get() or []
+        items = entered_cache.get(allow_stale=True) or []
         if items:
             now = datetime.now(timezone.utc)
 

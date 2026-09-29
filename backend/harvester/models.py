@@ -649,6 +649,7 @@ class SimulationAgentStats(BaseModel):
     """单个参赛代理的聚合战绩与天梯排位。"""
 
     submission_id: int
+    alias: Optional[str] = None
     file_name: str = ""
     description: str = ""
     team_name: str = ""
@@ -694,6 +695,7 @@ class SimulationHistoryPoint(BaseModel):
 
     timestamp: str
     submission_id: int
+    alias: Optional[str] = None
     score: Optional[float] = None
     rank: Optional[int] = None
     total_episodes: int = 0
@@ -713,6 +715,7 @@ class SimulationMonitorConfig(BaseModel):
     interval_minutes: int = Field(default=10, ge=1, le=1440)
     target_submission_ids: list[int] = Field(default_factory=list, max_length=10)
     submission_ids: list[int] = Field(default_factory=list, max_length=10)
+    submission_aliases: dict[str, str] = Field(default_factory=dict)
     bronze_percentile: float = Field(default=0.10, ge=0.01, le=0.50)
     notify_on_new_matches: bool = True
     notify_on_new_episodes: Optional[bool] = None
@@ -758,6 +761,7 @@ class SimulationMonitorStatus(BaseModel):
 
     running: bool = False
     scheduler_alive: bool = False
+    enabled: bool = False
     service_started_at: Optional[str] = None
     scheduler_heartbeat_at: Optional[str] = None
     last_checked_at: Optional[str] = None

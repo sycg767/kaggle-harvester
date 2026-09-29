@@ -51,6 +51,8 @@ const { Text } = Typography;
 
 interface SubmissionMonitorControlProps {
   currentCompetition: string;
+  buttonText?: string;
+  buttonIcon?: React.ReactNode;
 }
 
 interface SummaryItemProps {
@@ -131,6 +133,8 @@ const renderItemState = (item: SubmissionMonitorItem) => {
 
 const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   currentCompetition,
+  buttonText,
+  buttonIcon,
 }) => {
   const { message } = AntApp.useApp();
   const [form] = Form.useForm<SubmissionMonitorConfig>();
@@ -194,10 +198,17 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   }, []);
 
   const competitionSelectOptions = useMemo(
-    () => buildEnteredCompetitionOptions(enteredCompetitions, [
-      ...(snapshot?.config.competitions || []),
-      currentCompetition,
-    ]),
+    () => buildEnteredCompetitionOptions(
+      enteredCompetitions,
+      [
+        ...(snapshot?.config.competitions || []),
+        currentCompetition,
+      ],
+      {
+        currentSlug: currentCompetition,
+        excludeEnded: true,
+      },
+    ),
     [currentCompetition, enteredCompetitions, snapshot?.config.competitions],
   );
 
@@ -383,12 +394,13 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
   return (
     <>
       <Button
+        size={buttonText ? 'small' : undefined}
         className="submission-monitor-trigger"
-        icon={<Activity size={15} strokeWidth={1.9} />}
-        aria-label="提交出分监控"
+        icon={buttonIcon || <Activity size={15} strokeWidth={1.9} />}
+        aria-label={buttonText || '提交出分监控'}
         onClick={() => void showSettings()}
       >
-        出分监控
+        {buttonText || '出分监控'}
       </Button>
 
       <Modal

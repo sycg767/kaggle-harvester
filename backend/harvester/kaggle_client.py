@@ -36,298 +36,40 @@ from .models import (
 )
 
 
-# ---------------------------------------------------------------------------
-#  Kaggle internal web service client (for scores)
-# ---------------------------------------------------------------------------
+from .client import (
+    KAGGLE_WEB_BASE,
+    LIST_VERSIONS,
+    UTF8_WRAPPER_NAME,
+    VIEW_MODEL,
+    KaggleWebServiceClient,
+    competition_slug_from_ref,
+    download_simulation_leaderboard_data,
+    extract_current_public_score,
+    extract_public_score,
+    infer_score_direction_from_metric,
+    is_simulation_competition,
+    list_simulation_episodes_for_submission,
+    locate_utf8_wrapper,
+    parse_competition_output,
+    parse_competition_submission,
+    parse_dataset_list_output,
+    parse_kernel_list_output,
+    parse_public_score,
+    row_value,
+    run_kaggle,
+    run_kaggle_json,
+)
 
-KAGGLE_WEB_BASE = "https://www.kaggle.com/api/i"
-VIEW_MODEL = "kernels.LegacyKernelsService/GetKernelViewModel"
-LIST_VERSIONS = "kernels.KernelsService/ListKernelVersions"
-UTF8_WRAPPER_NAME = "Invoke-KaggleUtf8.ps1"
-
-
-def _locate_utf8_wrapper(module_file: str | Path) -> Path:
-    """逐级查找 Windows Kaggle UTF-8 包装脚本，兼容浅层容器路径。"""
-    module_path = Path(module_file).resolve()
-    for parent in module_path.parents:
-        candidate = parent / "scripts" / UTF8_WRAPPER_NAME
-        if candidate.exists():
-            return candidate
-    # Linux 不使用该脚本；返回稳定的缺失路径供 readiness 展示即可。
-    return module_path.parent / UTF8_WRAPPER_NAME
-
-
-def _competition_slug_from_ref(raw: object) -> str:
-    """从 Kaggle competitions list 的 ref/id 字段提取竞赛 slug。
-
-    新版 CLI 可能返回完整 URL：
-    ``https://www.kaggle.com/competitions/rogii-wellbore-geology-prediction``
-    """
-    value = str(raw or "").strip()
-    if not value:
-        return ""
-    if "://" in value or value.startswith("www."):
-        path = value.split("?", 1)[0].rstrip("/")
-        marker = "/competitions/"
-        if marker in path:
-            value = path.split(marker, 1)[1]
-        else:
-            value = path.rsplit("/", 1)[-1]
-        value = value.split("/", 1)[0]
-    return value.strip()
-
-
-def _is_simulation_competition(
-    slug: str,
-    tags: Optional[list[str]] = None,
-    title: str = "",
-    description: str = "",
-) -> bool:
-    """精准判断是否为天梯模拟对抗赛 (Simulation Arena)。"""
-    slug_lower = (slug or "").lower().strip()
-    # 显式排除非模拟竞赛：策略报告、医学影像、生物细胞、地质测井、安全攻击等常规/分析赛
-    if any(k in slug_lower for k in ("strategy", "rsna", "biohub", "rogii", "security")):
-        return False
-
-    tags_lower = [t.lower() for t in (tags or [])]
-    if any("simulation" in t for t in tags_lower):
-        return True
-
-    title_lower = (title or "").lower()
-    desc_lower = (description or "").lower()
-    if "simulation" in title_lower or "simulation" in desc_lower:
-        return True
-
-    # 平台已知模拟对战环境竞赛
-    if slug_lower in {
-        "pokemon-tcg-ai-battle",
-        "kaggriculture",
-        "lux-ai-season-1",
-        "lux-ai-season-2",
-        "lux-ai-season-3",
-        "kore-2022",
-        "connectx",
-        "santa-2024",
-        "hungry-geese",
-        "halite-iv",
-        "rock-paper-scissors",
-        "football",
-    }:
-        return True
-
-    return False
-
-
-class KaggleWebServiceClient:
-    """Calls Kaggle's internal JSON web service (``/api/i``) with XSRF auth.
-
-    This is the only way to get per-version public LB scores, since the
-    standard REST API does not expose them.
-    """
-
-    def __init__(self, token: str) -> None:
-        self._token = token
-        self._session = httpx.Client(
-            follow_redirects=True,
-            timeout=30.0,
-            headers={"Authorization": f"Bearer {self._token}"},
-        )
-        # Seed XSRF session by visiting Kaggle
-        self._session.get("https://www.kaggle.com")
-        self._xsrf = dict(self._session.cookies).get("XSRF-TOKEN", "")
-        if not self._xsrf:
-            self._session.close()
-            raise RuntimeError("Failed to obtain XSRF token from Kaggle session.")
-
-    def post(self, service_method: str, body: dict) -> dict:
-        url = f"{KAGGLE_WEB_BASE}/{service_method}"
-        headers = {
-            "Authorization": f"Bearer {self._token}",
-            "Content-Type": "application/json",
-            "X-XSRF-TOKEN": self._xsrf,
-        }
-        resp = self._session.post(url, json=body, headers=headers, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-
-    def post_text(self, service_method: str, body: dict) -> str:
-        """调用返回源码文本的 Kaggle 内部接口。"""
-        url = f"{KAGGLE_WEB_BASE}/{service_method}"
-        headers = {
-            "Authorization": f"Bearer {self._token}",
-            "Content-Type": "application/json",
-            "X-XSRF-TOKEN": self._xsrf,
-        }
-        resp = self._session.post(url, json=body, headers=headers, timeout=60)
-        resp.raise_for_status()
-        return resp.text
-
-    def get_bytes(self, url: str) -> bytes:
-        """下载 Kaggle 内部或签名 URL 的二进制内容。"""
-        if url.startswith("/"):
-            url = f"https://www.kaggle.com{url}"
-        headers = {
-            "Authorization": f"Bearer {self._token}",
-            "X-XSRF-TOKEN": self._xsrf,
-        }
-        resp = self._session.get(url, headers=headers, timeout=120)
-        resp.raise_for_status()
-        return resp.content
-
-    def close(self) -> None:
-        self._session.close()
-
-
-def _parse_public_score(value: Any) -> float | None:
-    """Parse a leaderboard score string into a float, or None if not numeric."""
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text or text.lower() in {"-", "na", "n/a", "nan", "none", "null"}:
-        return None
-    match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?", text)
-    if not match:
-        return None
-    try:
-        return float(match.group(0).replace(",", ""))
-    except ValueError:
-        return None
-
-
-def _row_value(row: dict[str, Any], *keys: str) -> Any:
-    """兼容 Kaggle SDK/CLI 的 camelCase 与 snake_case 字段。"""
-    for key in keys:
-        value = row.get(key)
-        if value not in (None, ""):
-            return value
-    return None
-
-
-def _parse_competition_submission(row: dict[str, Any]) -> CompetitionSubmission | None:
-    """把 Kaggle 提交对象归一化为内部模型，并保留团队提交元数据。"""
-    ref_value = _row_value(row, "ref", "id", "submissionId", "submission_id")
-    if ref_value is None:
-        return None
-
-    public_display = _row_value(row, "publicScore", "public_score")
-    private_display = _row_value(row, "privateScore", "private_score")
-    status_raw = str(_row_value(row, "status") or "").strip()
-    if status_raw.startswith("SubmissionStatus."):
-        status_raw = status_raw.split(".", 1)[1]
-
-    return CompetitionSubmission(
-        ref=str(ref_value),
-        file_name=str(_row_value(row, "fileName", "file_name") or ""),
-        date=(
-            str(_row_value(row, "date", "dateSubmitted", "date_submitted"))
-            if _row_value(row, "date", "dateSubmitted", "date_submitted") is not None
-            else None
-        ),
-        description=str(_row_value(row, "description") or ""),
-        status=status_raw,
-        error_description=str(
-            _row_value(row, "errorDescription", "error_description") or ""
-        ),
-        submitted_by=str(_row_value(row, "submittedBy", "submitted_by") or ""),
-        submitted_by_ref=str(
-            _row_value(row, "submittedByRef", "submitted_by_ref") or ""
-        ),
-        team_name=str(_row_value(row, "teamName", "team_name") or ""),
-        public_score=_parse_public_score(public_display),
-        public_score_display=(
-            str(public_display).strip() if public_display is not None else None
-        ),
-        private_score=_parse_public_score(private_display),
-        private_score_display=(
-            str(private_display).strip() if private_display is not None else None
-        ),
-    )
-
-
-def _extract_public_score(view: dict[str, Any]) -> float | None:
-    """读取 Kaggle 列表使用的最佳公开分数，并兼容旧响应字段。"""
-    candidates = (
-        ((view.get("bestSubmissionScore") or {}).get("scoreFormatted")),
-        ((view.get("kernel") or {}).get("bestPublicScore")),
-        ((view.get("submission") or {}).get("scoreFormatted")),
-    )
-    for candidate in candidates:
-        score = _parse_public_score(candidate)
-        if score is not None:
-            return score
-    return None
-
-
-def _extract_current_public_score(
-    view: dict[str, Any],
-) -> tuple[float | None, int | None, int | None]:
-    """返回榜单最佳分数、分数来源版本和当前版本。
-
-    列表列对齐 Kaggle Code 列表的 Score / Best Score，而不是 notebook 详情里
-    当前版本的 Public Score。当最新版更差或尚未出分时，仍展示历史最佳。
-    """
-    try:
-        current_version = int(view.get("currentVersionNumber") or 0) or None
-    except (TypeError, ValueError):
-        current_version = None
-
-    best_submission = view.get("bestSubmissionScore") or {}
-    try:
-        best_version = int(best_submission.get("kernelVersionNumber") or 0) or None
-    except (TypeError, ValueError):
-        best_version = None
-    best_score = _parse_public_score(best_submission.get("scoreFormatted"))
-    if best_score is not None:
-        return best_score, best_version or current_version, current_version
-
-    # 兼容旧响应：无 bestSubmissionScore 时再回退 kernel / submission 字段。
-    score = _extract_public_score(view)
-    return score, best_version or current_version, current_version
-
-
-def _infer_score_direction_from_metric(metric: str | None) -> bool | None:
-    """根据常见评估指标名称推断是否为越低越好。"""
-    normalized = re.sub(r"[^a-z0-9]+", " ", (metric or "").lower()).strip()
-    if not normalized:
-        return None
-
-    lower_better_markers = (
-        "loss",
-        "error",
-        "rmse",
-        "rmsle",
-        "mae",
-        "mse",
-        "logloss",
-        "log loss",
-        "cross entropy",
-        "distance",
-        "deviance",
-        "crps",
-        "wer",
-        "mean columnwise root mean squared error",
-    )
-    higher_better_markers = (
-        "accuracy",
-        "auc",
-        "f1",
-        "average precision",
-        "map",
-        "ndcg",
-        "correlation",
-        "pearson",
-        "spearman",
-        "dice",
-        "jaccard",
-        "intersection over union",
-        "iou",
-        "r2",
-    )
-    if any(marker in normalized for marker in lower_better_markers):
-        return True
-    if any(marker in normalized for marker in higher_better_markers):
-        return False
-    return None
+# Re-exports for backwards compatibility
+_locate_utf8_wrapper = locate_utf8_wrapper
+_competition_slug_from_ref = competition_slug_from_ref
+_is_simulation_competition = is_simulation_competition
+_parse_public_score = parse_public_score
+_row_value = row_value
+_parse_competition_submission = parse_competition_submission
+_extract_public_score = extract_public_score
+_extract_current_public_score = extract_current_public_score
+_infer_score_direction_from_metric = infer_score_direction_from_metric
 
 
 class KaggleClient:
@@ -348,7 +90,7 @@ class KaggleClient:
         self._score_cache = score_cache
         self._metadata_cache = metadata_cache
         self._episode_store = episode_store
-        self._competition_info_memory: dict[str, CompetitionInfo] = {}
+        self._competition_info_memory: dict[str, tuple[float, CompetitionInfo]] = {}
         self._sim_leaderboard_cache: dict[str, tuple[float, SimulationMedalThresholds, list[dict[str, Any]]]] = {}
         self._sim_episodes_cache: dict[int, list[SimulationEpisode]] = {}
         self._utf8_wrapper = _locate_utf8_wrapper(__file__)
@@ -493,84 +235,23 @@ class KaggleClient:
         self, args: list[str], timeout: int = 120
     ) -> tuple[str, str]:
         """Run a kaggle CLI command, return (stdout, stderr)."""
-        if shutil.which("kaggle") is None:
-            raise RuntimeError("未找到 Kaggle CLI，请先安装 kaggle Python 包。")
-
-        if os.name == "nt":
-            if not self._utf8_wrapper.exists():
-                raise RuntimeError(
-                    f"缺少 UTF-8 Kaggle 包装脚本：{self._utf8_wrapper}"
-                )
-            powershell = shutil.which("powershell.exe") or shutil.which("powershell")
-            if powershell is None:
-                raise RuntimeError("未找到 PowerShell，无法安全调用 Kaggle CLI。")
-            cmd = [
-                powershell,
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(self._utf8_wrapper),
-                *args,
-            ]
-        else:
-            cmd = ["kaggle", *args]
-
-        env = {
-            **os.environ,
-            "PYTHONUTF8": "1",
-            "PYTHONIOENCODING": "utf-8",
-        }
-        kaggle_home = Path.home() / ".kaggle"
-        if kaggle_home.exists() and "KAGGLE_CONFIG_DIR" not in env:
-            env["KAGGLE_CONFIG_DIR"] = str(kaggle_home)
-        if self._token:
-            env["KAGGLE_API_TOKEN"] = self._token
-        else:
-            kaggle_json = kaggle_home / "kaggle.json"
-            if kaggle_json.is_file() and ("KAGGLE_USERNAME" not in env or "KAGGLE_KEY" not in env):
-                try:
-                    cred = json.loads(kaggle_json.read_text(encoding="utf-8"))
-                    if isinstance(cred, dict):
-                        if cred.get("username") and "KAGGLE_USERNAME" not in env:
-                            env["KAGGLE_USERNAME"] = str(cred["username"])
-                        if cred.get("key") and "KAGGLE_KEY" not in env:
-                            env["KAGGLE_KEY"] = str(cred["key"])
-                except Exception:
-                    pass
-
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+        return run_kaggle(
+            args,
+            utf8_wrapper=self._utf8_wrapper,
+            token=self._token,
             timeout=timeout,
-            env=env,
         )
-        if proc.returncode != 0:
-            detail = proc.stderr.strip() or proc.stdout.strip()
-            raise RuntimeError(
-                f"Kaggle CLI 执行失败（退出码 {proc.returncode}）："
-                f"{detail or '未返回错误详情'}"
-            )
-        return proc.stdout.strip(), proc.stderr.strip()
 
     def _run_kaggle_json(
         self, args: list[str], timeout: int = 120
     ) -> list[dict]:
         """Run a kaggle CLI command and parse JSON output."""
-        stdout, _ = self._run_kaggle(args, timeout=timeout)
-        try:
-            data = json.loads(stdout)
-        except json.JSONDecodeError:
-            # fallback: try to extract JSON from otherwise noisy output
-            match = re.search(r"\[.*\]", stdout, re.DOTALL)
-            if match:
-                data = json.loads(match.group())
-            else:
-                raise
-        return data if isinstance(data, list) else [data]
+        return run_kaggle_json(
+            args,
+            utf8_wrapper=self._utf8_wrapper,
+            token=self._token,
+            timeout=timeout,
+        )
 
     # ------------------------------------------------------------------
     #  Competition info
@@ -680,8 +361,11 @@ class KaggleClient:
     ) -> CompetitionInfo:
         """Fetch competition overview via Kaggle CLI."""
         comp = competition or self.competition_slug
+        now = time.monotonic()
         if not refresh and comp in self._competition_info_memory:
-            return self._competition_info_memory[comp].model_copy(deep=True)
+            cached_at, cached_info = self._competition_info_memory[comp]
+            if now - cached_at < 3600.0:
+                return cached_info.model_copy(deep=True)
         try:
             result = self._run_kaggle_json(
                 ["competitions", "list", "--search", comp, "--format", "json"]
@@ -762,7 +446,7 @@ class KaggleClient:
                     is_simulation=is_sim,
                     tags=tags_list,
                 )
-                self._competition_info_memory[comp] = info
+                self._competition_info_memory[comp] = (now, info)
                 return info.model_copy(deep=True)
         except Exception as exc:
             if competition and competition != self.competition_slug:
@@ -779,7 +463,7 @@ class KaggleClient:
             is_lower_better=True,
             score_direction_source="fallback",
         )
-        self._competition_info_memory[comp] = info
+        self._competition_info_memory[comp] = (now, info)
         return info.model_copy(deep=True)
 
     def _detect_score_direction_from_leaderboard(
@@ -825,37 +509,7 @@ class KaggleClient:
 
     def _parse_competition_output(self, text: str) -> CompetitionInfo:
         """Parse the verbose competition list output."""
-        info: dict[str, object] = {
-            "id": self.COMPETITION_SLUG,
-            "title": self.COMPETITION_SLUG,
-            "category": "",
-            "is_lower_better": True,
-        }
-        for line in text.splitlines():
-            line = line.strip()
-            if ":" not in line:
-                continue
-            key, _, value = line.partition(":")
-            key = key.strip().lower()
-            value = value.strip()
-            if key == "title":
-                info["title"] = value
-            elif key == "category":
-                info["category"] = value
-            elif key == "deadline":
-                info["deadline"] = value
-            elif key == "reward":
-                info["reward"] = value
-            elif key == "teamcount":
-                try:
-                    info["team_count"] = int(value)
-                except ValueError:
-                    pass
-            elif key == "evaluation":
-                info["evaluation_metric"] = value
-            elif key == "description":
-                info["description"] = value
-        return CompetitionInfo(**info)  # type: ignore[arg-type]
+        return parse_competition_output(text, self.COMPETITION_SLUG)
 
     # ------------------------------------------------------------------
     #  Kernel listing
@@ -999,53 +653,7 @@ class KaggleClient:
         self, text: str, competition: str
     ) -> list[KernelSummary]:
         """Parse tabular output from `kaggle kernels list -v`."""
-        kernels: list[KernelSummary] = []
-        lines = text.splitlines()
-
-        # Skip header and separator lines, find the data rows
-        data_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("ref") or stripped.startswith("---"):
-                continue
-            # The verbose output format is pipe-delimited-ish:
-            # ref | title | author | lastRunTime | totalVotes | ... | type | category
-            if "|" in stripped:
-                data_lines.append(stripped)
-
-        for line in data_lines:
-            parts = [p.strip() for p in line.split("|")]
-            if len(parts) < 4:
-                continue
-            ref = parts[0]
-            title = parts[1] if len(parts) > 1 else ""
-            author = parts[2] if len(parts) > 2 else ""
-            last_run_time = parts[3] if len(parts) > 3 else None
-            total_votes_str = parts[4] if len(parts) > 4 else "0"
-            kernel_type = parts[5] if len(parts) > 5 else ""
-            category = parts[6] if len(parts) > 6 else ""
-
-            try:
-                total_votes = int(total_votes_str.replace(",", ""))
-            except ValueError:
-                total_votes = 0
-
-            kernels.append(
-                KernelSummary(
-                    ref=ref,
-                    title=title,
-                    author=author,
-                    last_run_time=last_run_time,
-                    total_votes=total_votes,
-                    vote_count=total_votes,
-                    kernel_type=kernel_type,
-                    category=category,
-                    competition=competition,
-                    is_competition_kernel=True,
-                )
-            )
-
-        return kernels
+        return parse_kernel_list_output(text, competition)
 
     # ------------------------------------------------------------------
     #  Kernel scores
@@ -1585,23 +1193,7 @@ class KaggleClient:
 
     def _parse_dataset_list_output(self, text: str) -> list[dict]:
         """Parse tabular dataset listing."""
-        datasets: list[dict] = []
-        lines = text.strip().splitlines()
-        for line in lines[2:]:  # skip header + separator
-            if not line.strip():
-                continue
-            parts = line.split()
-            if len(parts) >= 5:
-                datasets.append(
-                    {
-                        "name": parts[0],
-                        "size": parts[1],
-                        "type": parts[2],
-                        "columns": parts[3] if len(parts) > 3 else "",
-                        "description": " ".join(parts[4:]),
-                    }
-                )
-        return datasets
+        return parse_dataset_list_output(text)
 
     def download_dataset(
         self,
@@ -1640,292 +1232,25 @@ class KaggleClient:
     ) -> list[SimulationEpisode]:
         """获取指定提交的完整对局历史（含当时真实天梯分、加减变动、对手及 Replay 链接）。"""
         sub_id = int(submission_id)
+        episodes = list_simulation_episodes_for_submission(
+            sub_id,
+            token=self._token,
+            competition=competition,
+        )
 
-        # 1. 优先调用 Kaggle EpisodeService Web 接口获取当场真实初始分与结算变动
-        try:
-                # EpisodeService 是 Kaggle 内部接口，必须复用已认证的 WebService 会话；
-                # 裸 httpx 请求会返回 400，随后错误回退到 SDK，丢失 initialScore/updatedScore。
-                web_client = KaggleWebServiceClient(self._token)
-                try:
-                    data = web_client.post(
-                        "competitions.EpisodeService/ListEpisodes",
-                        {"submissionId": sub_id},
-                    )
-                finally:
-                    web_client.close()
-                raw_episodes = data.get("episodes", [])
-                teams_map: dict[int, str] = {
-                    int(t["id"]): str(t.get("teamName") or t.get("name") or "")
-                    for t in data.get("teams", [])
-                    if isinstance(t, dict) and "id" in t
-                }
+        if self._episode_store is not None and episodes:
+            self._episode_store.upsert_episodes(episodes)
+            merged = self._episode_store.get_episodes(sub_id, order="DESC")
+            self._sim_episodes_cache[sub_id] = merged
+            return merged
 
-                episodes: list[SimulationEpisode] = []
-                for ep in raw_episodes:
-                    if not isinstance(ep, dict):
-                        continue
-                    ep_id = int(ep.get("id", 0))
-                    if not ep_id:
-                        continue
-                    create_time = ep.get("createTime")
-                teams_map: dict[int, str] = {
-                    int(t["id"]): str(t.get("teamName") or t.get("name") or "")
-                    for t in data.get("teams", [])
-                    if isinstance(t, dict) and "id" in t
-                }
-
-                episodes: list[SimulationEpisode] = []
-                for ep in raw_episodes:
-                    if not isinstance(ep, dict):
-                        continue
-                    ep_id = int(ep.get("id", 0))
-                    if not ep_id:
-                        continue
-                    create_time = ep.get("createTime")
-                    end_time = ep.get("endTime")
-                    raw_state = str(ep.get("state", "") or "")
-                    raw_type = str(ep.get("type", "") or "")
-
-                    raw_agents = ep.get("agents", []) or []
-                    agents: list[SimulationEpisodeAgent] = []
-                    my_agent: SimulationEpisodeAgent | None = None
-                    opponent_agent: SimulationEpisodeAgent | None = None
-                    my_delta: float | None = None
-                    opp_initial_score: float | None = None
-
-                    for i, a in enumerate(raw_agents):
-                        if not isinstance(a, dict):
-                            continue
-                        agent_sub_id = int(a.get("submissionId", 0) or 0)
-                        team_id = a.get("teamId")
-                        team_id_int = int(team_id) if team_id is not None else None
-                        team_name = teams_map.get(team_id_int, "") if team_id_int else ""
-                        reward = a.get("reward")
-                        reward_val = float(reward) if reward is not None else None
-                        agent_index = int(a.get("index", i) or i)
-                        agent_state = str(a.get("state", "") or "")
-
-                        sim_agent = SimulationEpisodeAgent(
-                            submission_id=agent_sub_id,
-                            team_id=team_id_int,
-                            team_name=team_name,
-                            reward=reward_val,
-                            index=agent_index,
-                            state=agent_state,
-                        )
-                        agents.append(sim_agent)
-
-                        init_s = a.get("initialScore")
-                        upd_s = a.get("updatedScore")
-                        if agent_sub_id == sub_id:
-                            my_agent = sim_agent
-                            if init_s is not None and upd_s is not None:
-                                my_delta = round(float(upd_s) - float(init_s), 1)
-                        else:
-                            opponent_agent = sim_agent
-                            if init_s is not None:
-                                opp_initial_score = round(float(init_s), 1)
-
-                    my_idx = my_agent.index if my_agent is not None else 0
-                    my_team = my_agent.team_name if my_agent is not None else ""
-                    is_system_check = opponent_agent is None
-                    if is_system_check:
-                        opp_team = "系统自检"
-                        opp_team_id = None
-                        opp_sub_id = None
-                        rew = None
-                        outcome = "unknown"
-                        my_delta = None
-                    else:
-                        opp_team = opponent_agent.team_name or "对手"
-                        opp_team_id = opponent_agent.team_id
-                        opp_sub_id = opponent_agent.submission_id
-                        rew = my_agent.reward if my_agent is not None else None
-                        if rew is not None:
-                            if rew > 0:
-                                outcome = "win"
-                            elif rew < 0:
-                                outcome = "loss"
-                            else:
-                                outcome = "tie"
-                        else:
-                            outcome = "unknown"
-
-                    replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
-
-                    episodes.append(
-                        SimulationEpisode(
-                            id=ep_id,
-                            create_time=create_time,
-                            end_time=end_time,
-                            duration_seconds=None,
-                            state=raw_state,
-                            type=raw_type,
-                            agents=agents,
-                            my_agent_index=my_idx,
-                            my_submission_id=sub_id,
-                            my_team_name=my_team,
-                            opponent_team_name=opp_team,
-                            opponent_team_id=opp_team_id,
-                            opponent_submission_id=opp_sub_id,
-                            result=outcome,
-                            is_system_check=is_system_check,
-                            reward=rew,
-                            score_delta=my_delta,
-                            opponent_score=opp_initial_score,
-                            replay_url=replay_url,
-                        )
-                    )
-
-                episodes.sort(key=lambda x: x.create_time or "", reverse=True)
-                if self._episode_store is not None and episodes:
-                    self._episode_store.upsert_episodes(episodes)
-                    merged = self._episode_store.get_episodes(sub_id, order="DESC")
-                    self._sim_episodes_cache[sub_id] = merged
-                    return merged
-                # 增量合并到内存缓存
-                known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(sub_id, [])}
-                for ep in episodes:
-                    known_map[ep.id] = ep
-                merged = sorted(known_map.values(), key=lambda x: x.create_time or "", reverse=True)
-                self._sim_episodes_cache[sub_id] = merged
-                return merged
-        except Exception:
-            pass
-
-        # 2. 回退到 Python SDK 接口
-        try:
-            from kaggle.api.kaggle_api_extended import KaggleApi
-
-            api = KaggleApi()
-            api.authenticate()
-            raw_episodes = api.competition_list_episodes(sub_id) or []
-
-            episodes: list[SimulationEpisode] = []
-            for ep in raw_episodes:
-                if ep is None:
-                    continue
-                ep_id = int(getattr(ep, "id", 0))
-                if not ep_id:
-                    continue
-                create_time_dt = getattr(ep, "create_time", None) or getattr(ep, "createTime", None)
-                end_time_dt = getattr(ep, "end_time", None) or getattr(ep, "endTime", None)
-                create_time = (
-                    create_time_dt.isoformat()
-                    if hasattr(create_time_dt, "isoformat")
-                    else (str(create_time_dt) if create_time_dt else None)
-                )
-                end_time = (
-                    end_time_dt.isoformat()
-                    if hasattr(end_time_dt, "isoformat")
-                    else (str(end_time_dt) if end_time_dt else None)
-                )
-                duration_seconds = None
-                if hasattr(create_time_dt, "timestamp") and hasattr(end_time_dt, "timestamp"):
-                    duration_seconds = max(0.0, end_time_dt.timestamp() - create_time_dt.timestamp())
-
-                raw_state = str(getattr(ep, "state", "") or "")
-                raw_type = str(getattr(ep, "type", "") or "")
-
-                raw_agents = getattr(ep, "agents", []) or []
-                agents: list[SimulationEpisodeAgent] = []
-                my_agent: SimulationEpisodeAgent | None = None
-                opponent_agent: SimulationEpisodeAgent | None = None
-
-                for i, a in enumerate(raw_agents):
-                    agent_sub_id = int(
-                        getattr(a, "submission_id", None)
-                        or getattr(a, "submissionId", 0)
-                        or 0
-                    )
-                    team_id = getattr(a, "team_id", None) or getattr(a, "teamId", None)
-                    team_name = str(
-                        getattr(a, "team_name", None)
-                        or getattr(a, "teamName", "")
-                        or ""
-                    )
-                    reward = getattr(a, "reward", None)
-                    reward_val = float(reward) if reward is not None else None
-                    agent_index = int(getattr(a, "index", i) or i)
-                    agent_state = str(getattr(a, "state", "") or "")
-
-                    sim_agent = SimulationEpisodeAgent(
-                        submission_id=agent_sub_id,
-                        team_id=int(team_id) if team_id is not None else None,
-                        team_name=team_name,
-                        reward=reward_val,
-                        index=agent_index,
-                        state=agent_state,
-                    )
-                    agents.append(sim_agent)
-                    if agent_sub_id == sub_id:
-                        my_agent = sim_agent
-                    else:
-                        opponent_agent = sim_agent
-
-                my_idx = my_agent.index if my_agent is not None else 0
-                my_team = my_agent.team_name if my_agent is not None else ""
-                is_system_check = opponent_agent is None
-                if is_system_check:
-                    opp_team = "系统自检"
-                    opp_team_id = None
-                    opp_sub_id = None
-                    rew = None
-                    outcome = "unknown"
-                else:
-                    opp_team = opponent_agent.team_name or "对手"
-                    opp_team_id = opponent_agent.team_id
-                    opp_sub_id = opponent_agent.submission_id
-                    rew = my_agent.reward if my_agent is not None else None
-                    if rew is not None:
-                        if rew > 0:
-                            outcome = "win"
-                        elif rew < 0:
-                            outcome = "loss"
-                        else:
-                            outcome = "tie"
-                    else:
-                        outcome = "unknown"
-
-                replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
-
-                episodes.append(
-                    SimulationEpisode(
-                        id=ep_id,
-                        create_time=create_time,
-                        end_time=end_time,
-                        duration_seconds=duration_seconds,
-                        state=raw_state,
-                        type=raw_type,
-                        agents=agents,
-                        my_agent_index=my_idx,
-                        my_submission_id=sub_id,
-                        my_team_name=my_team,
-                        opponent_team_name=opp_team,
-                        opponent_team_id=opp_team_id,
-                        opponent_submission_id=opp_sub_id,
-                        result=outcome,
-                        is_system_check=is_system_check,
-                        reward=rew,
-                        replay_url=replay_url,
-                    )
-                )
-
-            if self._episode_store is not None and episodes:
-                self._episode_store.upsert_episodes(episodes)
-                merged = self._episode_store.get_episodes(sub_id, order="DESC")
-                self._sim_episodes_cache[sub_id] = merged
-                return merged
-
-            # 增量合并到内存缓存
+        if episodes:
             known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(sub_id, [])}
             for ep in episodes:
                 known_map[ep.id] = ep
             merged = sorted(known_map.values(), key=lambda x: x.create_time or "", reverse=True)
             self._sim_episodes_cache[sub_id] = merged
             return merged
-        except Exception:
-            pass
 
         if self._episode_store is not None:
             return self._episode_store.get_episodes(sub_id, order="DESC")
@@ -1949,110 +1274,21 @@ class KaggleClient:
     ) -> tuple[SimulationMedalThresholds, list[dict[str, Any]]]:
         """下载天梯全量榜单并计算奖牌线切分点（带 5 分钟 TTL 缓存，避免每次轮询重复解压 6000+ 队伍全量榜单）。"""
         comp = competition.strip()
-        import time
-
         now = time.time()
         if not force_refresh and comp in self._sim_leaderboard_cache:
             cached_time, cached_th, cached_rows = self._sim_leaderboard_cache[comp]
             if now - cached_time < cache_ttl_seconds:
                 return cached_th, cached_rows
 
-        rows: list[dict[str, Any]] = []
         try:
-            from kaggle.api.kaggle_api_extended import KaggleApi
-            from kagglesdk.competitions.types.competition_api_service import ApiDownloadLeaderboardRequest
-
-            api = KaggleApi()
-            api.authenticate()
-            with api.build_kaggle_client() as kaggle:
-                req = ApiDownloadLeaderboardRequest()
-                req.competition_name = comp
-                resp = kaggle.competitions.competition_api_client.download_leaderboard(req)
-                content = getattr(resp, "content", None)
-                if content is None:
-                    content = resp.raw.read() if hasattr(resp, "raw") else bytes(resp)
-                with zipfile.ZipFile(io.BytesIO(content)) as z:
-                    for name in z.namelist():
-                        if name.lower().endswith(".csv"):
-                            with z.open(name) as f:
-                                wrapper = io.TextIOWrapper(f, encoding="utf-8", errors="ignore")
-                                reader = csv.DictReader(wrapper)
-                                for r in reader:
-                                    cleaned_row: dict[str, Any] = {}
-                                    for k, v in r.items():
-                                        norm_key = k.lstrip("\ufeff").strip() if k else ""
-                                        cleaned_row[norm_key] = v
-                                    rows.append(cleaned_row)
-                            break
-        except Exception:
-            try:
-                from kaggle.api.kaggle_api_extended import KaggleApi
-
-                api = KaggleApi()
-                api.authenticate()
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    api.competition_leaderboard_download(comp, path=temp_dir)
-                    for item in Path(temp_dir).iterdir():
-                        if item.suffix.lower() == ".zip":
-                            with zipfile.ZipFile(item) as z:
-                                z.extractall(temp_dir)
-                    csv_path: Path | None = None
-                    for item in Path(temp_dir).iterdir():
-                        if item.suffix.lower() == ".csv":
-                            csv_path = item
-                            break
-
-                    if csv_path is None or not csv_path.exists():
-                        raise RuntimeError(f"未能下载竞赛 {comp} 的天梯排行榜。")
-
-                    with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-                        reader = csv.DictReader(f)
-                        for r in reader:
-                            cleaned_row: dict[str, Any] = {}
-                            for k, v in r.items():
-                                norm_key = k.lstrip("\ufeff").strip() if k else ""
-                                cleaned_row[norm_key] = v
-                            rows.append(cleaned_row)
-            except Exception as exc:
-                if comp in self._sim_leaderboard_cache:
-                    _, cached_th, cached_rows = self._sim_leaderboard_cache[comp]
-                    return cached_th, cached_rows
-                raise exc
-
-        total_teams = len(rows)
-        if total_teams == 0:
-            thresholds_empty = SimulationMedalThresholds(
-                total_teams=0,
+            thresholds, rows = download_simulation_leaderboard_data(
+                competition=comp,
                 bronze_percentile=bronze_percentile,
-                updated_at=datetime.now(timezone.utc).isoformat(),
             )
-            self._sim_leaderboard_cache[comp] = (now, thresholds_empty, [])
-            return thresholds_empty, []
-
-        gold_rank = max(1, min(total_teams, int(10 + total_teams * 0.002)))
-        silver_rank = max(1, min(total_teams, int(total_teams * 0.05)))
-        bronze_rank = max(1, min(total_teams, int(total_teams * bronze_percentile)))
-
-        def _get_score_at_rank(target_rank: int) -> float | None:
-            if 1 <= target_rank <= len(rows):
-                raw_score = rows[target_rank - 1].get("Score")
-                return _parse_public_score(raw_score)
-            return None
-
-        gold_score = _get_score_at_rank(gold_rank)
-        silver_score = _get_score_at_rank(silver_rank)
-        bronze_score = _get_score_at_rank(bronze_rank)
-
-        thresholds = SimulationMedalThresholds(
-            total_teams=total_teams,
-            gold_cutoff_rank=gold_rank,
-            gold_cutoff_score=gold_score,
-            silver_cutoff_rank=silver_rank,
-            silver_cutoff_score=silver_score,
-            bronze_cutoff_rank=bronze_rank,
-            bronze_cutoff_score=bronze_score,
-            bronze_percentile=bronze_percentile,
-            updated_at=datetime.now(timezone.utc).isoformat(),
-        )
-        self._sim_leaderboard_cache[comp] = (now, thresholds, rows)
-        return thresholds, rows
+            self._sim_leaderboard_cache[comp] = (now, thresholds, rows)
+            return thresholds, rows
+        except Exception:
+            if comp in self._sim_leaderboard_cache:
+                _, cached_th, cached_rows = self._sim_leaderboard_cache[comp]
+                return cached_th, cached_rows
+            raise

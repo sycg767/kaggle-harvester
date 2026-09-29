@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   App as AntApp,
+  AutoComplete,
   Badge,
   Button,
   Checkbox,
@@ -30,10 +31,15 @@ import {
   PanelLeftOpen,
   RefreshCw,
   Search,
+  Star,
   Swords,
+  Trophy,
 } from 'lucide-react';
-import { api, apiAuth, type ArchiveStats, type CompetitionInfo, type HealthStatus } from '../api';
-import { HARVESTER_EVENTS } from '../events';
+import { api, apiAuth, type ArchiveStats, type CompetitionInfo, type EnteredCompetition, type HealthStatus } from '../api';
+import { dispatchCompetitionChanged, HARVESTER_EVENTS } from '../events';
+import { buildEnteredCompetitionOptions } from '../competitionOptions';
+import { getEnteredCompetitions } from '../enteredCompetitionsCache';
+import DialogTitle from './DialogTitle';
 import kaggleLogo from '../assets/kaggle-logo.svg';
 
 const { Text, Paragraph } = Typography;
@@ -126,6 +132,9 @@ const AppLayout: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('harvester.sidebarCollapsed') === 'true',
   );
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
+  const [switcherSearch, setSwitcherSearch] = useState('');
   const shortcutLabel = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
 
   const loadData = useCallback(async () => {
@@ -235,23 +244,45 @@ const AppLayout: React.FC = () => {
     return () => window.removeEventListener(HARVESTER_EVENTS.archivesChanged, refreshArchiveStats);
   }, []);
 
-  const focusCompetitionSearch = useCallback(() => {
-    if (!location.pathname.startsWith('/kernels')) navigate('/kernels');
-    window.setTimeout(() => {
-      window.dispatchEvent(new Event(HARVESTER_EVENTS.focusCompetition));
-    }, 0);
-  }, [location.pathname, navigate]);
+  useEffect(() => {
+    if (switcherOpen) {
+      void getEnteredCompetitions().then(setEnteredCompetitions).catch(() => []);
+    }
+  }, [switcherOpen]);
+
+  const handleSelectGlobalCompetition = (slug: string, navigateToKernels = false) => {
+    if (!slug) return;
+    const cleanSlug = slug.trim();
+    localStorage.setItem('harvester.competition', cleanSlug);
+    localStorage.setItem('harvester.arenaCompetition', cleanSlug);
+    dispatchCompetitionChanged(cleanSlug);
+    void api.getCompetition(cleanSlug).then((comp) => {
+      if (comp) {
+        setCompetitionInfo(comp);
+        message.success(`已切换全站工作区赛事为：${comp.title}`);
+      }
+    }).catch(() => null);
+    setSwitcherOpen(false);
+    setSwitcherSearch('');
+    if (navigateToKernels) {
+      navigate('/kernels');
+    }
+  };
+
+  const openCompetitionSwitcher = useCallback(() => {
+    setSwitcherOpen(true);
+  }, []);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        focusCompetitionSearch();
+        setSwitcherOpen((curr) => !curr);
       }
     };
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [focusCompetitionSearch]);
+  }, []);
 
   const currentKey: NavItem['key'] = location.pathname.startsWith('/archives')
     ? 'archives'
@@ -388,9 +419,9 @@ const AppLayout: React.FC = () => {
               type="button"
               className="newapi-competition-pill"
               aria-label={`切换竞赛，快捷键 ${shortcutLabel}`}
-              onClick={focusCompetitionSearch}
+              onClick={openCompetitionSwitcher}
             >
-              <Search size={16} />
+              <Trophy size={15} color="#1677ff" />
               <span>
                 {health?.active_competition?.competition === competitionInfo.id &&
                 health?.active_competition?.is_pinned
@@ -579,6 +610,90 @@ const AppLayout: React.FC = () => {
           </div>
         </div>
       </Drawer>
+
+      {/* Global Competition Switcher Modal */}
+      <Modal
+        title={(
+          <DialogTitle onClose={() => setSwitcherOpen(false)}>
+            <Space size={8} align="center">
+              <Trophy size={18} color="#1677ff" />
+              <span style={{ fontWeight: 600, fontSize: 16 }}>切换主工作区竞赛 (Command Palette)</span>
+            </Space>
+          </DialogTitle>
+        )}
+        open={switcherOpen}
+        onCancel={() => setSwitcherOpen(false)}
+        footer={null}
+        width={620}
+        destroyOnClose
+        zIndex={1250}
+      >
+        <div style={{ paddingTop: 8 }}>
+          <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
+            全局切换当前主工作区竞赛，工作台、开源代码广场、天梯对抗将同步联动：
+          </Text>
+          <AutoComplete
+            style={{ width: '100%' }}
+            size="large"
+            placeholder="搜索已参加竞赛，或直接输入 Kaggle 竞赛 slug 后回车..."
+            options={buildEnteredCompetitionOptions(
+              enteredCompetitions,
+              [
+                health?.active_competition?.competition,
+                health?.default_competition,
+                competitionInfo?.id,
+              ],
+              {
+                activeSlug: health?.active_competition?.competition,
+                currentSlug: competitionInfo?.id,
+              }
+            )}
+            filterOption={(inputValue, option) =>
+              (option?.label?.toString() || '').toLowerCase().includes(inputValue.toLowerCase()) ||
+              (option?.value?.toString() || '').toLowerCase().includes(inputValue.toLowerCase())
+            }
+            onSelect={(value) => handleSelectGlobalCompetition(String(value))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && switcherSearch.trim()) {
+                handleSelectGlobalCompetition(switcherSearch.trim());
+              }
+            }}
+            onChange={setSwitcherSearch}
+            autoFocus
+          />
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>快速切换竞赛：</div>
+            <Space wrap size={6}>
+              {enteredCompetitions.slice(0, 6).map((c) => (
+                <Button
+                  key={c.id}
+                  size="small"
+                  type={c.id === competitionInfo?.id ? 'primary' : 'default'}
+                  onClick={() => handleSelectGlobalCompetition(c.id)}
+                  style={{ borderRadius: 6, fontSize: 12 }}
+                >
+                  {c.title ? (c.title.length > 18 ? `${c.title.slice(0, 18)}…` : c.title) : c.id}
+                </Button>
+              ))}
+            </Space>
+          </div>
+          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <Button
+              icon={<Search size={14} />}
+              onClick={() => handleSelectGlobalCompetition(switcherSearch.trim() || competitionInfo?.id || '', true)}
+            >
+              前往该竞赛开源广场
+            </Button>
+            <Button
+              type="primary"
+              disabled={!switcherSearch.trim() && !competitionInfo?.id}
+              onClick={() => handleSelectGlobalCompetition(switcherSearch.trim() || competitionInfo?.id || '')}
+            >
+              确认切换
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         title="请输入 API 访问密钥"

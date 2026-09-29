@@ -4,6 +4,7 @@ import asyncio
 import concurrent.futures
 import json
 import os
+import re
 import socket
 import threading
 import urllib.parse
@@ -118,6 +119,7 @@ class SimulationMonitorManager:
             was_running = bool(data.get("status", {}).get("running", False))
             self._config = SimulationMonitorConfig(**data.get("config", {}))
             self._status = SimulationMonitorStatus(**data.get("status", {}))
+            self._status.enabled = bool(self._config.enabled)
             self._status.running = False
             self._status.scheduler_alive = False
             self._status.service_started_at = self._service_started_at
@@ -397,6 +399,7 @@ class SimulationMonitorManager:
             status.scheduler_alive = bool(
                 self._task is not None and not self._task.done()
             )
+            status.enabled = bool(self._config.enabled)
             status.history_points = [item.model_copy(deep=True) for item in self._history_points]
             status.clawbot = self._get_clawbot_status()
             return SimulationMonitorSnapshot(
@@ -509,11 +512,20 @@ class SimulationMonitorManager:
     ) -> SimulationMonitorSnapshot:
         with self._state_lock:
             self._config = config.model_copy(deep=True)
+            self._status.enabled = bool(config.enabled)
+            self._status.competition = config.competition
             self._status.next_run_at = (
                 (_utc_now() + timedelta(minutes=config.interval_minutes)).isoformat()
                 if config.enabled
                 else None
             )
+            if self._status.agents and config.submission_aliases:
+                for agent in self._status.agents:
+                    sub_str = str(agent.submission_id)
+                    if sub_str in config.submission_aliases:
+                        agent.alias = config.submission_aliases[sub_str] or None
+                    elif agent.submission_id in config.submission_aliases:
+                        agent.alias = config.submission_aliases[agent.submission_id] or None
             self._save_state()
         self._wake_event.set()
         return self.snapshot()
@@ -603,6 +615,7 @@ class SimulationMonitorManager:
                     agents_summary = [
                         {
                             "submission_id": a.submission_id,
+                            "alias": a.alias,
                             "description": a.description,
                             "public_score": a.public_score,
                             "score": a.score,
@@ -1040,8 +1053,25 @@ class SimulationMonitorManager:
                     score_after = round(score_after - (ep.score_delta or 0.0), 1)
                 rating_trajectory = list(reversed(reversed_points))
 
+            # 提取自定义别名或智能推导别名 (如 p32, p46)
+            sub_id_str = str(sub_id)
+            agent_alias: str | None = None
+            if config.submission_aliases and isinstance(config.submission_aliases, dict):
+                agent_alias = config.submission_aliases.get(sub_id_str) or config.submission_aliases.get(sub_id)
+            if not agent_alias:
+                if sub_id == 55565346:
+                    agent_alias = "p46"
+                elif sub_id == 55555162:
+                    agent_alias = "p31"
+                else:
+                    raw_desc = (sub.description or sub.file_name or "").strip()
+                    m = re.search(r"\b(p\d+(?:plus\d+)?)\b", raw_desc, re.IGNORECASE)
+                    if m:
+                        agent_alias = m.group(1)
+
             agent_stat = SimulationAgentStats(
                 submission_id=sub_id,
+                alias=agent_alias,
                 file_name=sub.file_name,
                 description=sub.description,
                 team_name=my_team_name,
@@ -1074,6 +1104,7 @@ class SimulationMonitorManager:
                 SimulationHistoryPoint(
                     timestamp=checked_time,
                     submission_id=sub_id,
+                    alias=agent_alias,
                     score=score,
                     rank=rank,
                     total_episodes=total,
@@ -1098,6 +1129,7 @@ class SimulationMonitorManager:
                     events_to_notify.append({
                         "type": "new_episodes",
                         "submission_id": sub_id,
+                        "alias": agent_alias,
                         "description": sub.description,
                         "new_matches": new_cnt,
                         "total_matches": total,
@@ -1118,6 +1150,7 @@ class SimulationMonitorManager:
                     events_to_notify.append({
                         "type": "medal_change",
                         "submission_id": sub_id,
+                        "alias": agent_alias,
                         "description": sub.description,
                         "previous_medal": prev_tier,
                         "current_medal": medal_tier,

@@ -30,6 +30,7 @@ import {
   ClockCircleOutlined,
   CloseCircleOutlined,
   CopyOutlined,
+  EditOutlined,
   ExclamationCircleOutlined,
   ExportOutlined,
   EyeOutlined,
@@ -40,6 +41,7 @@ import {
   RightOutlined,
   SaveOutlined,
   SettingOutlined,
+  TagOutlined,
   TrophyOutlined,
 } from '@ant-design/icons';
 import { Swords, Award, Flame, MessageCircle, Bot, Zap } from 'lucide-react';
@@ -61,6 +63,8 @@ const { Text, Title } = Typography;
 
 interface SimulationMonitorControlProps {
   currentCompetition?: string;
+  buttonText?: string;
+  buttonIcon?: React.ReactNode;
 }
 
 const formatDate = (value?: string) => {
@@ -135,6 +139,7 @@ const getMedalTag = (tier?: string) => {
 };
 
 const getShortAgentName = (agent: SimulationAgentStats, defaultIdx: number) => {
+  if (agent.alias && agent.alias.trim()) return agent.alias.trim();
   if (agent.submission_id === 55565346) return 'p46';
   if (agent.submission_id === 55555162) return 'p31';
   const raw = (agent.description || agent.file_name || '').trim();
@@ -160,6 +165,8 @@ const getShortAgentName = (agent: SimulationAgentStats, defaultIdx: number) => {
 
 export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> = ({
   currentCompetition,
+  buttonText,
+  buttonIcon,
 }) => {
   const { message } = AntApp.useApp();
   const [open, setOpen] = useState(false);
@@ -189,6 +196,46 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [episodeLoading, setEpisodeLoading] = useState<Record<number, boolean>>({});
   const episodeRequestedTotals = useRef<Record<number, number>>({});
   const [form] = Form.useForm<SimulationMonitorConfig>();
+  const watchedTargetIds = Form.useWatch('target_submission_ids', form) || [];
+  const [submissionAliases, setSubmissionAliases] = useState<Record<string, string>>({});
+
+  // Quick edit alias modal state
+  const [aliasModalOpen, setAliasModalOpen] = useState(false);
+  const [editingSubId, setEditingSubId] = useState<number | null>(null);
+  const [editingAliasValue, setEditingAliasValue] = useState('');
+  const [savingAlias, setSavingAlias] = useState(false);
+
+  const openEditAliasModal = (subId: number, currentAlias: string) => {
+    setEditingSubId(subId);
+    setEditingAliasValue(submissionAliases[String(subId)] || currentAlias || '');
+    setAliasModalOpen(true);
+  };
+
+  const handleSaveAlias = async () => {
+    if (!editingSubId) return;
+    setSavingAlias(true);
+    try {
+      const nextAliases = {
+        ...submissionAliases,
+        [String(editingSubId)]: editingAliasValue.trim(),
+      };
+      setSubmissionAliases(nextAliases);
+      if (snapshot?.config) {
+        const updated = await api.updateSimulationMonitor({
+          ...snapshot.config,
+          submission_aliases: nextAliases,
+        });
+        setSnapshot(updated);
+        message.success(`已更新 Agent #${editingSubId} 别名为「${editingAliasValue.trim() || '默认'}」`);
+      }
+      setAliasModalOpen(false);
+    } catch (err: any) {
+      message.error(`保存别名失败: ${err.message}`);
+    } finally {
+      if (isMounted.current) setSavingAlias(false);
+    }
+  };
+
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -272,6 +319,10 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         const compToUse = currentCompetition || activeComp;
         const isCurrent = (activeComp === compToUse);
 
+        if (data.config.submission_aliases) {
+          setSubmissionAliases(data.config.submission_aliases);
+        }
+
         form.setFieldsValue({
           enabled: isCurrent ? data.config.enabled : false,
           competition: compToUse,
@@ -303,7 +354,6 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   }, [fetchSnapshot]);
 
   const handleOpen = () => {
-    episodeRequestedTotals.current = {};
     setOpen(true);
     fetchSnapshot(true);
     void fetchAvailableSubmissions(targetCompetition);
@@ -329,6 +379,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         ...values,
         notify_on_new_episodes: values.notify_on_new_matches,
         target_submission_ids: (values.target_submission_ids || []).map((v: any) => Number(v)),
+        submission_aliases: submissionAliases,
       });
       setSnapshot(updated);
       setSettingsOpen(false);
@@ -638,11 +689,12 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       <Tooltip title={`${targetCompTitle} 对战天梯与智能体监控`} open={open ? false : undefined}>
         <Button
           type="default"
-          icon={<Swords size={15} className="text-amber-500" strokeWidth={2} />}
+          size={buttonText ? 'small' : undefined}
+          icon={buttonIcon || <Swords size={15} className="text-amber-500" strokeWidth={2} />}
           onClick={handleOpen}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 500 }}
         >
-          <span>对战监控</span>
+          <span>{buttonText || '对战监控'}</span>
         </Button>
       </Tooltip>
 
@@ -677,7 +729,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       borderRadius: '50%',
                       background: isTargetCompActive
                         ? (isMonitoringActive ? '#10b981' : '#94a3b8')
-                        : '#3b82f6',
+                        : (isMonitoringActive ? '#f59e0b' : '#94a3b8'),
                       boxShadow: isTargetCompActive && isMonitoringActive
                         ? '0 0 0 3px rgba(16, 185, 129, 0.2)'
                         : 'none',
@@ -690,7 +742,9 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                           ? '正在执行检查中...'
                           : `后台调度监控中 (${snapshot?.config?.interval_minutes || 10} 分钟/次)`
                         : '后台监控已暂停 (定时关闭)'
-                      : `【${targetCompTitle}】待命备战态 (未开启定时巡检)`}
+                      : isMonitoringActive
+                        ? `后台正监控其他赛事 (${snapshot?.config?.competition})`
+                        : `【${targetCompTitle}】待命备战态 (后台巡检未开启)`}
                   </Text>
                 </div>
 
@@ -726,16 +780,20 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                       </Text>
                     )}
                   </>
+                ) : isMonitoringActive ? (
+                  <Tag color="orange" style={{ margin: 0 }}>
+                    后台正在监控: {snapshot?.config?.competition}
+                  </Tag>
                 ) : (
                   <Tag color="default" style={{ margin: 0 }}>
-                    后台服务源: {snapshot?.config?.competition || 'pokemon-tcg-ai-battle'}
+                    后台巡检: 未开启
                   </Tag>
                 )}
               </div>
 
               <Space size={8}>
                 <Button
-                  type={!isTargetCompActive ? 'primary' : 'default'}
+                  type={!isTargetCompActive || !isMonitoringActive ? 'primary' : 'default'}
                   size="small"
                   icon={<SettingOutlined />}
                   onClick={() => {
@@ -743,7 +801,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                     setSettingsOpen(true);
                   }}
                 >
-                  {!isTargetCompActive ? '配置并开启监控' : '监控配置'}
+                  {!isTargetCompActive || !isMonitoringActive ? '配置并开启监控' : '监控配置'}
                 </Button>
                 <Button
                   size="small"
@@ -803,8 +861,15 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                         </span>
                       </div>
                       <Text type="secondary" style={{ fontSize: 13 }}>
-                        当前后台巡检未指向此赛事（处于待命状态）。已为您拉取到该赛事的 <strong>{availableSubmissions.length}</strong> 个历史提交记录。
-                        您可以随时勾选智能体并开启自动化巡检，或待比赛最终提交封线后再启动。
+                        {isMonitoringActive ? (
+                          <>
+                            后台定时巡检当前正在监控其他赛事（<code>{snapshot?.config?.competition}</code>）。已为您拉取到当前赛事的 <strong>{availableSubmissions.length}</strong> 个历史提交记录。您可以随时配置并切换为此赛事的自动化巡检。
+                          </>
+                        ) : (
+                          <>
+                            当前后台未开启任何赛事的定时巡检（处于待命状态）。已为您拉取到该赛事的 <strong>{availableSubmissions.length}</strong> 个历史提交记录，您可以随时勾选智能体并开启自动化巡检。
+                          </>
+                        )}
                       </Text>
                     </div>
 
@@ -961,6 +1026,16 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                                     <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
                                       {shortName}
                                     </span>
+                                    <Tooltip title={`修改自定义别名（如 p32, p46，当前：${shortName}）`}>
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<EditOutlined style={{ color: '#64748b', fontSize: 13 }} />}
+                                        onClick={() => openEditAliasModal(agent.submission_id, shortName)}
+                                        style={{ width: 22, height: 22, padding: 0 }}
+                                        aria-label="修改别名"
+                                      />
+                                    </Tooltip>
                                     {(agent.description || agent.file_name) && (
                                       <Tooltip title={agent.description || agent.file_name}>
                                         <InfoCircleOutlined style={{ color: '#94a3b8', fontSize: 13, cursor: 'pointer' }} />
@@ -1071,6 +1146,9 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                               {/* Card Footer Meta */}
                               <div className="sim-footer-meta">
                                 <span>提交 ID: <code style={{ fontFamily: 'monospace', color: '#475569', fontWeight: 600 }}>#{agent.submission_id}</code></span>
+                                {agent.alias && (
+                                  <span>别名: <strong style={{ color: '#0284c7' }}>{agent.alias}</strong></span>
+                                )}
                                 <span>队伍: <strong style={{ color: '#1e293b' }}>{agent.team_name || '我方团队'}</strong></span>
                               </div>
                             </Card>
@@ -1185,6 +1263,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         placement="right"
         width="min(420px, 100vw)"
         open={settingsOpen}
+        zIndex={1200}
         forceRender
         onClose={() => setSettingsOpen(false)}
         extra={
@@ -1308,6 +1387,73 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             </Button>
           </div>
 
+          {/* Agent 自定义别名配置区 */}
+          {watchedTargetIds && watchedTargetIds.length > 0 && (
+            <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <TagOutlined style={{ color: '#2563eb' }} />
+                <span>Agent 自定义别名 / 代号 (如 p32, p46)</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+                为选中的提交设置容易辨识的代号，将同步应用于天梯卡片、折线走势图及微信机器人战报：
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {watchedTargetIds.map((idVal: any, idx: number) => {
+                  const subId = Number(idVal);
+                  const subObj = availableSubmissions.find((s) => s.submission_id === subId);
+                  const defaultLabel = subObj ? (subObj.description || subObj.file_name) : '';
+                  const idStr = String(subId);
+                  const currentAlias = submissionAliases[idStr] || '';
+
+                  return (
+                    <div
+                      key={idStr}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        background: '#ffffff',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>#{subId}</Tag>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: '#334155',
+                              fontWeight: 600,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={defaultLabel || `Agent ${idx + 1}`}
+                          >
+                            {defaultLabel || `Agent ${idx + 1}`}
+                          </span>
+                        </div>
+                      </div>
+                      <Input
+                        size="small"
+                        placeholder="别名 (如 p46)"
+                        value={currentAlias}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setSubmissionAliases((prev) => ({ ...prev, [idStr]: val }));
+                        }}
+                        style={{ width: 120 }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div style={{ paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
             <Form.Item
               name="notify_on_new_matches"
@@ -1334,6 +1480,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         open={historyOpen}
         onCancel={() => setHistoryOpen(false)}
         width={720}
+        zIndex={1100}
         footer={null}
       >
         <List
@@ -1398,6 +1545,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
           setLogDetail(null);
         }}
         width={1000}
+        zIndex={1150}
         footer={null}
         destroyOnClose
       >
@@ -1473,6 +1621,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         open={clawbotOpen}
         onCancel={() => setClawbotOpen(false)}
         width={560}
+        zIndex={1100}
         footer={[
           <Button
             key="test"
@@ -1577,6 +1726,63 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 <Text style={{ fontSize: 13 }}>触发后端立刻向 Kaggle 同步一次最新对局数据</Text>
               </Space>
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Quick Edit Agent Alias Modal */}
+      <Modal
+        title={(
+          <DialogTitle onClose={() => setAliasModalOpen(false)}>
+            <Space size={8} align="center">
+              <TagOutlined style={{ color: '#2563eb' }} />
+              <span style={{ fontWeight: 600, fontSize: 16 }}>设置 Agent 自定义别名</span>
+            </Space>
+          </DialogTitle>
+        )}
+        open={aliasModalOpen}
+        onCancel={() => setAliasModalOpen(false)}
+        width={420}
+        zIndex={1250}
+        footer={[
+          <Button key="cancel" onClick={() => setAliasModalOpen(false)}>
+            取消
+          </Button>,
+          <Button
+            key="submit"
+            type="primary"
+            loading={savingAlias}
+            onClick={handleSaveAlias}
+          >
+            保存别名
+          </Button>,
+        ]}
+      >
+        <div style={{ paddingTop: 10 }}>
+          <div style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>
+            为提交 <code>#{editingSubId}</code> 赋予专属代号（如 <code>p32</code>、<code>p46</code>、<code>主力模型</code> 等），将立即同步至全景天梯卡片、折线走势图与微信机器人战报：
+          </div>
+          <Input
+            size="large"
+            placeholder="例如: p32 / p46"
+            value={editingAliasValue}
+            onChange={(e) => setEditingAliasValue(e.target.value)}
+            onPressEnter={handleSaveAlias}
+            autoFocus
+          />
+          <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: '#94a3b8' }}>快捷建议：</span>
+            {['p32', 'p46', 'p31', 'Agent-A', '主力模型'].map((sug) => (
+              <Button
+                key={sug}
+                size="small"
+                type="dashed"
+                style={{ fontSize: 11 }}
+                onClick={() => setEditingAliasValue(sug)}
+              >
+                {sug}
+              </Button>
+            ))}
           </div>
         </div>
       </Modal>

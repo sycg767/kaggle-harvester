@@ -341,6 +341,25 @@ class TestSimulationMonitor(unittest.TestCase):
         png_bytes = render_trajectory_chart(snapshot)
         self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
 
+    def test_custom_submission_aliases(self) -> None:
+        manager = SimulationMonitorManager(
+            kaggle_client=self.client,  # type: ignore[arg-type]
+            harvest_root=self.root,
+            default_competition="pokemon-tcg-ai-battle",
+        )
+        config = SimulationMonitorConfig(
+            enabled=True,
+            competition="pokemon-tcg-ai-battle",
+            submission_aliases={
+                "55565346": "p32_challenger",
+                "55555162": "p46_final",
+            },
+        )
+        _, agents, _, _, _, _ = manager._run_once_sync(config)
+        self.assertEqual(len(agents), 2)
+        self.assertEqual(agents[0].alias, "p32_challenger")
+        self.assertEqual(agents[1].alias, "p46_final")
+
 
 if __name__ == "__main__":
     unittest.main()

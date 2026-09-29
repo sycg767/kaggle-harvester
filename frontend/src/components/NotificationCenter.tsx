@@ -234,7 +234,15 @@ const formatDate = (value?: string) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
 };
 
-export const NotificationCenter: React.FC = () => {
+interface NotificationCenterProps {
+  buttonText?: string;
+  buttonIcon?: React.ReactNode;
+}
+
+export const NotificationCenter: React.FC<NotificationCenterProps> = ({
+  buttonText,
+  buttonIcon,
+}) => {
   const { message } = AntApp.useApp();
   const [form] = Form.useForm<NotificationFormValues>();
   const [snapshot, setSnapshot] = useState<NotificationSnapshot | null>(null);
@@ -371,14 +379,15 @@ export const NotificationCenter: React.FC = () => {
   return (
     <>
       <Button
+        size={buttonText ? 'small' : undefined}
         className="notification-center-trigger"
-        icon={<Bell size={15} strokeWidth={1.9} />}
-        aria-label="通知中心"
+        icon={buttonIcon || <Bell size={15} strokeWidth={1.9} />}
+        aria-label={buttonText || '通知中心'}
         onClick={() => void showSettings()}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 500 }}
       >
-        <span>通知中心</span>
-        {activeChannelsCount > 0 && (
+        <span>{buttonText || '通知中心'}</span>
+        {activeChannelsCount > 0 && !buttonText && (
           <Badge count={`${activeChannelsCount} 通道`} style={{ backgroundColor: '#10b981', fontSize: 11 }} />
         )}
       </Button>

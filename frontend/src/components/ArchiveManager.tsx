@@ -23,6 +23,7 @@ import {
   type TableColumnsType,
 } from 'antd';
 import {
+  CodeOutlined,
   DeleteOutlined,
   DatabaseOutlined,
   DownloadOutlined,
@@ -153,6 +154,7 @@ const ArchiveManager: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [competitionFilter, setCompetitionFilter] = useState('all');
+  const [scoredOnly, setScoredOnly] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [mobilePage, setMobilePage] = useState(1);
 
@@ -189,15 +191,16 @@ const ArchiveManager: React.FC = () => {
     const query = searchText.trim().toLowerCase();
     return archives.filter((archive) => {
       if (competitionFilter !== 'all' && archive.competition !== competitionFilter) return false;
+      if (scoredOnly && (archive.public_score === undefined || archive.public_score === null)) return false;
       if (!query) return true;
       return [archive.ref, archive.title, archive.author, archive.path, archive.competition || '']
         .some((value) => value.toLowerCase().includes(query));
     });
-  }, [archives, competitionFilter, searchText]);
+  }, [archives, competitionFilter, scoredOnly, searchText]);
 
   useEffect(() => {
     setMobilePage(1);
-  }, [archives, competitionFilter, searchText]);
+  }, [archives, competitionFilter, scoredOnly, searchText]);
 
   const mobileArchives = useMemo(
     () => displayArchives.slice((mobilePage - 1) * MOBILE_PAGE_SIZE, mobilePage * MOBILE_PAGE_SIZE),
@@ -254,8 +257,18 @@ const ArchiveManager: React.FC = () => {
   const openFolder = async (archive: ArchiveEntry) => {
     try {
       await api.openArchiveFolder(archive.id);
+      message.success('已请求在文件资源管理器中打开目录');
     } catch (err) {
       message.error(err instanceof Error ? err.message : '无法打开归档目录。');
+    }
+  };
+
+  const openVsCode = async (archive: ArchiveEntry) => {
+    try {
+      await api.openArchiveInCode(archive.id);
+      message.success('已请求在 VS Code 中打开归档文件');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '无法在 VS Code 中打开，请确认已安装 VS Code。');
     }
   };
 
@@ -328,7 +341,10 @@ const ArchiveManager: React.FC = () => {
           >
             {record.title || record.ref}
           </a>
-          <span className="kernel-ref">{record.ref}</span>
+          <span className="kernel-ref-line">
+            <span className="kernel-ref">{record.ref}</span>
+            <CopyButton value={record.ref} label="复制 Kernel ref" />
+          </span>
         </div>
       ),
       sorter: (a, b) => (a.title || a.ref).localeCompare(b.title || b.ref),
@@ -396,9 +412,12 @@ const ArchiveManager: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 140,
+      width: 175,
       render: (_, record) => (
         <div className="table-actions">
+          <Tooltip title="在 VS Code 中打开">
+            <Button icon={<CodeOutlined />} aria-label={`用 VS Code 打开 ${record.ref}`} onClick={() => openVsCode(record)} />
+          </Tooltip>
           <Tooltip title="查看详情">
             <Button icon={<EyeOutlined />} aria-label={`查看 ${record.ref}`} onClick={() => showDetail(record)} />
           </Tooltip>
@@ -465,6 +484,38 @@ const ArchiveManager: React.FC = () => {
             <Text type="secondary">当前显示 {displayArchives.length} 条</Text>
           </Col>
         </Row>
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <Space wrap size={6}>
+            <Button
+              size="small"
+              type={!scoredOnly && competitionFilter === 'all' ? 'primary' : 'default'}
+              onClick={() => { setScoredOnly(false); setCompetitionFilter('all'); }}
+              style={{ borderRadius: 12, fontSize: 11 }}
+            >
+              全部 ({archives.length})
+            </Button>
+            <Button
+              size="small"
+              type={scoredOnly ? 'primary' : 'default'}
+              onClick={() => setScoredOnly((curr) => !curr)}
+              style={{ borderRadius: 12, fontSize: 11 }}
+            >
+              🔥 仅看有分 ({archives.filter((a) => a.public_score !== undefined && a.public_score !== null).length})
+            </Button>
+            {competitions.slice(0, 4).map((comp) => (
+              <Button
+                key={comp}
+                size="small"
+                type={competitionFilter === comp ? 'primary' : 'default'}
+                onClick={() => setCompetitionFilter(comp === competitionFilter ? 'all' : comp)}
+                style={{ borderRadius: 12, fontSize: 11 }}
+              >
+                🏆 {comp}
+              </Button>
+            ))}
+          </Space>
+          <Text type="secondary" style={{ fontSize: 12 }}>匹配 {displayArchives.length}/{archives.length} 条</Text>
+        </div>
       </Card>
 
       {error && (
@@ -478,12 +529,40 @@ const ArchiveManager: React.FC = () => {
       )}
 
       {!!selectedRowKeys.length && (
-        <Alert
-          type="info"
-          showIcon
-          message={`已选择 ${selectedRowKeys.length} 个归档版本`}
-          action={<Space><Button size="small" onClick={() => setSelectedRowKeys([])}>取消</Button><Button size="small" danger icon={<DeleteOutlined />} onClick={() => deleteArchives(selectedArchives)}>批量删除</Button></Space>}
-        />
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 28,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            background: '#ffffff',
+            boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
+            border: '1px solid #d9d9d9',
+            borderRadius: 24,
+            padding: '8px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+          }}
+        >
+          <Text strong>
+            已选择 <span style={{ color: '#1677ff' }}>{selectedRowKeys.length}</span> 个归档版本
+          </Text>
+          <Space>
+            <Button size="small" onClick={() => setSelectedRowKeys([])}>
+              取消选择
+            </Button>
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => deleteArchives(selectedArchives)}
+            >
+              批量删除
+            </Button>
+          </Space>
+        </div>
       )}
 
       <Card className="data-panel desktop-data-table" styles={{ body: { padding: 0 } }}>
@@ -552,6 +631,9 @@ const ArchiveManager: React.FC = () => {
               </div>
               <div className="mobile-data-card-actions">
                 <Button icon={<EyeOutlined />} onClick={() => showDetail(archive)}>详情</Button>
+                <Tooltip title="在 VS Code 中打开">
+                  <Button icon={<CodeOutlined />} aria-label="在 VS Code 中打开" onClick={() => openVsCode(archive)} />
+                </Tooltip>
                 <Tooltip title="打开归档目录">
                   <Button icon={<FolderOpenOutlined />} aria-label="打开归档目录" onClick={() => openFolder(archive)} />
                 </Tooltip>
@@ -596,6 +678,7 @@ const ArchiveManager: React.FC = () => {
           <Space>
             {detailArchive && (
               <>
+                <Button icon={<CodeOutlined />} onClick={() => openVsCode(detailArchive)}>在 VS Code 中打开</Button>
                 <Button icon={<FolderOpenOutlined />} onClick={() => openFolder(detailArchive)}>打开目录</Button>
                 <Button icon={<DownloadOutlined />} onClick={() => downloadSource(detailArchive)}>下载源文件</Button>
               </>

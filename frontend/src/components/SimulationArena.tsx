@@ -20,7 +20,6 @@ import {
   Bot,
   RefreshCw,
   Smartphone,
-  ExternalLink,
   Clock,
   Users,
   Award,
@@ -41,6 +40,7 @@ import {
 } from '../api';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import { competitionDisplayName } from '../competitionOptions';
+import { HARVESTER_EVENTS, dispatchCompetitionChanged } from '../events';
 import SimulationMonitorControl from './SimulationMonitorControl';
 import ScoreTrajectoryChart from './ScoreTrajectoryChart';
 
@@ -80,8 +80,21 @@ export const SimulationArena: React.FC = () => {
   const [compInfo, setCompInfo] = useState<CompetitionInfo | null>(null);
   const [testingClawbot, setTestingClawbot] = useState(false);
   const [selectedCompetition, setSelectedCompetition] = useState<string>(() => {
-    return localStorage.getItem('harvester.arenaCompetition') || 'pokemon-tcg-ai-battle';
+    return localStorage.getItem('harvester.competition') || localStorage.getItem('harvester.arenaCompetition') || 'pokemon-tcg-ai-battle';
   });
+
+  useEffect(() => {
+    const handleCompChange = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      const slug = customEvent.detail;
+      if (slug && slug !== selectedCompetition) {
+        setSelectedCompetition(slug);
+        void api.getCompetition(slug).then(setCompInfo).catch(() => setCompInfo(null));
+      }
+    };
+    window.addEventListener(HARVESTER_EVENTS.competitionChanged, handleCompChange);
+    return () => window.removeEventListener(HARVESTER_EVENTS.competitionChanged, handleCompChange);
+  }, [selectedCompetition]);
 
   const handleTestClawbot = async () => {
     setTestingClawbot(true);
@@ -135,7 +148,9 @@ export const SimulationArena: React.FC = () => {
 
   const handleCompetitionChange = (comp: string) => {
     setSelectedCompetition(comp);
+    localStorage.setItem('harvester.competition', comp);
     localStorage.setItem('harvester.arenaCompetition', comp);
+    dispatchCompetitionChanged(comp);
     void api.getCompetition(comp).then(setCompInfo).catch(() => setCompInfo(null));
   };
 
@@ -227,10 +242,6 @@ export const SimulationArena: React.FC = () => {
     : '—';
 
   const getAgentMeta = (agent: SimulationAgentStats, index: number) => {
-    if (agent.submission_id === 55565346) return { name: 'Agent p46', tagColor: 'green', borderColor: '#bbf7d0', bg: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)' };
-    if (agent.submission_id === 55555162) return { name: 'Agent p31', tagColor: 'purple', borderColor: '#e9d5ff', bg: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)' };
-    const raw = (agent.description || agent.file_name || '').trim();
-    const match = raw.match(/^(p\d+(?:plus\d+)?|p\d+|agent[\s\-_]?\w+)/i);
     const themes = [
       { tagColor: 'green', borderColor: '#bbf7d0', bg: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)' },
       { tagColor: 'purple', borderColor: '#e9d5ff', bg: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)' },
@@ -238,10 +249,23 @@ export const SimulationArena: React.FC = () => {
       { tagColor: 'orange', borderColor: '#fed7aa', bg: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)' },
     ];
     const theme = themes[index % themes.length];
-    if (match) {
-      return { name: match[1].replace(/[:_\-—]+$/, ''), ...theme };
+
+    const customAlias = agent.alias?.trim();
+    if (customAlias) {
+      const displayName = customAlias.toLowerCase().startsWith('agent') ? customAlias : `Agent ${customAlias}`;
+      return { name: displayName, shortName: customAlias, ...theme };
     }
-    return { name: `Agent #${index + 1}`, ...theme };
+
+    if (agent.submission_id === 55565346) return { name: 'Agent p46', shortName: 'p46', tagColor: 'green', borderColor: '#bbf7d0', bg: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)' };
+    if (agent.submission_id === 55555162) return { name: 'Agent p31', shortName: 'p31', tagColor: 'purple', borderColor: '#e9d5ff', bg: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)' };
+    const raw = (agent.description || agent.file_name || '').trim();
+    const match = raw.match(/^(p\d+(?:plus\d+)?|p\d+|agent[\s\-_]?\w+)/i);
+    if (match) {
+      const clean = match[1].replace(/[:_\-—]+$/, '');
+      const displayName = clean.toLowerCase().startsWith('agent') ? clean : `Agent ${clean}`;
+      return { name: displayName, shortName: clean, ...theme };
+    }
+    return { name: `Agent #${index + 1}`, shortName: `Agent #${index + 1}`, ...theme };
   };
 
   const bestAgent = agents.reduce<SimulationAgentStats | null>((best, cur) => {
@@ -869,9 +893,6 @@ export const SimulationArena: React.FC = () => {
                   </div>
                 </Space>
 
-                <Space size={8}>
-                  <SimulationMonitorControl currentCompetition={selectedCompetition} />
-                </Space>
               </div>
 
               {/* Competition Metadata Quick Cards */}
@@ -931,35 +952,16 @@ export const SimulationArena: React.FC = () => {
                 </div>
                 <Paragraph style={{ fontSize: 13, color: '#15803d', lineHeight: 1.6, marginBottom: 12 }}>
                   您已将 <strong>{currentTitle}</strong> 选为主视角。按照您的规划，当前阶段不主动拉取天梯流水以节约 API 配额；
-                  <strong>等最后提交完全结束时</strong>，您只需点击下方按钮，输入您的 Agent Submission ID，系统将立即开始追踪 ELO 积分、战力安全垫并生成全赛程复盘走势。
+                  <strong>等最后提交完全结束时</strong>，您只需点击右上角<strong>「对战监控」</strong>按钮输入您的 Agent Submission ID，系统将立即开始追踪 ELO 积分、战力安全垫并生成全赛程复盘走势。
                 </Paragraph>
 
                 <Space size={10} wrap>
-                  <SimulationMonitorControl currentCompetition={selectedCompetition} />
                   <Button
-                    type="default"
-                    icon={<ExternalLink size={14} />}
-                    href={`https://www.kaggle.com/competitions/${selectedCompetition}/submissions`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    查看我的提交记录 (已提交 Agent)
-                  </Button>
-                  <Button
-                    type="default"
+                    type="primary"
                     icon={<LayoutDashboard size={14} />}
                     onClick={() => navigate(`/kernels`)}
                   >
                     前往 Kernel 广场探索该赛事代码
-                  </Button>
-                  <Button
-                    type="link"
-                    icon={<ExternalLink size={14} />}
-                    href={`https://www.kaggle.com/competitions/${selectedCompetition}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    在 Kaggle 查看竞赛主页
                   </Button>
                 </Space>
               </div>

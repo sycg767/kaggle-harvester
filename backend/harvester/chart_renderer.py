@@ -20,6 +20,8 @@ COLORS = ["#d14343", "#3478c5", "#8b5cf6", "#0f9d75", "#d97706"]
 
 
 def _label_for_agent(agent_data, index):
+    if agent_data.get("alias"):
+        return str(agent_data["alias"])
     sub_id = int(str(agent_data.get("submission_id") or 0))
     if sub_id == 55565346:
         return "p46"

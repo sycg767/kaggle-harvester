@@ -148,7 +148,7 @@ def format_message(data, history_only=False):
         lines = [f"📋 最近对局流水时间一览 (北京时间 {now_bj})", ""]
         for a in agents:
             sub_id = a.get("submission_id")
-            label = "p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"Agent #{sub_id}")
+            label = a.get("alias") or ("p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"Agent #{sub_id}"))
             eps = a.get("recent_episodes", [])[:15]
             lines.append(f"【{label}】最近 {len(eps)} 场对局 (最新在上):")
             for ep in eps:
@@ -166,7 +166,7 @@ def format_message(data, history_only=False):
 
     for idx, a in enumerate(agents):
         sub_id = a.get("submission_id")
-        label = "p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"Agent #{sub_id}")
+        label = a.get("alias") or ("p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"Agent #{sub_id}"))
         score = a.get("score") or a.get("public_score") or 0.0
         rank = a.get("rank") or "—"
         tier = a.get("medal_tier", "none")

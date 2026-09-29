@@ -49,6 +49,7 @@ const formatTime = (value?: string) => {
 };
 
 const labelForAgent = (agent: SimulationAgentStats, index: number) => {
+  if (agent.alias && agent.alias.trim()) return agent.alias.trim();
   if (agent.submission_id === 55565346) return 'p46';
   if (agent.submission_id === 55555162) return 'p31';
   const raw = (agent.description || agent.file_name || '').trim();

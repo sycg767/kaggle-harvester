@@ -301,6 +301,39 @@ class PersistentCacheTests(unittest.TestCase):
             cached = PersistentCompetitionCache(temp_dir).get("example")
             self.assertEqual(cached, info)
 
+    def test_competition_snapshot_ttl_expiration_and_stale_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            info = CompetitionInfo(
+                id="example",
+                title="Example Competition",
+                category="featured",
+                is_lower_better=True,
+            )
+            cache = PersistentCompetitionCache(temp_dir)
+            cache.set("example", info)
+            # 立即读取命中
+            self.assertEqual(cache.get("example", max_age_seconds=10), info)
+            # max_age_seconds = 0 即视为过期
+            time.sleep(0.01)
+            self.assertIsNone(cache.get("example", max_age_seconds=0))
+            # 允许 stale 则仍可读出
+            self.assertEqual(cache.get("example", max_age_seconds=0, allow_stale=True), info)
+
+    def test_entered_competitions_ttl_expiration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            item = EnteredCompetition(
+                id="c1",
+                title="C1",
+                category="featured",
+                team_count=100,
+            )
+            cache = PersistentEnteredCompetitionsCache(temp_dir)
+            cache.set([item])
+            self.assertEqual(cache.get(max_age_seconds=10), [item])
+            time.sleep(0.01)
+            self.assertIsNone(cache.get(max_age_seconds=0))
+            self.assertEqual(cache.get(max_age_seconds=0, allow_stale=True), [item])
+
 
 class StaleWhileRevalidateTests(unittest.IsolatedAsyncioTestCase):
     async def test_stale_snapshot_returns_before_background_refresh_finishes(self) -> None:
