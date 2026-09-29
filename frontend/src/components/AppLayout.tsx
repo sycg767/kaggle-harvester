@@ -1,118 +1,37 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Alert,
   App as AntApp,
-  AutoComplete,
   Badge,
   Button,
-  Checkbox,
-  Descriptions,
-  Drawer,
-  Input,
-  Modal,
-  Progress,
-  Space,
   Spin,
-  Tag,
   Tooltip,
   Typography,
 } from 'antd';
 import {
   Archive,
   Activity,
-  ChevronLeft,
-  Clipboard,
   Database,
   LayoutDashboard,
-  LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
-  Search,
-  Star,
   Swords,
   Trophy,
 } from 'lucide-react';
 import { api, apiAuth, type ArchiveStats, type CompetitionInfo, type EnteredCompetition, type HealthStatus } from '../api';
 import { dispatchCompetitionChanged, HARVESTER_EVENTS } from '../events';
-import { buildEnteredCompetitionOptions } from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
-import DialogTitle from './DialogTitle';
 import kaggleLogo from '../assets/kaggle-logo.svg';
-
-const { Text, Paragraph } = Typography;
-
-interface NavItem {
-  key: 'dashboard' | 'arena' | 'kernels' | 'archives';
-  label: string;
-  icon: React.ReactNode;
-  badge?: number;
-}
-
-const formatDate = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
-};
-
-const formatBytes = (value = 0) => {
-  if (value < 1024) return `${value} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let size = value / 1024;
-  let unit = units[0];
-  for (let index = 1; index < units.length && size >= 1024; index += 1) {
-    size /= 1024;
-    unit = units[index];
-  }
-  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
-};
-
-const redactDiagnostic = (value: string) =>
-  value
-    .replace(/https?:\/\/\S+/gi, '[URL 已隐藏]')
-    .replace(/(token|password|secret|key)\s*[=:]\s*\S+/gi, '$1=[已隐藏]');
-
-const copyDiagnostics = async (health: HealthStatus | null) => {
-  const report = health
-    ? {
-        service: health.service,
-        version: health.version,
-        ready: health.ready,
-        kaggle_cli: health.kaggle_cli,
-        utf8_wrapper_exists: health.utf8_wrapper_exists,
-        token_configured: health.token_configured,
-        auto_archive: {
-          running: health.auto_archive.running,
-          scheduler_alive: health.auto_archive.scheduler_alive,
-          last_error: health.auto_archive.last_error
-            ? redactDiagnostic(health.auto_archive.last_error)
-            : null,
-        },
-        submission_monitor: health.submission_monitor
-          ? {
-              running: health.submission_monitor.running,
-              scheduler_alive: health.submission_monitor.scheduler_alive,
-              last_error: health.submission_monitor.last_error
-                ? redactDiagnostic(health.submission_monitor.last_error)
-                : null,
-            }
-          : null,
-        notifications: health.notifications
-          ? {
-              worker_alive: health.notifications.worker_alive,
-              pending_count: health.notifications.pending_count,
-              last_error: health.notifications.last_error
-                ? redactDiagnostic(health.notifications.last_error)
-                : null,
-            }
-          : null,
-        archive: health.archive,
-      }
-    : { service: 'unavailable' };
-  await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-};
+import {
+  type NavItem,
+  formatBytes,
+  RuntimeDiagnosticsDrawer,
+  GlobalCompetitionSwitcherModal,
+  ApiKeyAuthModal,
+  MobileNavDrawer,
+} from './layout';
 
 const AppLayout: React.FC = () => {
   const { message } = AntApp.useApp();
@@ -134,7 +53,6 @@ const AppLayout: React.FC = () => {
   );
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
-  const [switcherSearch, setSwitcherSearch] = useState('');
   const shortcutLabel = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
 
   const loadData = useCallback(async () => {
@@ -263,7 +181,6 @@ const AppLayout: React.FC = () => {
       }
     }).catch(() => null);
     setSwitcherOpen(false);
-    setSwitcherSearch('');
     if (navigateToKernels) {
       navigate('/kernels');
     }
@@ -508,216 +425,39 @@ const AppLayout: React.FC = () => {
         </main>
       </div>
 
-      <Drawer
-        title="功能导航"
-        placement="left"
+      <MobileNavDrawer
         open={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
-        width={280}
-      >
-        {renderNavigation(true)}
-        <div style={{ marginTop: 24 }}>{renderArchiveSummary()}</div>
-      </Drawer>
+        renderNavigation={() => renderNavigation(true)}
+        renderArchiveSummary={renderArchiveSummary}
+      />
 
-      <Drawer
-        title="运行概况与系统诊断"
-        placement="right"
+      <RuntimeDiagnosticsDrawer
         open={runtimeOpen}
+        health={health}
         onClose={() => setRuntimeOpen(false)}
-        width={480}
-        extra={
-          <Button
-            type="text"
-            icon={<Clipboard size={16} />}
-            onClick={() => {
-              void copyDiagnostics(health);
-              message.success('已复制诊断报告到剪贴板');
-            }}
-          >
-            复制报告
-          </Button>
-        }
-      >
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Descriptions title="服务健康度" bordered size="small" column={1}>
-            <Descriptions.Item label="服务名称">{health?.service || '—'}</Descriptions.Item>
-            <Descriptions.Item label="系统版本">{health?.version || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Kaggle CLI">
-              <Tag color={health?.kaggle_cli ? 'success' : 'error'}>
-                {health?.kaggle_cli ? '正常' : '未安装或异常'}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Kaggle 凭据">
-              <Tag color={health?.token_configured ? 'success' : 'error'}>
-                {health?.token_configured ? '已配置' : '未配置'}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="UTF-8 门禁">
-              <Tag color={health?.utf8_wrapper_exists ? 'success' : 'warning'}>
-                {health?.utf8_wrapper_exists ? '已就绪' : '缺失'}
-              </Tag>
-            </Descriptions.Item>
-          </Descriptions>
+        onForgetApiKey={forgetApiKey}
+      />
 
-          {health?.archive && (
-            <Descriptions title="本地存储概况" bordered size="small" column={1}>
-              <Descriptions.Item label="归档总版本数">
-                {health.archive.total_archives}
-              </Descriptions.Item>
-              <Descriptions.Item label="唯一 Kernel 数">
-                {health.archive.unique_kernels}
-              </Descriptions.Item>
-              <Descriptions.Item label="磁盘剩余可用">
-                <span style={{ color: health.archive.low_disk_space ? '#ef4444' : 'inherit', fontWeight: 600 }}>
-                  {formatBytes(health.archive.disk_free_bytes)}
-                </span>
-              </Descriptions.Item>
-            </Descriptions>
-          )}
-
-          {Boolean(apiAuth.getKey()) && (
-            <div style={{ paddingTop: 8 }}>
-              <Button danger icon={<LogOut size={16} />} onClick={forgetApiKey} block>
-                清除当前浏览器保存的 API 访问密钥
-              </Button>
-            </div>
-          )}
-        </Space>
-      </Drawer>
-
-      {/* Mobile Navigation Drawer */}
-      <Drawer
-        title={(
-          <Space align="center" size={8}>
-            <span className="newapi-brand-mark" style={{ width: 36, height: 16 }}>
-              <img src={kaggleLogo} alt="Kaggle" style={{ width: 36, height: 14 }} />
-            </span>
-            <span style={{ fontWeight: 800, fontSize: 15 }}>Harvester 导航</span>
-          </Space>
-        )}
-        placement="left"
-        width={270}
-        open={mobileNavOpen}
-        onClose={() => setMobileNavOpen(false)}
-        styles={{ body: { padding: '8px 6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' } }}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ flex: 1 }}>
-            {renderNavigation(true)}
-          </div>
-          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 12 }}>
-            {renderArchiveSummary()}
-          </div>
-        </div>
-      </Drawer>
-
-      {/* Global Competition Switcher Modal */}
-      <Modal
-        title={(
-          <DialogTitle onClose={() => setSwitcherOpen(false)}>
-            <Space size={8} align="center">
-              <Trophy size={18} color="#1677ff" />
-              <span style={{ fontWeight: 600, fontSize: 16 }}>切换主工作区竞赛 (Command Palette)</span>
-            </Space>
-          </DialogTitle>
-        )}
+      <GlobalCompetitionSwitcherModal
         open={switcherOpen}
-        onCancel={() => setSwitcherOpen(false)}
-        footer={null}
-        width={620}
-        destroyOnClose
-        zIndex={1250}
-      >
-        <div style={{ paddingTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-            全局切换当前主工作区竞赛，工作台、开源代码广场、天梯对抗将同步联动：
-          </Text>
-          <AutoComplete
-            style={{ width: '100%' }}
-            size="large"
-            placeholder="搜索已参加竞赛，或直接输入 Kaggle 竞赛 slug 后回车..."
-            options={buildEnteredCompetitionOptions(
-              enteredCompetitions,
-              [
-                health?.active_competition?.competition,
-                health?.default_competition,
-                competitionInfo?.id,
-              ],
-              {
-                activeSlug: health?.active_competition?.competition,
-                currentSlug: competitionInfo?.id,
-              }
-            )}
-            filterOption={(inputValue, option) =>
-              (option?.label?.toString() || '').toLowerCase().includes(inputValue.toLowerCase()) ||
-              (option?.value?.toString() || '').toLowerCase().includes(inputValue.toLowerCase())
-            }
-            onSelect={(value) => handleSelectGlobalCompetition(String(value))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && switcherSearch.trim()) {
-                handleSelectGlobalCompetition(switcherSearch.trim());
-              }
-            }}
-            onChange={setSwitcherSearch}
-            autoFocus
-          />
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>快速切换竞赛：</div>
-            <Space wrap size={6}>
-              {enteredCompetitions.slice(0, 6).map((c) => (
-                <Button
-                  key={c.id}
-                  size="small"
-                  type={c.id === competitionInfo?.id ? 'primary' : 'default'}
-                  onClick={() => handleSelectGlobalCompetition(c.id)}
-                  style={{ borderRadius: 6, fontSize: 12 }}
-                >
-                  {c.title ? (c.title.length > 18 ? `${c.title.slice(0, 18)}…` : c.title) : c.id}
-                </Button>
-              ))}
-            </Space>
-          </div>
-          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <Button
-              icon={<Search size={14} />}
-              onClick={() => handleSelectGlobalCompetition(switcherSearch.trim() || competitionInfo?.id || '', true)}
-            >
-              前往该竞赛开源广场
-            </Button>
-            <Button
-              type="primary"
-              disabled={!switcherSearch.trim() && !competitionInfo?.id}
-              onClick={() => handleSelectGlobalCompetition(switcherSearch.trim() || competitionInfo?.id || '')}
-            >
-              确认切换
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        competitionInfo={competitionInfo}
+        enteredCompetitions={enteredCompetitions}
+        health={health}
+        onClose={() => setSwitcherOpen(false)}
+        onSelectCompetition={handleSelectGlobalCompetition}
+      />
 
-      <Modal
-        title="请输入 API 访问密钥"
+      <ApiKeyAuthModal
         open={authOpen}
-        onOk={submitApiKey}
+        apiKey={apiKey}
+        rememberApiKey={rememberApiKey}
+        authChecking={authChecking}
+        onApiKeyChange={setApiKey}
+        onRememberApiKeyChange={setRememberApiKey}
+        onSubmit={submitApiKey}
         onCancel={() => setAuthOpen(false)}
-        confirmLoading={authChecking}
-        okText="验证并保存"
-        cancelText="稍后"
-      >
-        <Paragraph type="secondary">
-          当前后端服务开启了安全访问鉴权，请输入您在环境配置中设置的 `HARVESTER_API_KEY`。
-        </Paragraph>
-        <Input.Password
-          placeholder="请输入 X-Harvester-Key"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          onPressEnter={submitApiKey}
-          style={{ marginBottom: 12 }}
-        />
-        <Checkbox checked={rememberApiKey} onChange={(e) => setRememberApiKey(e.target.checked)}>
-          在当前浏览器长期记住该访问密钥
-        </Checkbox>
-      </Modal>
+      />
     </div>
   );
 };
