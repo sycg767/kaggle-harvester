@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from ..models import EnteredCompetition
+from ..models import EnteredCompetition, get_default_competition
 from .queries import PersistentEnteredCompetitionsCache
 
 
@@ -132,4 +132,4 @@ def resolve_active_competition(
     if env_default and env_default.strip():
         return env_default.strip(), "env"
 
-    return "biohub-cell-tracking-during-development", "fallback"
+    return get_default_competition(), "fallback"

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .schemas import (
     COMPETITION_SLUG_PATTERN,
+    DEFAULT_FALLBACK_COMPETITION,
     ActiveCompetitionInfo,
     ArchiveEntry,
     ArchiveRequest,
@@ -62,6 +63,7 @@ from .schemas import (
     VersionInfo,
     VersionScoreList,
     _normalize_competition_slugs,
+    get_default_competition,
 )
 
 __all__ = [

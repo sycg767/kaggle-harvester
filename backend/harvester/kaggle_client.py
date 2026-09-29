@@ -20,6 +20,7 @@ from .cache import (
     PersistentSimulationEpisodeStore,
 )
 from .models import (
+    DEFAULT_FALLBACK_COMPETITION,
     CompetitionInfo,
     CompetitionSubmission,
     EnteredCompetition,
@@ -30,6 +31,7 @@ from .models import (
     SimulationMedalThresholds,
     VersionInfo,
     VersionScoreList,
+    get_default_competition,
 )
 
 
@@ -86,7 +88,7 @@ _detect_score_direction_from_leaderboard = detect_score_direction_from_leaderboa
 class KaggleClient:
     """Wrapper around the Kaggle CLI for kernel research."""
 
-    COMPETITION_SLUG = "rogii-wellbore-geology-prediction"
+    COMPETITION_SLUG = DEFAULT_FALLBACK_COMPETITION
 
     def __init__(
         self,
@@ -97,7 +99,11 @@ class KaggleClient:
         episode_store: Optional[PersistentSimulationEpisodeStore] = None,
     ) -> None:
         self._token = kaggle_token or os.environ.get("KAGGLE_API_TOKEN", "")
-        self.competition_slug = competition_slug or self.COMPETITION_SLUG
+        self.competition_slug = (
+            competition_slug
+            or os.environ.get("KAGGLE_COMPETITION", "").strip()
+            or get_default_competition()
+        )
         self._score_cache = score_cache
         self._metadata_cache = metadata_cache
         self._episode_store = episode_store
@@ -456,10 +462,11 @@ class KaggleClient:
             page_size=page_size,
         )
 
-    def list_datasets(self) -> list[dict]:
+    def list_datasets(self, competition: Optional[str] = None) -> list[dict]:
         """List competition datasets."""
+        comp = competition or self.competition_slug
         stdout, _ = self._run_kaggle(
-            ["competitions", "data", "list", self.COMPETITION_SLUG]
+            ["competitions", "data", "list", comp]
         )
         return self._parse_dataset_list_output(stdout)
 
@@ -470,10 +477,12 @@ class KaggleClient:
     def download_dataset(
         self,
         output_dir: str,
+        competition: Optional[str] = None,
         file_name: Optional[str] = None,
         force: bool = False,
     ) -> Path:
         """Download competition data."""
+        comp = competition or self.competition_slug
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
@@ -481,7 +490,7 @@ class KaggleClient:
             "competitions",
             "data",
             "download",
-            self.COMPETITION_SLUG,
+            comp,
             "-p",
             str(output_path),
         ]

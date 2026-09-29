@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+DEFAULT_FALLBACK_COMPETITION = (
+    os.environ.get("KAGGLE_COMPETITION", "").strip()
+    or "biohub-cell-tracking-during-development"
+)
+
+
+def get_default_competition() -> str:
+    """获取动态配置的环境变量默认竞赛或全局兜底竞赛。"""
+    return (
+        os.environ.get("KAGGLE_COMPETITION", "").strip()
+        or DEFAULT_FALLBACK_COMPETITION
+    )
+
 
 
 class SortBy(str, Enum):

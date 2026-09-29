@@ -4,7 +4,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .common import ScoreDirection, _normalize_competition_slugs
+from .common import ScoreDirection, _normalize_competition_slugs, get_default_competition
 
 
 class AutoArchiveConfig(BaseModel):
@@ -12,7 +12,7 @@ class AutoArchiveConfig(BaseModel):
 
     enabled: bool = False
     competitions: list[str] = Field(
-        default_factory=lambda: ["rogii-wellbore-geology-prediction"],
+        default_factory=lambda: [get_default_competition()],
         min_length=1,
         max_length=30,
     )

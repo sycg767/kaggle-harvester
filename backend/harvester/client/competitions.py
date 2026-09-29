@@ -4,7 +4,12 @@ import re
 import time
 from typing import Any, Callable, Optional
 
-from ..schemas import CompetitionInfo, CompetitionSubmission, EnteredCompetition
+from ..schemas import (
+    CompetitionInfo,
+    CompetitionSubmission,
+    EnteredCompetition,
+    get_default_competition,
+)
 from .parser import (
     competition_slug_from_ref,
     infer_score_direction_from_metric,
@@ -57,13 +62,13 @@ def detect_score_direction_from_leaderboard(competition: str) -> bool | None:
 def fetch_competition_info_impl(
     run_kaggle_json_fn: Callable[..., Any],
     competition: Optional[str] = None,
-    default_competition: str = "rogii-wellbore-geology-prediction",
+    default_competition: Optional[str] = None,
     refresh: bool = False,
     memory_cache: Optional[dict[str, tuple[float, CompetitionInfo]]] = None,
     detect_direction_fn: Optional[Callable[[str], bool | None]] = None,
 ) -> CompetitionInfo:
     """Fetch competition overview via Kaggle CLI / SDK."""
-    comp = competition or default_competition
+    comp = competition or default_competition or get_default_competition()
     now = time.monotonic()
     cache = memory_cache if memory_cache is not None else {}
     if not refresh and comp in cache:
@@ -155,16 +160,13 @@ def fetch_competition_info_impl(
             cache[comp] = (now, info)
             return info.model_copy(deep=True)
     except Exception as exc:
-        if competition and competition != default_competition:
+        fallback_comp = default_competition or get_default_competition()
+        if competition and competition != fallback_comp:
             raise RuntimeError(f"无法读取竞赛 {comp}：{exc}") from exc
 
     info = CompetitionInfo(
         id=comp,
-        title=(
-            "ROGII Wellbore Geology Prediction"
-            if comp == default_competition
-            else comp
-        ),
+        title=comp.replace("-", " ").title() if "-" in comp else comp,
         is_lower_better=True,
         score_direction_source="fallback",
     )
@@ -274,11 +276,11 @@ def list_entered_competitions_impl(
 def list_competition_submissions_impl(
     run_kaggle_json_fn: Callable[..., Any],
     competition: Optional[str] = None,
-    default_competition: str = "rogii-wellbore-geology-prediction",
+    default_competition: Optional[str] = None,
     page_size: int = 10,
 ) -> list[CompetitionSubmission]:
     """列出当前账号在竞赛中的提交记录（含 Public Score）。"""
-    comp = (competition or default_competition).strip()
+    comp = (competition or default_competition or get_default_competition()).strip()
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]{2,119}", comp):
         raise ValueError(f"竞赛标识无效：{comp}")
     size = max(1, min(int(page_size), 50))

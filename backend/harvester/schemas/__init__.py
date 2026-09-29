@@ -9,11 +9,13 @@ from .auto_archive import (
 )
 from .common import (
     COMPETITION_SLUG_PATTERN,
+    DEFAULT_FALLBACK_COMPETITION,
     ActiveCompetitionInfo,
     ScoreDirection,
     SetActiveCompetitionRequest,
     SortBy,
     _normalize_competition_slugs,
+    get_default_competition,
 )
 from .kernels import (
     ArchiveEntry,
@@ -71,6 +73,8 @@ __all__ = [
     "SortBy",
     "ScoreDirection",
     "COMPETITION_SLUG_PATTERN",
+    "DEFAULT_FALLBACK_COMPETITION",
+    "get_default_competition",
     "_normalize_competition_slugs",
     "SetActiveCompetitionRequest",
     "ActiveCompetitionInfo",

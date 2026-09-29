@@ -10,7 +10,7 @@ services:
       PORT: 8000
       HARVEST_ROOT: /data/harvested_kernels
       KAGGLE_API_TOKEN: ${KAGGLE_API_TOKEN:-}
-      KAGGLE_COMPETITION: ${KAGGLE_COMPETITION:-rogii-wellbore-geology-prediction}
+      KAGGLE_COMPETITION: ${KAGGLE_COMPETITION:-biohub-cell-tracking-during-development}
       HARVESTER_API_KEY: ${HARVESTER_API_KEY:-}
       HARVESTER_ALLOWED_ORIGINS: ${HARVESTER_ALLOWED_ORIGINS:-http://127.0.0.1:8080}
       HARVESTER_MIN_FREE_BYTES: ${HARVESTER_MIN_FREE_BYTES:-2147483648}
