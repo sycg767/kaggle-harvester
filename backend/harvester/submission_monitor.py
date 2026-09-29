@@ -10,6 +10,11 @@ from string import hexdigits
 from typing import Literal
 
 from .kaggle_client import KaggleClient
+from .monitors import (
+    classify_submission_state,
+    matches_description_prefix,
+    run_submission_monitor_sync,
+)
 from .notifications import NotificationManager
 from .models import (
     CompetitionSubmission,
@@ -421,21 +426,14 @@ class SubmissionMonitorManager:
     def _matches_prefix(
         self, submission: CompetitionSubmission, prefix: str
     ) -> bool:
-        if not prefix:
-            return True
-        return (submission.description or "").startswith(prefix)
+        return matches_description_prefix(submission, prefix)
 
     @staticmethod
-    def _submission_state(submission: CompetitionSubmission) -> Literal["pending", "scored", "failed"]:
+    def _submission_state(
+        submission: CompetitionSubmission,
+    ) -> Literal["pending", "scored", "failed"]:
         """依据 Kaggle 提交状态分类，避免把失败提交误报为待出分。"""
-        normalized = (submission.status or "").strip().lower()
-        if normalized in {"error", "failed", "failure", "cancelled", "canceled", "invalid"}:
-            return "failed"
-        if submission.error_description.strip():
-            return "failed"
-        if submission.public_score is not None:
-            return "scored"
-        return "pending"
+        return classify_submission_state(submission)
 
     def _run_once_sync(
         self, config: SubmissionMonitorConfig
@@ -451,134 +449,15 @@ class SubmissionMonitorManager:
             known_scored_at = dict(self._known_scored_at)
             baselines = dict(self._baseline_seeded_by_competition)
 
-        prefix = (config.description_prefix or "").strip()
-        new_events: list[SubmissionScoreEvent] = []
-        recent_items: list[SubmissionMonitorItem] = []
-        pending_count = 0
-        scored_count = 0
-        failed_count = 0
-        competitions_checked: list[str] = []
-        errors: list[str] = []
-
-        for competition in config.competitions:
-            competitions_checked.append(competition)
-            try:
-                submissions = self._kaggle.list_competition_submissions(
-                    competition=competition,
-                    page_size=config.page_size,
-                )
-            except Exception as exc:
-                errors.append(f"{competition}: {str(exc)[:200]}")
-                continue
-
-            watched = [
-                item for item in submissions if self._matches_prefix(item, prefix)
-            ]
-            seed_baseline = not baselines.get(competition, False)
-            comp_new_events: list[SubmissionScoreEvent] = []
-
-            for submission in watched:
-                score = submission.public_score
-                submission_state = self._submission_state(submission)
-                key = self._score_key(competition, submission.ref)
-                previous = known_scores.get(key, ...)
-                newly_scored = False
-                scored_at = known_scored_at.get(key)
-
-                if submission_state == "pending":
-                    pending_count += 1
-                elif submission_state == "scored":
-                    scored_count += 1
-                else:
-                    failed_count += 1
-
-                if seed_baseline:
-                    known_scores[key] = score
-                elif previous is ...:
-                    if score is not None:
-                        newly_scored = True
-                    known_scores[key] = score
-                else:
-                    prev_score = previous  # float | None
-                    if prev_score is None and score is not None:
-                        newly_scored = True
-                    known_scores[key] = score
-
-                if score is not None and not scored_at:
-                    scored_at = _utc_now().isoformat()
-                    known_scored_at[key] = scored_at
-
-                if newly_scored and score is not None:
-                    previous_public = (
-                        None if previous is ... else previous  # type: ignore[assignment]
-                    )
-                    if not isinstance(previous_public, (int, float)):
-                        previous_public = None
-                    event = SubmissionScoreEvent(
-                        competition=competition,
-                        ref=submission.ref,
-                        description=submission.description,
-                        public_score=float(score),
-                        public_score_display=(
-                            submission.public_score_display
-                            or f"{float(score):.6g}"
-                        ),
-                        status=submission.status,
-                        date=submission.date,
-                        scored_at=scored_at,
-                        submitted_by=submission.submitted_by,
-                        submitted_by_ref=submission.submitted_by_ref,
-                        team_name=submission.team_name,
-                        previous_public_score=(
-                            float(previous_public)
-                            if previous_public is not None
-                            else None
-                        ),
-                    )
-                    comp_new_events.append(event)
-
-                recent_items.append(
-                    SubmissionMonitorItem(
-                        competition=competition,
-                        ref=submission.ref,
-                        description=submission.description,
-                        status=submission.status,
-                        error_description=submission.error_description,
-                        submitted_by=submission.submitted_by,
-                        submitted_by_ref=submission.submitted_by_ref,
-                        team_name=submission.team_name,
-                        public_score=score,
-                        public_score_display=submission.public_score_display,
-                        date=submission.date,
-                        scored_at=scored_at,
-                        state=submission_state,
-                        watched=True,
-                        newly_scored=newly_scored and not seed_baseline,
-                    )
-                )
-
-            if seed_baseline:
-                baselines[competition] = True
-            else:
-                new_events.extend(comp_new_events)
-                baselines[competition] = True
-
-        if not competitions_checked and errors:
-            raise RuntimeError("；".join(errors))
-
-        status = SubmissionMonitorStatus(
-            last_checked_at=_utc_now().isoformat(),
-            last_error="；".join(errors) if errors else None,
-            checked_count=len(recent_items),
-            pending_count=pending_count,
-            scored_count=scored_count,
-            failed_count=failed_count,
-            newly_scored_count=len(new_events),
-            competitions_checked=competitions_checked,
-            recent_events=new_events,
-            recent_items=recent_items[:100],
+        return run_submission_monitor_sync(
+            kaggle_client=self._kaggle,
+            config=config,
+            known_scores_snapshot=known_scores,
+            known_scored_at_snapshot=known_scored_at,
+            baselines_snapshot=baselines,
+            matches_prefix_fn=self._matches_prefix,
+            submission_state_fn=self._submission_state,
         )
-        return status, known_scores, known_scored_at, baselines, new_events
 
     async def _scheduler_loop(self) -> None:
         while not self._stop_event.is_set():
