@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   App as AntApp,
@@ -7,37 +7,29 @@ import {
   Modal,
   Space,
   Spin,
-  Tag,
-  Tooltip,
-  Typography,
 } from 'antd';
-import {
-  HistoryOutlined,
-  ReloadOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
-import { Swords, MessageCircle } from 'lucide-react';
+import { Swords } from 'lucide-react';
 import {
   api,
   type SimulationAgentStats,
   type SimulationClawbotTestResult,
-  type SimulationEpisodePageResponse,
   type SimulationMonitorConfig,
   type SimulationMonitorRunDetail,
   type SimulationMonitorSnapshot,
 } from '../api';
 import DialogTitle from './DialogTitle';
-
-import { formatDate } from './simulation/utils';
-import ClawbotModal from './simulation/ClawbotModal';
-import AliasEditModal from './simulation/AliasEditModal';
-import HistoryModal from './simulation/HistoryModal';
-import RunDetailModal from './simulation/RunDetailModal';
-import SettingsDrawer, { type AvailableSubmissionItem } from './simulation/SettingsDrawer';
-import CandidateSubmissionsView from './simulation/CandidateSubmissionsView';
-import ActiveBattleDashboard from './simulation/ActiveBattleDashboard';
-
-const { Text } = Typography;
+import {
+  ActiveBattleDashboard,
+  AliasEditModal,
+  CandidateSubmissionsView,
+  ClawbotModal,
+  HistoryModal,
+  RunDetailModal,
+  SettingsDrawer,
+  SimControlBar,
+  type AvailableSubmissionItem,
+  useSimulationEpisodes,
+} from './simulation';
 
 interface SimulationMonitorControlProps {
   currentCompetition?: string;
@@ -66,9 +58,6 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [clawbotTestResult, setClawbotTestResult] = useState<SimulationClawbotTestResult | null>(null);
   const [availableSubmissions, setAvailableSubmissions] = useState<AvailableSubmissionItem[]>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
-  const [episodePages, setEpisodePages] = useState<Record<number, SimulationEpisodePageResponse>>({});
-  const [episodeLoading, setEpisodeLoading] = useState<Record<number, boolean>>({});
-  const episodeRequestedTotals = useRef<Record<number, number>>({});
   const [form] = Form.useForm<SimulationMonitorConfig>();
   const watchedTargetIds = Form.useWatch('target_submission_ids', form) || [];
   const [submissionAliases, setSubmissionAliases] = useState<Record<string, string>>({});
@@ -78,6 +67,15 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [editingSubId, setEditingSubId] = useState<number | null>(null);
   const [editingAliasValue, setEditingAliasValue] = useState('');
   const [savingAlias, setSavingAlias] = useState(false);
+
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const openEditAliasModal = (subId: number, currentAlias: string) => {
     setEditingSubId(subId);
@@ -110,33 +108,6 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
     }
   };
 
-  const isMounted = useRef(true);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  const fetchEpisodePage = useCallback(async (submissionId: number, page = 1, pageSize = 6) => {
-    setEpisodeLoading((previous) => ({ ...previous, [submissionId]: true }));
-    try {
-      const data = await api.getSimulationEpisodes(submissionId, (page - 1) * pageSize, pageSize);
-      if (isMounted.current) {
-        setEpisodePages((previous) => ({ ...previous, [submissionId]: data }));
-      }
-    } catch (err: any) {
-      if (isMounted.current) {
-        message.error(`读取对局流水失败: ${err.message}`);
-      }
-    } finally {
-      if (isMounted.current) {
-        setEpisodeLoading((previous) => ({ ...previous, [submissionId]: false }));
-      }
-    }
-  }, [message]);
-
   const targetCompetition = currentCompetition || snapshot?.config?.competition || 'pokemon-tcg-ai-battle';
   const isTargetCompActive = Boolean(snapshot?.config?.competition && snapshot.config.competition === targetCompetition);
   const targetCompTitle = targetCompetition === 'pokemon-tcg-ai-battle'
@@ -164,24 +135,6 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       void fetchAvailableSubmissions(compToFetch);
     }
   }, [settingsOpen, fetchAvailableSubmissions, targetCompetition, form]);
-
-  const handleTestClawbot = async () => {
-    setTestingClawbot(true);
-    try {
-      const res = await api.testClawbot();
-      setClawbotTestResult(res);
-      if (res.success) {
-        message.success(res.message);
-      } else {
-        message.warning(res.message);
-      }
-      await fetchSnapshot(true);
-    } catch (err: any) {
-      message.error(`网关探测失败: ${err.message}`);
-    } finally {
-      setTestingClawbot(false);
-    }
-  };
 
   const fetchSnapshot = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -217,6 +170,24 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       if (isMounted.current && !quiet) setLoading(false);
     }
   }, [form, message, currentCompetition]);
+
+  const handleTestClawbot = async () => {
+    setTestingClawbot(true);
+    try {
+      const res = await api.testClawbot();
+      setClawbotTestResult(res);
+      if (res.success) {
+        message.success(res.message);
+      } else {
+        message.warning(res.message);
+      }
+      await fetchSnapshot(true);
+    } catch (err: any) {
+      message.error(`网关探测失败: ${err.message}`);
+    } finally {
+      setTestingClawbot(false);
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -275,6 +246,13 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const agents = status?.agents || [];
   const thresholds = status?.thresholds || status?.medal_thresholds;
 
+  const { episodePages, episodeLoading, fetchEpisodePage } = useSimulationEpisodes({
+    open,
+    isTargetCompActive,
+    agents,
+    onError: (err) => message.error(`读取对局流水失败: ${err.message}`),
+  });
+
   const getAgentMedal = useCallback((agent: SimulationAgentStats) => {
     const sc = agent.score ?? agent.public_score;
     if (thresholds && sc !== undefined && sc !== null) {
@@ -312,23 +290,6 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const agent1Episodes = agent1Page?.episodes ?? [];
   const agent2Episodes = agent2Page?.episodes ?? [];
 
-  useEffect(() => {
-    if (!open || !isTargetCompActive) return;
-    agents.slice(0, 2).forEach((agent) => {
-      if (
-        !episodeLoading[agent.submission_id]
-        && episodeRequestedTotals.current[agent.submission_id] !== agent.total_episodes
-        && (
-          !episodePages[agent.submission_id]
-          || episodePages[agent.submission_id].total !== agent.total_episodes
-        )
-      ) {
-        episodeRequestedTotals.current[agent.submission_id] = agent.total_episodes;
-        void fetchEpisodePage(agent.submission_id);
-      }
-    });
-  }, [agents, episodeLoading, episodePages, fetchEpisodePage, open, isTargetCompActive]);
-
   const getRatedEpisodeCount = (agent?: SimulationAgentStats) => (
     Math.max(0, (agent?.total_episodes || 0) - (agent?.system_checks || 0))
   );
@@ -365,120 +326,24 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         <Spin spinning={loading && !snapshot}>
           <div style={{ paddingTop: 4 }}>
             {/* Header Control Bar */}
-            <div className="sim-control-bar">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      width: 10,
-                      height: 10,
-                      borderRadius: '50%',
-                      background: isTargetCompActive
-                        ? (isMonitoringActive ? '#10b981' : '#94a3b8')
-                        : (isMonitoringActive ? '#f59e0b' : '#94a3b8'),
-                      boxShadow: isTargetCompActive && isMonitoringActive
-                        ? '0 0 0 3px rgba(16, 185, 129, 0.2)'
-                        : 'none',
-                    }}
-                  />
-                  <Text strong style={{ fontSize: 13, color: isTargetCompActive && isMonitoringActive ? '#0f172a' : '#64748b' }}>
-                    {isTargetCompActive
-                      ? isMonitoringActive
-                        ? status?.running
-                          ? '正在执行检查中...'
-                          : `后台调度监控中 (${snapshot?.config?.interval_minutes || 10} 分钟/次)`
-                        : '后台监控已暂停 (定时关闭)'
-                      : isMonitoringActive
-                        ? `后台正监控其他赛事 (${snapshot?.config?.competition})`
-                        : `【${targetCompTitle}】待命备战态 (后台巡检未开启)`}
-                  </Text>
-                </div>
-
-                <Tooltip title="点击查看微信 ClawBot 智能体状态与指令指南">
-                  <Tag
-                    color={status?.clawbot?.is_online ? 'success' : (status?.clawbot?.configured ? 'warning' : 'default')}
-                    style={{
-                      cursor: 'pointer',
-                      borderRadius: 12,
-                      padding: '2px 10px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      fontWeight: 600,
-                      fontSize: 12,
-                    }}
-                    onClick={() => setClawbotOpen(true)}
-                  >
-                    <MessageCircle size={13} />
-                    微信 ClawBot: {status?.clawbot?.is_online ? `在线 (${status?.clawbot?.model || 'DeepSeek'})` : (status?.clawbot?.configured ? '离线 (未启动)' : '未连接')}
-                  </Tag>
-                </Tooltip>
-
-                {isTargetCompActive ? (
-                  <>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      上次检查: {formatDate(status?.last_checked_at)}
-                    </Text>
-
-                    {isMonitoringActive && status?.next_run_at && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        下次检查: {formatDate(status?.next_run_at)}
-                      </Text>
-                    )}
-                  </>
-                ) : isMonitoringActive ? (
-                  <Tag color="orange" style={{ margin: 0 }}>
-                    后台正在监控: {snapshot?.config?.competition}
-                  </Tag>
-                ) : (
-                  <Tag color="default" style={{ margin: 0 }}>
-                    后台巡检: 未开启
-                  </Tag>
-                )}
-              </div>
-
-              <Space size={8}>
-                <Button
-                  type={!isTargetCompActive || !isMonitoringActive ? 'primary' : 'default'}
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => {
-                    form.setFieldsValue({ competition: targetCompetition });
-                    setSettingsOpen(true);
-                  }}
-                >
-                  {!isTargetCompActive || !isMonitoringActive ? '配置并开启监控' : '监控配置'}
-                </Button>
-                <Button
-                  size="small"
-                  icon={<HistoryOutlined />}
-                  onClick={() => setHistoryOpen(true)}
-                >
-                  检查日志
-                </Button>
-                {isTargetCompActive ? (
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<ReloadOutlined spin={runningNow} />}
-                    loading={runningNow}
-                    onClick={handleRunNow}
-                  >
-                    立即刷新
-                  </Button>
-                ) : (
-                  <Button
-                    size="small"
-                    icon={<ReloadOutlined spin={loadingSubmissions} />}
-                    loading={loadingSubmissions}
-                    onClick={() => void fetchAvailableSubmissions(targetCompetition)}
-                  >
-                    刷新候选提交
-                  </Button>
-                )}
-              </Space>
-            </div>
+            <SimControlBar
+              isTargetCompActive={isTargetCompActive}
+              isMonitoringActive={isMonitoringActive}
+              status={status}
+              config={snapshot?.config}
+              targetCompTitle={targetCompTitle}
+              targetCompetition={targetCompetition}
+              runningNow={runningNow}
+              loadingSubmissions={loadingSubmissions}
+              onOpenClawbot={() => setClawbotOpen(true)}
+              onOpenSettings={() => {
+                form.setFieldsValue({ competition: targetCompetition });
+                setSettingsOpen(true);
+              }}
+              onOpenHistory={() => setHistoryOpen(true)}
+              onRunNow={handleRunNow}
+              onRefreshSubmissions={() => void fetchAvailableSubmissions(targetCompetition)}
+            />
 
             {/* Error or Warning Alert */}
             {status?.last_error && (
