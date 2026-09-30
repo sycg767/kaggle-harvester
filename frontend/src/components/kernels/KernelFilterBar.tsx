@@ -222,7 +222,7 @@ export const KernelFilterBar: React.FC<KernelFilterBarProps> = ({
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           prefix={<SearchOutlined style={{ color: '#8e8e93' }} />}
-          placeholder="过滤当前 Notebook 标题、作者..."
+          placeholder="筛选已获取结果：标题、作者..."
           aria-label="过滤当前 Notebook"
         />
 
@@ -245,7 +245,7 @@ export const KernelFilterBar: React.FC<KernelFilterBarProps> = ({
             onClick={() => loadKernels(false)}
             title="重新向 Kaggle 检索榜单"
           >
-            查询
+            获取 Kaggle 结果
           </Button>
           <Button
             className="kernel-btn-filter-toggle"
@@ -285,7 +285,7 @@ export const KernelFilterBar: React.FC<KernelFilterBarProps> = ({
               onClick={() => setArchivedOnly((curr) => !curr)}
             >
               <Archive size={13} className="kernel-pill-icon" />
-              <span>仅看本地已归档</span>
+              <span>仅看服务器已归档</span>
             </button>
           </div>
         </div>

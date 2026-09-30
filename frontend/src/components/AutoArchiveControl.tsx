@@ -27,6 +27,7 @@ import {
 import { buildEnteredCompetitionOptions, competitionDisplayName } from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import DialogTitle from './DialogTitle';
+import ArchiveRulePreview from './auto-archive/ArchiveRulePreview';
 import {
   AutoArchiveConfigForm,
   AutoArchiveDetailDrawer,
@@ -268,7 +269,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
             disabled={saving}
             onClick={() => void runNow()}
           >
-            立即检查
+            保存并立即检查
           </Button>,
           <Button
             key="save"
@@ -309,6 +310,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
           currentCompetition={currentCompetition}
         />
 
+        <ArchiveRulePreview form={form} />
         <div className="dialog-section-heading" style={{ marginTop: 20, marginBottom: 8 }}>
           <Text strong style={{ fontSize: 13.5 }}>运行状态</Text>
         </div>

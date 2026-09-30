@@ -127,7 +127,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   const testNotification = async () => {
     let values: NotificationFormValues;
     try {
-      values = await form.validateFields();
+      values = { ...form.getFieldsValue(true), ...(await form.validateFields()) };
     } catch {
       return;
     }
@@ -208,7 +208,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 disabled={!wechatEnabled && !webhookEnabled && !emailEnabled}
                 onClick={() => void testNotification()}
               >
-                发送测试通知
+                保存并发送测试
               </Button>
               <Button
                 key="save"
@@ -293,7 +293,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 label: (
                   <Space size={6}>
                     <History size={15} />
-                    <span>投递状态与记录</span>
+                    <span>投递概况</span>
                   </Space>
                 ),
                 children: <DeliveryStatusTab snapshot={snapshot} />,

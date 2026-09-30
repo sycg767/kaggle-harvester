@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { App as AntApp } from 'antd';
 import {
   api,
+  ApiError,
   type ArchiveEntry,
   type ScoredKernel,
   type VersionInfo,
 } from '../../api';
-import { dispatchArchivesChanged } from '../../events';
+import { archiveJobs, type ArchiveJobRequest } from '../../archiveJobs';
 import type { ScoreDirection } from '../../scoreDirection';
 import { formatDate, type ArchiveVersionChoice } from './kernelUtils';
 
@@ -22,13 +23,15 @@ interface UseKernelArchiveOptions {
 export function useKernelArchive({
   confirmedDirection,
   competition,
-  archives,
-  setArchives,
   setSelectedRowKeys,
   onCloseVersionModal,
 }: UseKernelArchiveOptions) {
   const { message } = AntApp.useApp();
 
+  const submissionRef = useRef<{ id: string; items: ArchiveJobRequest[] } | null>(null);
+  const versionRequestRef = useRef(0);
+  const [archiveSubmissionPending, setArchiveSubmissionPending] = useState(false);
+  const [archiveContext, setArchiveContext] = useState<{ competition: string; direction: ScoreDirection | null }>({ competition, direction: confirmedDirection });
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [archiveTargets, setArchiveTargets] = useState<ScoredKernel[]>([]);
   const [archiveVersionChoice, setArchiveVersionChoice] = useState<ArchiveVersionChoice>('best');
@@ -58,12 +61,12 @@ export function useKernelArchive({
     return scored.reduce((best, version) => {
       const bestScoreValue = best.public_lb_numeric as number;
       const currentScore = version.public_lb_numeric as number;
-      if (confirmedDirection === 'maximize') {
+      if (archiveContext.direction === 'maximize') {
         return currentScore > bestScoreValue ? version : best;
       }
       return currentScore < bestScoreValue ? version : best;
     });
-  }, [archiveLatestVersion, archiveVersions, confirmedDirection]);
+  }, [archiveLatestVersion, archiveVersions, archiveContext.direction]);
 
   const archiveVersionOptions = useMemo(() => {
     const versionLabel = (version: VersionInfo | null, fallback: string) => {
@@ -102,6 +105,10 @@ export function useKernelArchive({
     if (version !== undefined && onCloseVersionModal) {
       onCloseVersionModal();
     }
+    submissionRef.current = null;
+    setArchiveSubmissionPending(false);
+    const versionRequest = ++versionRequestRef.current;
+    setArchiveContext({ competition, direction: confirmedDirection });
     setArchiveTargets(targets);
     setArchiveVersionChoice(version === undefined ? 'best' : `version:${version}`);
     setArchiveVersions([]);
@@ -118,67 +125,62 @@ export function useKernelArchive({
       const [owner, slug] = targets[0].ref.split('/', 2);
       setArchiveVersionsLoading(true);
       void api.getKernelVersions(owner, slug, false)
-        .then((data) => setArchiveVersions(
+        .then((data) => { if (versionRequest === versionRequestRef.current) setArchiveVersions(
           [...data.versions].sort((a, b) => b.version_number - a.version_number),
-        ))
-        .catch((err) => setArchiveVersionsError(
+        ); })
+        .catch((err) => { if (versionRequest === versionRequestRef.current) setArchiveVersionsError(
           err instanceof Error ? err.message : '版本列表读取失败。',
-        ))
-        .finally(() => setArchiveVersionsLoading(false));
+        ); })
+        .finally(() => { if (versionRequest === versionRequestRef.current) setArchiveVersionsLoading(false); });
     } else {
       setArchiveVersionsLoading(false);
     }
   };
 
   const runArchive = async () => {
-    const archiveDirection = confirmedDirection;
+    const archiveDirection = archiveContext.direction;
+    const competition = archiveContext.competition;
     if (!archiveDirection) {
       message.error('分数方向尚未确认，无法执行归档。');
       return;
     }
     setArchiveRunning(true);
     setArchiveCompleted(false);
-    let successes = 0;
-    const failures: string[] = [];
+    try {
+      // Retain the ID after a timeout: retrying submission must not duplicate work.
 
-    for (let index = 0; index < archiveTargets.length; index += 1) {
-      const kernel = archiveTargets[index];
-      try {
-        let selectedVersion: number | undefined;
-        if (archiveTargets.length === 1) {
-          if (archiveVersionChoice.startsWith('version:')) {
-            selectedVersion = Number(archiveVersionChoice.slice('version:'.length));
-          } else if (archiveVersionChoice === 'latest') {
-            selectedVersion = archiveLatestVersion?.version_number;
-          }
-        }
-        await api.archiveKernel({
-          kernel_ref: kernel.ref,
-          version: selectedVersion,
-          score_direction: archiveDirection,
-          include_outputs: includeOutputs,
-          competition,
-        });
-        successes += 1;
-      } catch (err) {
-        failures.push(`${kernel.ref}：${err instanceof Error ? err.message : '未知错误'}`);
+      let version: number | undefined;
+      if (archiveTargets.length === 1) {
+        if (archiveVersionChoice.startsWith('version:')) version = Number(archiveVersionChoice.slice(8));
+        else if (archiveVersionChoice === 'latest') version = archiveLatestVersion?.version_number;
       }
-      setArchiveSuccesses(successes);
-      setArchiveFailures([...failures]);
-      setArchiveProgress(Math.round(((index + 1) / archiveTargets.length) * 100));
-    }
-
-    setArchiveRunning(false);
-    setArchiveCompleted(true);
-    if (successes) {
-      setArchives(await api.listArchives(competition).catch(() => archives));
+      submissionRef.current ||= { id: crypto.randomUUID(), items: archiveTargets.map(kernel => ({
+        kernel_ref: kernel.ref, version, score_direction: archiveDirection,
+        include_outputs: includeOutputs, competition,
+      })) };
+      setArchiveSubmissionPending(true);
+      await archiveJobs.create(submissionRef.current.items, submissionRef.current.id);
+      setArchiveSubmissionPending(false);
+      setArchiveModalOpen(false);
       setSelectedRowKeys([]);
-      dispatchArchivesChanged();
-      message.success(`已完成 ${successes} 个归档`);
+      window.dispatchEvent(new Event('harvester:archive-jobs-changed'));
+      message.success('已提交后台归档任务。可离开页面，在任务列表查看进度或重试失败项。');
+    } catch (err) {
+      if (err instanceof ApiError && err.status && err.status < 500 && ![408, 429].includes(err.status)) {
+        submissionRef.current = null; setArchiveSubmissionPending(false);
+        message.error(err.message);
+      } else {
+        message.error('任务提交结果暂未确认；请查看后台任务，或用当前参数重试同一任务。');
+      }
+      window.dispatchEvent(new Event('harvester:archive-jobs-changed'));
+    } finally {
+      setArchiveRunning(false);
     }
   };
 
   return {
+    archiveCompetition: archiveContext.competition,
+    archiveSubmissionPending,
     archiveModalOpen,
     setArchiveModalOpen,
     archiveTargets,

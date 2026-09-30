@@ -30,8 +30,8 @@ export const ApiKeyAuthModal: React.FC<ApiKeyAuthModalProps> = ({
       title={(
         <DialogTitle
           icon={<KeyRound size={18} color="#007aff" />}
-          title="访问密钥验证"
-          subtitle="HARVESTER_API_KEY"
+          title="登录竞赛工作台"
+          subtitle="使用管理员提供的访问码"
           onClose={onCancel}
         />
       )}
@@ -50,18 +50,18 @@ export const ApiKeyAuthModal: React.FC<ApiKeyAuthModalProps> = ({
             disabled={!apiKey.trim()}
             onClick={onSubmit}
           >
-            验证并保存
+            验证并进入
           </Button>
         </div>
       )}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <p style={{ margin: 0, fontSize: 13, color: '#636366', lineHeight: 1.5 }}>
-          后端服务已启用 API 访问控制。请输入您在环境变量中配置的访问密钥：
+          请输入部署管理员提供的访问码。若由你自己部署，请使用部署时设置的应用访问密钥。
         </p>
 
         <Input.Password
-          placeholder="请输入 X-Harvester-Key"
+          placeholder="请输入访问码"
           value={apiKey}
           onChange={(e) => onApiKeyChange(e.target.value)}
           onPressEnter={onSubmit}
@@ -74,7 +74,7 @@ export const ApiKeyAuthModal: React.FC<ApiKeyAuthModalProps> = ({
           onChange={(e) => onRememberApiKeyChange(e.target.checked)}
           style={{ fontSize: 13, color: '#3a3a3c' }}
         >
-          在当前浏览器记住该密钥
+          在当前浏览器记住访问码
         </Checkbox>
       </div>
     </Modal>

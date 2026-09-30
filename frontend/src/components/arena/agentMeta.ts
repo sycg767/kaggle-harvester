@@ -57,20 +57,6 @@ export const getAgentMeta = (agent: SimulationAgentStats, index: number): AgentM
     return { name: displayName, shortName: customAlias, ...theme };
   }
 
-  if (agent.submission_id === 55565346) {
-    return {
-      name: 'Agent p46',
-      shortName: 'p46',
-      ...theme,
-    };
-  }
-  if (agent.submission_id === 55555162) {
-    return {
-      name: 'Agent p31',
-      shortName: 'p31',
-      ...theme,
-    };
-  }
   const raw = (agent.description || agent.file_name || '').trim();
   const match = raw.match(/^(p\d+(?:plus\d+)?|p\d+|agent[\s\-_]?\w+)/i);
   if (match) {

@@ -15,11 +15,11 @@ export const StorageStatusCards: React.FC<StorageStatusCardsProps> = ({
   health,
   onNavigate,
 }) => {
-  const totalArchives = archiveStats?.total_archives ?? health?.archive?.total_archives ?? 0;
-  const uniqueKernels = archiveStats?.unique_kernels ?? health?.archive?.unique_kernels ?? 0;
-  const totalSizeBytes = archiveStats?.total_size_bytes ?? 0;
-  const diskFreeBytes = archiveStats?.disk_free_bytes ?? health?.archive?.disk_free_bytes ?? 0;
-  const lowDiskSpace = archiveStats?.low_disk_space ?? false;
+  const totalArchives = archiveStats?.total_archives ?? health?.archive?.total_archives;
+  const uniqueKernels = archiveStats?.unique_kernels ?? health?.archive?.unique_kernels;
+  const totalSizeBytes = archiveStats?.total_size_bytes;
+  const diskFreeBytes = archiveStats?.disk_free_bytes ?? health?.archive?.disk_free_bytes;
+  const lowDiskSpace = archiveStats?.low_disk_space ?? health?.archive?.low_disk_space;
 
   return (
     <section className="section" style={{ marginBottom: 14 }}>
@@ -31,7 +31,7 @@ export const StorageStatusCards: React.FC<StorageStatusCardsProps> = ({
           >
             <HardDrive size={15} />
           </span>
-          <span>本地存储与服务状态</span>
+          <span>服务器存储与服务状态（全部赛事）</span>
         </div>
       </div>
 
@@ -39,7 +39,7 @@ export const StorageStatusCards: React.FC<StorageStatusCardsProps> = ({
         {/* Stat 1: 本地归档资产 */}
         <article className="ios-status-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span className="ios-status-title">本地已归档资产</span>
+            <span className="ios-status-title">服务器已归档资产</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Button
                 type="link"
@@ -61,21 +61,21 @@ export const StorageStatusCards: React.FC<StorageStatusCardsProps> = ({
           </div>
 
           <div className="ios-status-number">
-            {totalArchives}{' '}
+            {totalArchives ?? '—'}{' '}
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-tertiary)' }}>
               个版本
             </span>
           </div>
 
           <div className="ios-status-caption">
-            {uniqueKernels} 个 Kernel · 占用 {formatBytes(totalSizeBytes)}
+            {uniqueKernels ?? '—'} 个 Kernel · 占用 {totalSizeBytes == null ? '未知' : formatBytes(totalSizeBytes)}
           </div>
         </article>
 
         {/* Stat 2: 磁盘剩余容量 */}
         <article className="ios-status-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span className="ios-status-title">本地磁盘可用容量</span>
+            <span className="ios-status-title">服务器磁盘可用容量</span>
             <HardDrive size={17} color="#8e8e93" style={{ opacity: 0.7 }} />
           </div>
 
@@ -83,11 +83,11 @@ export const StorageStatusCards: React.FC<StorageStatusCardsProps> = ({
             className="ios-status-number"
             style={{ color: lowDiskSpace ? 'var(--ios-red)' : 'var(--text-primary)' }}
           >
-            {formatBytes(diskFreeBytes)}
+            {diskFreeBytes == null ? '未知' : formatBytes(diskFreeBytes)}
           </div>
 
           <div className="ios-status-caption">
-            {lowDiskSpace ? '磁盘紧缺 · 保护阈值 2.0 GB' : '空间充裕 · 保护阈值 2.0 GB'}
+            {lowDiskSpace == null ? '容量状态未知' : lowDiskSpace ? '磁盘紧缺 · 保护阈值 2.0 GB' : '空间充裕 · 保护阈值 2.0 GB'}
           </div>
         </article>
 
@@ -100,12 +100,12 @@ export const StorageStatusCards: React.FC<StorageStatusCardsProps> = ({
 
           <div className="ios-system-online">
             <span className={`big-dot ${health?.ready ? '' : 'warning'}`} />
-            <span>{health?.ready ? '正常在线' : '环境就绪中'}</span>
+            <span>{health == null ? '状态未知' : health.ready ? '环境已就绪' : '环境未就绪'}</span>
           </div>
 
           <div className="ios-status-caption">
-            CLI: {health?.kaggle_cli ? '已就绪' : '未检测到'} · Token:{' '}
-            {health?.token_configured ? '已配置' : '未配置'}
+            CLI: {health == null ? '未知' : health.kaggle_cli ? '已就绪' : '未检测到'} · Token:{' '}
+            {health == null ? '未知' : health.token_configured ? '已配置' : '未配置'}
           </div>
         </article>
       </div>

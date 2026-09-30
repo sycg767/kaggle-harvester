@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   App as AntApp,
@@ -8,13 +8,17 @@ import {
   Empty,
   Modal,
   Table,
+  Select,
+  Tag,
 } from 'antd';
 import {
   ExportOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 import { api, type ArchiveEntry, type ArchiveFile } from '../api';
-import { dispatchArchivesChanged } from '../events';
+import ArchiveJobsPanel from './ArchiveJobsPanel';
+import { studyOptions, type ArchiveStudy } from '../archiveStudyApi';
+import { dispatchArchivesChanged, HARVESTER_EVENTS } from '../events';
 import {
   type ArchiveMetadata,
   ArchiveBatchBar,
@@ -32,8 +36,15 @@ const MOBILE_PAGE_SIZE = 10;
 const ArchiveManager: React.FC = () => {
   const { message } = AntApp.useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [studyFilter, setStudyFilter] = useState('all');
+  const [studyErrors, setStudyErrors] = useState<Record<string, string>>({});
+  const [studies, setStudies] = useState<Record<string, ArchiveStudy>>({});
+  const detailRequest = useRef(0);
+  const deepLinkOpened = useRef('');
   const [archives, setArchives] = useState<ArchiveEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [listLoaded, setListLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [competitionFilter, setCompetitionFilter] = useState('all');
@@ -52,8 +63,12 @@ const ArchiveManager: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      setArchives(await api.listArchives());
-      dispatchArchivesChanged();
+      const entries = await api.listArchives() as (ArchiveEntry & { study?: ArchiveStudy; study_error?: string })[];
+      setArchives(entries);
+      setListLoaded(true);
+      setStudies(Object.fromEntries(entries.filter(item => item.study && !item.study_error).map(item => [item.id, item.study!])));
+      setStudyErrors(Object.fromEntries(entries.filter(item => item.study_error).map(item => [item.id, item.study_error!])));
+
     } catch (err) {
       setError(err instanceof Error ? err.message : '归档列表加载失败。');
     } finally {
@@ -63,6 +78,9 @@ const ArchiveManager: React.FC = () => {
 
   useEffect(() => {
     void loadArchives();
+    const refresh = () => void loadArchives();
+    window.addEventListener(HARVESTER_EVENTS.archivesChanged, refresh);
+    return () => window.removeEventListener(HARVESTER_EVENTS.archivesChanged, refresh);
   }, []);
 
   const competitions = useMemo(
@@ -73,22 +91,25 @@ const ArchiveManager: React.FC = () => {
   const displayArchives = useMemo(() => {
     const query = searchText.trim().toLowerCase();
     return archives.filter((archive) => {
+      if (studyFilter !== 'all' && (studyErrors[archive.id] ? 'unavailable' : studies[archive.id]?.status || 'unread') !== studyFilter) return false;
       if (competitionFilter !== 'all' && archive.competition !== competitionFilter) return false;
       if (scoredOnly && (archive.public_score === undefined || archive.public_score === null)) return false;
       if (!query) return true;
-      return [archive.ref, archive.title, archive.author, archive.path, archive.competition || '']
+      return [archive.ref, archive.title, archive.author, archive.path, archive.competition || '', ...(studies[archive.id]?.tags || []), studies[archive.id]?.notes || '']
         .some((value) => value.toLowerCase().includes(query));
     });
-  }, [archives, competitionFilter, scoredOnly, searchText]);
+  }, [archives, competitionFilter, scoredOnly, searchText, studyFilter, studies, studyErrors]);
 
   useEffect(() => {
     setMobilePage(1);
-  }, [archives, competitionFilter, scoredOnly, searchText]);
+  }, [archives, competitionFilter, scoredOnly, searchText, studyFilter, studies, studyErrors]);
 
   const mobileArchives = useMemo(
     () => displayArchives.slice((mobilePage - 1) * MOBILE_PAGE_SIZE, mobilePage * MOBILE_PAGE_SIZE),
     [displayArchives, mobilePage],
   );
+
+  useEffect(() => { setSelectedRowKeys([]); }, [competitionFilter, studyFilter, scoredOnly, searchText]);
 
   const selectedArchives = useMemo(() => {
     const selected = new Set(selectedRowKeys.map(String));
@@ -100,6 +121,7 @@ const ArchiveManager: React.FC = () => {
   const totalSize = archives.reduce((sum, archive) => sum + (archive.size_bytes || 0), 0);
 
   const showDetail = async (archive: ArchiveEntry) => {
+    const requestId = ++detailRequest.current;
     setDetailArchive(archive);
     setDetailOpen(true);
     setDetailLoading(true);
@@ -111,13 +133,29 @@ const ArchiveManager: React.FC = () => {
         api.getArchiveMetadata(archive.id),
         api.getArchiveFiles(archive.id),
       ]);
+      if (requestId !== detailRequest.current) return;
       setDetailMetadata(metadata as ArchiveMetadata);
       setDetailFiles(files);
     } catch (err) {
+      if (requestId !== detailRequest.current) return;
       setDetailError(err instanceof Error ? err.message : '归档详情加载失败。');
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequest.current) setDetailLoading(false);
     }
+  };
+
+  useEffect(() => {
+    const id = searchParams.get('archive');
+    if (!id || deepLinkOpened.current === id) return;
+    const archive = archives.find(item => item.id === id);
+    if (archive) { deepLinkOpened.current = id; void showDetail(archive); }
+  }, [archives, searchParams]);
+
+  const closeDetail = () => {
+    detailRequest.current += 1;
+    setDetailOpen(false);
+    if (searchParams.has('archive')) { const next = new URLSearchParams(searchParams); next.delete('archive'); setSearchParams(next, { replace: true }); }
+    deepLinkOpened.current = '';
   };
 
   const downloadSource = async (archive: ArchiveEntry) => {
@@ -141,7 +179,7 @@ const ArchiveManager: React.FC = () => {
     if (!targets.length) return;
     Modal.confirm({
       title: targets.length === 1 ? '删除这个归档版本？' : `删除 ${targets.length} 个归档版本？`,
-      content: '对应本地文件会一并删除，此操作无法撤销。',
+      content: '对应服务器上的文件会一并删除，此操作无法撤销。',
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -154,7 +192,7 @@ const ArchiveManager: React.FC = () => {
             failures.push(archive.ref);
           }
         }
-        await loadArchives();
+        dispatchArchivesChanged();
         setSelectedRowKeys([]);
         if (failures.length) {
           message.error(`${failures.length} 个归档删除失败`);
@@ -167,19 +205,19 @@ const ArchiveManager: React.FC = () => {
 
   const columns = useMemo(
     () =>
-      createArchiveTableColumns({
+      [...createArchiveTableColumns({
         onShowDetail: (rec) => void showDetail(rec),
         onDownloadSource: (rec) => void downloadSource(rec),
         onDeleteArchives: (records) => deleteArchives(records),
-      }),
-    [],
+      }), { title: '研究状态', key: 'study', width: 155, render: (_: unknown, rec: ArchiveEntry) => <Tag color={studyErrors[rec.id] ? 'error' : undefined}>{studyErrors[rec.id] ? '状态无法读取' : studyOptions.find(option => option.value === (studies[rec.id]?.status || 'unread'))?.label}</Tag> }],
+    [studies, studyErrors],
   );
 
   return (
     <div className="page-shell archive-page">
       <header className="archive-page-header">
         <div className="archive-title-wrap">
-          <h1 className="archive-title">本地归档</h1>
+          <h1 className="archive-title">归档与研究</h1>
           <span className="archive-subtitle">{archives.length} 个版本 · {formatBytes(totalSize)}</span>
         </div>
         <div className="archive-header-actions">
@@ -205,6 +243,8 @@ const ArchiveManager: React.FC = () => {
       </header>
 
       <div className="page-content archive-page-content">
+        <p>归档保存在应用服务器；下载源文件可保存到你的电脑。通过阅读、笔记和版本比较记录研究进展。</p>
+        <ArchiveJobsPanel competition={competitionFilter === 'all' ? undefined : competitionFilter} />
         <ArchiveMetricsCards
           totalArchives={archives.length}
           uniqueKernels={uniqueKernels}
@@ -223,6 +263,11 @@ const ArchiveManager: React.FC = () => {
           archives={archives}
           displayCount={displayArchives.length}
         />
+
+        {Object.keys(studyErrors).length > 0 && <Alert type="error" showIcon message="研究记录无法读取，已暂停状态分类" description={[...new Set(Object.values(studyErrors))].join(' ')} style={{ marginBottom: 16 }} />}
+        <Select aria-label="按研究状态筛选" value={studyFilter} onChange={setStudyFilter} style={{ width: 240, marginBottom: 16 }} options={[{ value: 'all', label: '全部研究状态' }, ...studyOptions, ...(Object.keys(studyErrors).length ? [{ value: 'unavailable', label: '状态无法读取' }] : [])]} />
+
+        {listLoaded && searchParams.has('archive') && !archives.some(item => item.id === searchParams.get('archive')) && <Alert type="warning" message="指定归档不存在或已删除，请刷新列表或选择其他版本。" />}
 
         {error && (
           <Alert
@@ -257,7 +302,7 @@ const ArchiveManager: React.FC = () => {
             }}
             locale={{
               emptyText: (
-                <Empty description="暂无本地归档">
+                <Empty description="暂无服务器归档">
                   <Button type="primary" onClick={() => navigate('/kernels')}>前往 Kernel 广场</Button>
                 </Empty>
               ),
@@ -268,6 +313,8 @@ const ArchiveManager: React.FC = () => {
 
         <MobileArchiveCardList
           archives={mobileArchives}
+          studies={studies}
+          studyErrors={studyErrors}
           allDisplayArchives={displayArchives}
           loading={loading}
           selectedRowKeys={selectedRowKeys}
@@ -284,7 +331,9 @@ const ArchiveManager: React.FC = () => {
 
       <ArchiveDetailModal
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onClose={closeDetail}
+        archives={archives}
+        onStudySaved={(id, study) => setStudies(current => ({ ...current, [id]: study }))}
         archive={detailArchive}
         metadata={detailMetadata}
         files={detailFiles}

@@ -21,7 +21,7 @@ import NotificationCenter from '../NotificationCenter';
 import SubmissionMonitorControl from '../SubmissionMonitorControl';
 import SimulationMonitorControl from '../SimulationMonitorControl';
 import AutoArchiveControl from '../AutoArchiveControl';
-import { formatRelativeTime } from './dashboardUtils';
+import { formatRelativeTime, schedulerLabel } from './dashboardUtils';
 
 interface SchedulerCardsProps {
   currentCompetition: string;
@@ -73,32 +73,28 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
           <span className="ios-section-symbol">
             <Zap size={15} />
           </span>
-          <span>实时监控与自动化调度中枢</span>
+          <span>全局自动化与当前赛事工具</span>
         </div>
-        <div className="ios-section-note">系统状态：稳定运行</div>
+        <div className="ios-section-note">巡检与查分执行已保存的全局配置，不随页面切换</div>
       </div>
 
       <div className="ios-control-grid">
-        {/* Card 1: 智能自动归档 */}
+        {/* Card 1: 自动归档 */}
         <article className="ios-control-card">
           <div className="ios-card-top">
             <div className="ios-card-title-group">
               <div className="ios-icon-tile blue">
                 <Archive size={18} />
               </div>
-              <div className="ios-card-name">智能自动归档</div>
+              <div className="ios-card-name">自动归档</div>
             </div>
-            {autoArchiveStatus?.running ? (
-              <span className="ios-status-chip green">● 运行中</span>
-            ) : (
-              <span className="ios-status-chip">已暂停</span>
-            )}
+            <span className="ios-status-chip">{schedulerLabel(autoArchiveStatus)}</span>
           </div>
 
           <div className="ios-metric">
-            <div className="ios-metric-label">累计已归档</div>
+            <div className="ios-metric-label">全部赛事累计归档</div>
             <div className="ios-metric-value">
-              {archiveStats?.total_archives ?? 0}
+              {archiveStats?.total_archives ?? '—'}
             </div>
           </div>
 
@@ -109,7 +105,7 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
           <div className="ios-detail-line">
             <span>命中高分</span>
             <strong style={{ color: '#23a944' }}>
-              {autoArchiveStatus?.matched_count ? `命中 ${autoArchiveStatus.matched_count} 个` : '0 个新版本'}
+              {autoArchiveStatus?.last_checked_at && autoArchiveStatus?.matched_count != null ? `最近命中 ${autoArchiveStatus.matched_count} 个` : '尚无记录'}
             </strong>
           </div>
 
@@ -121,7 +117,7 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
               loading={runningAutoArchive}
               onClick={onRunAutoArchiveNow}
             >
-              立即巡检
+              运行全局归档规则
             </Button>
             <AutoArchiveControl currentCompetition={currentCompetition} buttonText="配置与历史" />
           </div>
@@ -136,24 +132,20 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
               </div>
               <div className="ios-card-name">提交流水监控</div>
             </div>
-            {health?.submission_monitor?.running ? (
-              <span className="ios-status-chip green">● 巡检中</span>
-            ) : (
-              <span className="ios-status-chip">待命</span>
-            )}
+            <span className="ios-status-chip">{schedulerLabel(health?.submission_monitor)}</span>
           </div>
 
           <div className="ios-metric">
-            <div className="ios-metric-label">最新公开分</div>
+            <div className="ios-metric-label">当前赛事最新提交公开分</div>
             <div className={`ios-metric-value ${latestSubmission?.public_score != null ? 'green' : ''}`}>
               {latestSubmission?.public_score != null ? latestSubmission.public_score.toFixed(4) : '暂无最新分'}
             </div>
           </div>
 
           <div className="ios-detail-line">
-            <span>待出分队列</span>
+            <span>全部赛事待出分</span>
             <strong style={{ color: health?.submission_monitor?.pending_count ? '#d77d00' : undefined }}>
-              {health?.submission_monitor?.pending_count ? `${health.submission_monitor.pending_count} 条队列中` : '0 条'}
+              {health?.submission_monitor?.last_checked_at && health?.submission_monitor?.pending_count != null ? `${health.submission_monitor.pending_count} 条` : '未知'}
             </strong>
           </div>
           <div className="ios-detail-line">
@@ -169,7 +161,7 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
               loading={runningSubmissionCheck}
               onClick={onRunSubmissionCheckNow}
             >
-              立即查分
+              检查全局监控赛事
             </Button>
             <SubmissionMonitorControl currentCompetition={currentCompetition} buttonText="配置与历史" />
           </div>
@@ -187,14 +179,14 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
                   <div className="ios-card-name">智能体天梯对战</div>
                 </div>
                 <span className={`ios-status-chip ${isSimCompMatch && isSimMonitoringActive ? 'orange' : ''}`}>
-                  {isSimCompMatch && isSimMonitoringActive ? '天梯对抗 (监控中)' : '天梯对抗 · 待命'}
+                  {isSimCompMatch ? schedulerLabel(health?.simulation_monitor) : '当前赛事未配置'}
                 </span>
               </div>
 
               <div className="ios-metric">
                 <div className="ios-metric-label">天梯当前排位</div>
                 <div className="ios-metric-value orange">
-                  {activeAgent1?.rank ? `#${activeAgent1.rank}` : (isSimCompMatch ? 'Ready' : '待配置')}
+                  {activeAgent1?.rank ? `#${activeAgent1.rank}` : (isSimCompMatch ? '暂无排名' : '待配置')}
                 </div>
               </div>
 
@@ -203,7 +195,7 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
                 <strong>
                   {activeAgent1?.win_rate != null
                     ? `${activeAgent1.win_rate}% (${activeAgent1.wins ?? 0}胜)`
-                    : (isSimCompMatch ? '暂无实时数据' : '后台未开启监控')}
+                    : (isSimCompMatch ? '暂无实时数据' : '暂无本赛事监控数据')}
                 </strong>
               </div>
               <div className="ios-detail-line">
@@ -222,6 +214,7 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
                   className="ant-btn-orange"
                   icon={<Play size={11} />}
                   loading={runningSimulationCheck}
+                  disabled={!isSimCompMatch}
                   onClick={onRunSimulationCheckNow}
                 >
                   抓取战报
@@ -244,13 +237,13 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
               <div className="ios-metric">
                 <div className="ios-metric-label">已发现代码</div>
                 <div className="ios-metric-value">
-                  {competitionInfo?.kernel_count ?? '100+'} <span style={{ fontSize: 13, fontWeight: 500 }}>篇</span>
+                  {competitionInfo?.kernel_count ?? '未知'} <span style={{ fontSize: 13, fontWeight: 500 }}>篇</span>
                 </div>
               </div>
 
               <div className="ios-detail-line">
                 <span>榜单状态</span>
-                <strong style={{ color: 'var(--ios-blue)' }}>就绪可按分排序</strong>
+                <strong style={{ color: 'var(--ios-blue)' }}>请在代码页查看分数覆盖</strong>
               </div>
               <div className="ios-detail-line">
                 <span>快速检索</span>
@@ -264,14 +257,14 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
                   icon={<LayoutDashboard size={11} />}
                   onClick={() => onNavigate('/kernels')}
                 >
-                  进入广场
+                  发现代码
                 </Button>
                 <Button
                   size="small"
                   icon={<Archive size={11} />}
                   onClick={() => onNavigate('/archives')}
                 >
-                  已归档 ({archiveStats?.total_archives ?? 0})
+                  全局归档 ({archiveStats?.total_archives ?? '—'})
                 </Button>
               </div>
             </>
@@ -288,16 +281,16 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
               <div className="ios-card-name">通知服务中心</div>
             </div>
             {health?.notifications?.worker_alive ? (
-              <span className="ios-status-chip green">● 通道正常</span>
+              <span className="ios-status-chip green">● 投递线程运行</span>
             ) : (
-              <span className="ios-status-chip">待命中</span>
+              <span className="ios-status-chip">{health?.notifications ? '投递线程未运行' : '状态未知'}</span>
             )}
           </div>
 
           <div className="ios-metric">
             <div className="ios-metric-label">待发送队列</div>
             <div className="ios-metric-value">
-              {health?.notifications?.pending_count || 0}
+              {health?.notifications?.pending_count ?? '—'}
             </div>
           </div>
 
@@ -308,7 +301,7 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
           <div className="ios-detail-line">
             <span>服务状态</span>
             <strong style={{ color: health?.notifications?.last_error ? '#ff3b30' : '#23a944' }}>
-              {health?.notifications?.last_error ? '异常报警' : '就绪待发'}
+              {!health?.notifications ? '状态未知' : health.notifications.last_error ? '最近投递异常' : health.notifications.last_sent_at ? '有成功投递记录' : '尚无成功投递记录'}
             </strong>
           </div>
 

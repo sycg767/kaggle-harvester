@@ -1,3 +1,5 @@
+import type { SubmissionMonitorItem } from '../../types/submissions.ts';
+
 export const formatBytes = (value = 0) => {
   if (value < 1024) return `${value} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
@@ -14,6 +16,7 @@ export const formatRelativeTime = (timeStr?: string | null) => {
   if (!timeStr) return '';
   try {
     const target = new Date(timeStr);
+    if (Number.isNaN(target.getTime())) return '时间未知';
     const now = new Date();
     const diffSec = Math.floor((now.getTime() - target.getTime()) / 1000);
     if (diffSec < 0) {
@@ -30,3 +33,20 @@ export const formatRelativeTime = (timeStr?: string | null) => {
     return timeStr;
   }
 };
+
+export function schedulerLabel(status?: { running: boolean; next_run_at?: string; enabled?: boolean; scheduler_alive: boolean; last_error?: string }) {
+  if (!status) return '状态未知';
+  if (status.running) return '执行中';
+  if (status.last_error) return '最近执行异常';
+  if (status.enabled === false) return '定时已关闭';
+  if (status.next_run_at) return status.scheduler_alive ? '等待下次执行' : '调度器离线';
+  return '当前未执行';
+}
+
+export function latestCompetitionSubmission(items: SubmissionMonitorItem[] | undefined, competition: string) {
+  if (!competition) return undefined;
+  return items?.filter(item => item.competition === competition).sort((a, b) => {
+    const time = (value?: string) => { const parsed = Date.parse(value || ''); return Number.isNaN(parsed) ? 0 : parsed; };
+    return time(b.date) - time(a.date);
+  })[0];
+}

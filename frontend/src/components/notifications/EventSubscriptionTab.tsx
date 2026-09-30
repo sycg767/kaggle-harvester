@@ -48,7 +48,7 @@ export const EventSubscriptionTab: React.FC = () => {
               <Swords size={18} color="#d97706" />
             </div>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>宝可梦模拟对战与天梯战报</div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>模拟对战与天梯战报</div>
               <div style={{ fontSize: 12, color: '#64748b' }}>双 Agent 新增对局胜负、排位变动与奖牌线升降级时推送（可单独关闭以避免群聊刷屏）</div>
             </div>
           </Space>

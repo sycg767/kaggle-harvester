@@ -306,6 +306,7 @@ a:hover {
 }
 
 .newapi-competition-pill .dot {
+  flex: 0 0 8px;
   width: 8px;
   height: 8px;
   border-radius: 50%;

@@ -50,7 +50,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
                   </Tag>
                   <Tag color="orange" className="arena-standby-status-tag">
                     <Clock size={11} style={{ marginRight: 3 }} />
-                    <span>监控休眠中</span>
+                    <span>暂无对应数据</span>
                   </Tag>
                 </div>
                 <div className="arena-standby-comp-id">
@@ -104,7 +104,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
             <div className="arena-standby-cutoffs-header">
               <Award size={14} color="#007aff" />
               <span className="arena-standby-cutoffs-title">
-                官方奖牌线席位切分 {totalTeams > 0 ? `(共 ${totalTeams.toLocaleString()} 支队伍)` : ''}
+                按通用规则估算席位（以赛事规则为准） {totalTeams > 0 ? `(共 ${totalTeams.toLocaleString()} 支队伍)` : ''}
               </span>
             </div>
             <Row gutter={[8, 8]}>
@@ -115,7 +115,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
                     <span>金牌区</span>
                   </div>
                   <div className="arena-standby-tier-val">
-                    Top {goldRank > 0 ? goldRank : '—'}
+                    Top {totalTeams > 0 && goldRank > 0 ? goldRank : '—'}
                   </div>
                 </div>
               </Col>
@@ -126,7 +126,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
                     <span>银牌区</span>
                   </div>
                   <div className="arena-standby-tier-val">
-                    Top {silverRank > 0 ? silverRank : '—'}
+                    Top {totalTeams > 0 && silverRank > 0 ? silverRank : '—'}
                   </div>
                 </div>
               </Col>
@@ -137,7 +137,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
                     <span>铜牌区</span>
                   </div>
                   <div className="arena-standby-tier-val">
-                    Top {bronzeRank > 0 ? bronzeRank : '—'}
+                    Top {totalTeams > 0 && bronzeRank > 0 ? bronzeRank : '—'}
                   </div>
                 </div>
               </Col>
@@ -150,10 +150,10 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
               <Zap size={16} color="#ff9500" />
               <div>
                 <div className="arena-standby-action-title">
-                  当前保持休眠（节约 API 额度）
+                  当前赛事尚无可展示的 Agent 数据
                 </div>
                 <div className="arena-standby-action-desc">
-                  提交后输入 Submission ID 即可开始追踪战力
+                  请检查监控赛事、Submission ID 和最近采集结果
                 </div>
               </div>
             </div>

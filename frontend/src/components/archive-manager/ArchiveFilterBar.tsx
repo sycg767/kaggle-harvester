@@ -46,12 +46,12 @@ export const ArchiveFilterBar: React.FC<ArchiveFilterBarProps> = ({
         <Col xs={24} md={14} lg={15}>
           <Input
             className="archive-search-input"
-            aria-label="搜索本地归档"
+            aria-label="搜索服务器归档"
             allowClear
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             prefix={<SearchOutlined className="archive-search-icon" />}
-            placeholder="搜索 Kernel、作者、ref 或本地路径"
+            placeholder="搜索 Kernel、作者、ref 或服务器路径"
           />
         </Col>
         <Col xs={24} md={10} lg={9}>

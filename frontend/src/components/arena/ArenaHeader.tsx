@@ -39,12 +39,12 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
             ) : hasSimData ? (
               <Tag color="gold" className="arena-status-tag">
                 <Activity size={12} />
-                <span>实时</span>
+                <span>采集快照</span>
               </Tag>
             ) : (
               <Tag color="blue" className="arena-status-tag">
                 <Clock size={12} />
-                <span>待命</span>
+                <span>暂无数据</span>
               </Tag>
             )}
           </div>

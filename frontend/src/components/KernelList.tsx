@@ -16,6 +16,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { type ScoredKernel } from '../api';
 import { buildEnteredCompetitionOptions } from '../competitionOptions';
 import { KernelVersionModal } from './KernelVersionModal';
+import ArchiveJobsPanel from './ArchiveJobsPanel';
 import { KernelArchiveModal } from './KernelArchiveModal';
 import { resolveScoreDirection, saveScoreDirection } from '../scoreDirection';
 import { HARVESTER_EVENTS } from '../events';
@@ -105,6 +106,8 @@ const KernelList: React.FC = () => {
   } = useKernelVersions();
 
   const {
+    archiveCompetition,
+    archiveSubmissionPending,
     archiveModalOpen,
     setArchiveModalOpen,
     archiveTargets,
@@ -264,8 +267,8 @@ const KernelList: React.FC = () => {
     <div className="page-shell kernel-workspace">
       <header className="page-header kernel-page-header">
         <div className="page-title-wrap">
-          <h1 className="page-title kernel-page-title">Kernel 广场</h1>
-          <span className="page-subtitle kernel-page-subtitle">浏览公开分数榜并保存可复现的本地版本</span>
+          <h1 className="page-title kernel-page-title">代码发现</h1>
+          <span className="page-subtitle kernel-page-subtitle">发现公开方案，保存源码与依赖信息；复现需另行验证</span>
         </div>
         <div className="page-actions">
           <Button
@@ -281,6 +284,7 @@ const KernelList: React.FC = () => {
       </header>
 
       <div className="page-content kernel-page-content">
+        <ArchiveJobsPanel competition={competition} />
         <KernelMetricsCards
           kernelsCount={kernels.length}
           scoredCount={scoredKernels.length}
@@ -460,6 +464,8 @@ const KernelList: React.FC = () => {
       />
 
       <KernelArchiveModal
+        archiveCompetition={archiveCompetition}
+        archiveSubmissionPending={archiveSubmissionPending}
         open={archiveModalOpen}
         archiveRunning={archiveRunning}
         archiveCompleted={archiveCompleted}

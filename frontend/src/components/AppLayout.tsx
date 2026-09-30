@@ -54,6 +54,7 @@ const AppLayout: React.FC = () => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [rememberApiKey, setRememberApiKey] = useState(true);
   const [authChecking, setAuthChecking] = useState(false);
@@ -94,6 +95,7 @@ const AppLayout: React.FC = () => {
         setBackendOnline(true);
         setIsReconnecting(false);
         setConnectionError('');
+        setAuthRequired(false);
         lastHealthErrorRef.current = null;
         consecutiveFailuresRef.current = 0;
         loadedRef.current = true;
@@ -104,6 +106,9 @@ const AppLayout: React.FC = () => {
             localStorage.getItem('harvester.competition') ||
             status.active_competition?.competition ||
             status.default_competition;
+          if (activeCompetition && !localStorage.getItem('harvester.competition')) {
+            localStorage.setItem('harvester.competition', activeCompetition);
+          }
           void api.getCompetition(activeCompetition)
             .then((comp) => { if (comp) setCompetitionInfo(comp); })
             .catch(() => null);
@@ -114,7 +119,7 @@ const AppLayout: React.FC = () => {
         setConnectionError(describeConnectionError(error));
         consecutiveFailuresRef.current += 1;
         const authFailed = error instanceof ApiError && error.status === 401;
-        if (authFailed) setAuthOpen(true);
+        if (authFailed) { setAuthOpen(true); setAuthRequired(true); }
         if (!loadedRef.current || authFailed) {
           setBackendOnline(false);
         } else {
@@ -143,7 +148,7 @@ const AppLayout: React.FC = () => {
   }, [loadData]);
 
   useEffect(() => {
-    const requireAuth = () => setAuthOpen(true);
+    const requireAuth = () => { setAuthRequired(true); setAuthOpen(true); };
     window.addEventListener('harvester:auth-required', requireAuth);
     return () => window.removeEventListener('harvester:auth-required', requireAuth);
   }, []);
@@ -170,6 +175,7 @@ const AppLayout: React.FC = () => {
   const forgetApiKey = () => {
     apiAuth.clearKey();
     setRuntimeOpen(false);
+    setAuthRequired(true);
     setApiKey('');
     setAuthOpen(true);
     message.success('已清除当前浏览器保存的访问密钥');
@@ -283,10 +289,10 @@ const AppLayout: React.FC = () => {
   const navItems: NavItem[] = [
     { key: 'dashboard', label: '竞赛工作台', icon: <Activity size={17} /> },
     { key: 'arena', label: '天梯对抗', icon: <Swords size={17} /> },
-    { key: 'kernels', label: 'Kernel 广场', icon: <LayoutDashboard size={17} /> },
+    { key: 'kernels', label: '代码发现', icon: <LayoutDashboard size={17} /> },
     {
       key: 'archives',
-      label: '本地归档',
+      label: '归档与研究',
       icon: <Archive size={17} />,
       badge: archiveStats?.total_archives,
     },
@@ -336,7 +342,7 @@ const AppLayout: React.FC = () => {
       <div className="newapi-sidebar-summary" aria-label="归档统计">
         <div className="newapi-sidebar-summary-title">
           <Database size={14} />
-          <span>本地存储</span>
+          <span>服务器存储 · 全部赛事</span>
         </div>
         <div className="newapi-sidebar-summary-row">
           <span>归档版本</span>
@@ -349,7 +355,7 @@ const AppLayout: React.FC = () => {
         <div className="newapi-sidebar-summary-row">
           <span>磁盘剩余</span>
           <strong className={archiveStats.low_disk_space ? 'is-danger' : ''}>
-            {formatBytes(archiveStats.disk_free_bytes)}
+            {archiveStats.disk_free_bytes == null ? '未知' : formatBytes(archiveStats.disk_free_bytes)}
           </strong>
         </div>
       </div>
@@ -456,7 +462,7 @@ const AppLayout: React.FC = () => {
                 }`}
               />
               <span>
-                {!backendOnline ? '连接中断' : isReconnecting ? '同步重试中' : health?.ready ? '服务正常' : '部分降级'}
+                {!backendOnline ? (loading ? '连接中' : authRequired ? '需要登录' : '连接中断') : isReconnecting ? '同步重试中' : health?.ready ? '服务正常' : '部分降级'}
               </span>
             </div>
           </Tooltip>
@@ -488,14 +494,16 @@ const AppLayout: React.FC = () => {
         </aside>
 
         <main className="newapi-content" id="main-content">
-          {!backendOnline && !hasLoadedOnce && !loading ? (
+          {!hasLoadedOnce && loading ? (
+            <div className="newapi-center-state"><Spin /><Typography.Paragraph>正在读取工作区...</Typography.Paragraph></div>
+          ) : !backendOnline && !hasLoadedOnce ? (
             <div className="newapi-center-state">
-              <Typography.Title level={4}>无法连接到后端服务</Typography.Title>
+              <Typography.Title level={4}>{authRequired ? '需要访问验证' : '暂时无法连接服务'}</Typography.Title>
               <Typography.Paragraph type="secondary">
                 {connectionError}
               </Typography.Paragraph>
-              <Button type="primary" icon={<RefreshCw size={16} />} onClick={() => void loadData(true)}>
-                重试连接
+              <Button type="primary" icon={<RefreshCw size={16} />} onClick={() => authRequired ? setAuthOpen(true) : void loadData(true)}>
+                {authRequired ? '输入访问码' : '重试连接'}
               </Button>
             </div>
           ) : (

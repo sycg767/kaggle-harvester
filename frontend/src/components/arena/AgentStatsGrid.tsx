@@ -55,7 +55,7 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
               ? '#ff3b30'
               : '#8e8e93';
           const delta =
-            ep?.score_delta !== undefined
+            ep?.score_delta != null
               ? ep.score_delta >= 0
                 ? `+${ep.score_delta.toFixed(1)}`
                 : ep.score_delta.toFixed(1)
@@ -100,7 +100,7 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
                       距铜牌 {Math.abs(gap).toFixed(1)}分
                     </Tag>
                   ) : (
-                    <Tag color="default" className="arena-tier-tag">未入围</Tag>
+                    <Tag color="default" className="arena-tier-tag">奖牌状态未知</Tag>
                   )}
                 </div>
 
@@ -110,7 +110,7 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
                     {formatScore(scoreVal)}
                   </div>
                   <div className="arena-agent-rank-badge">
-                    {agent.rank ? `第 ${agent.rank} 名` : '未上榜'}
+                    {agent.rank ? `第 ${agent.rank} 名` : '排名未知'}
                   </div>
                 </div>
 
@@ -119,39 +119,42 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
                   <div className="arena-agent-metric-item">
                     <span className="arena-metric-label">胜率:</span>
                     <span className="arena-metric-val">
-                      {agent.win_rate !== undefined ? agent.win_rate.toFixed(1) : '—'}%
+                      {agent.win_rate != null ? agent.win_rate.toFixed(1) : '—'}%
                     </span>
                     <span className="arena-metric-sub">
-                      ({agent.wins ?? 0}胜/{agent.losses ?? 0}负)
+                      ({agent.wins ?? '—'}胜/{agent.losses ?? '—'}负)
                     </span>
                   </div>
 
                   {!isFinished && (
                     <div className="arena-agent-metric-item">
                       {(() => {
-                        const score = agent.score ?? agent.public_score ?? 0;
+                        const score = agent.score ?? agent.public_score;
+                        if (score == null) return <span className="arena-metric-sub">安全垫: —</span>;
                         const tier = agent.medal_tier || 'none';
                         if (tier === 'gold') {
                           const c =
                             agent.tier_cushion_score ??
-                            (thresholds?.gold_cutoff_score
+                            (thresholds?.gold_cutoff_score != null
                               ? score - thresholds.gold_cutoff_score
-                              : 0);
+                              : null);
+                          if (c == null) return <span className="arena-metric-sub">安全垫: —</span>;
                           return (
                             <span className="arena-cushion gold">
-                              金牌安全垫: +{c.toFixed(1)}分
+                              金牌安全垫: {c >= 0 ? '+' : ''}{c.toFixed(1)}分
                             </span>
                           );
                         }
                         if (tier === 'silver') {
                           const c =
                             agent.tier_cushion_score ??
-                            (thresholds?.silver_cutoff_score
+                            (thresholds?.silver_cutoff_score != null
                               ? score - thresholds.silver_cutoff_score
-                              : 0);
+                              : null);
+                          if (c == null) return <span className="arena-metric-sub">安全垫: —</span>;
                           return (
                             <span className="arena-cushion silver">
-                              银牌安全垫: +{c.toFixed(1)}分
+                              银牌安全垫: {c >= 0 ? '+' : ''}{c.toFixed(1)}分
                             </span>
                           );
                         }
@@ -159,18 +162,19 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
                           const c =
                             agent.tier_cushion_score ??
                             agent.bronze_gap_score ??
-                            (thresholds?.bronze_cutoff_score
+                            (thresholds?.bronze_cutoff_score != null
                               ? score - thresholds.bronze_cutoff_score
-                              : 0);
+                              : null);
+                          if (c == null) return <span className="arena-metric-sub">安全垫: —</span>;
                           return (
                             <span className="arena-cushion bronze">
-                              铜牌安全垫: +{c.toFixed(1)}分
+                              铜牌安全垫: {c >= 0 ? '+' : ''}{c.toFixed(1)}分
                             </span>
                           );
                         }
                         const gapVal =
                           agent.bronze_gap_score ??
-                          (thresholds?.bronze_cutoff_score
+                          (thresholds?.bronze_cutoff_score != null
                             ? score - thresholds.bronze_cutoff_score
                             : null);
                         if (gapVal !== null && gapVal !== undefined) {
@@ -180,7 +184,7 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
                             </span>
                           ) : (
                             <span className="arena-cushion danger">
-                              距铜牌: {gapVal.toFixed(1)}分
+                              距铜牌: {Math.abs(gapVal).toFixed(1)}分
                             </span>
                           );
                         }
@@ -194,7 +198,7 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
                 <div className="arena-agent-recent-row">
                   {ep ? (
                     <span className="arena-recent-match">
-                      <span className="arena-recent-prefix">{isFinished ? '收官战:' : '最新:'}</span>
+                      <span className="arena-recent-prefix">最近记录:</span>
                       <span className="arena-recent-opp">vs {opp.length > 14 ? `${opp.slice(0, 14)}..` : opp}</span>
                       <span className="arena-recent-res" style={{ color: resColor }}>
                         {res} {delta}

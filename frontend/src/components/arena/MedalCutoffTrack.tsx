@@ -3,12 +3,11 @@ import { Card, Tooltip } from 'antd';
 import { Trophy, Medal, Award } from 'lucide-react';
 import type { SimulationAgentStats, SimulationMedalThresholds } from '../../types/api';
 import type { AgentMetaItem } from './agentMeta';
-import { calculateMedalRanks } from './medalRules';
 
 interface MedalCutoffTrackProps {
   thresholds?: SimulationMedalThresholds;
   agents: SimulationAgentStats[];
-  totalTeams: number;
+  totalTeams?: number;
   isFinished: boolean;
   getAgentMeta: (ag: SimulationAgentStats, idx: number) => AgentMetaItem;
 }
@@ -20,22 +19,18 @@ export const MedalCutoffTrack: React.FC<MedalCutoffTrackProps> = ({
   isFinished,
   getAgentMeta,
 }) => {
-  const goldCutoff = thresholds?.gold_cutoff_score || 950;
-  const silverCutoff = thresholds?.silver_cutoff_score || 890;
-  const bronzeCutoff = thresholds?.bronze_cutoff_score || 839;
-
-  const fallbackRanks = calculateMedalRanks(totalTeams, thresholds?.bronze_percentile || 0.10);
-  const goldRank = thresholds?.gold_cutoff_rank || fallbackRanks.goldRank;
-  const silverRank = thresholds?.silver_cutoff_rank || fallbackRanks.silverRank;
-  const bronzeRank = thresholds?.bronze_cutoff_rank || fallbackRanks.bronzeRank;
-
-  const goldDesc = totalTeams >= 1000 ? 'Top 10 + 0.2%' : totalTeams >= 100 ? 'Top 10' : 'Top 10%';
-  const silverDesc = totalTeams >= 1000 ? 'Top 5%' : totalTeams >= 250 ? 'Top 50' : 'Top 20%';
-  const bronzeDesc = totalTeams >= 1000
-    ? `Top ${Math.round((thresholds?.bronze_percentile || 0.10) * 100)}%`
-    : totalTeams >= 250
-      ? 'Top 100'
-      : 'Top 40%';
+  const goldCutoff = thresholds?.gold_cutoff_score;
+  const silverCutoff = thresholds?.silver_cutoff_score;
+  const bronzeCutoff = thresholds?.bronze_cutoff_score;
+  if (goldCutoff == null || silverCutoff == null || bronzeCutoff == null) {
+    return <Card className="arena-panel arena-cutoff-panel">奖牌线数据不完整，暂不绘制区间；不会使用默认分数代替。</Card>;
+  }
+  const goldRank = thresholds?.gold_cutoff_rank ?? '未知';
+  const silverRank = thresholds?.silver_cutoff_rank ?? '未知';
+  const bronzeRank = thresholds?.bronze_cutoff_rank ?? '未知';
+  const goldDesc = '采集快照';
+  const silverDesc = '采集快照';
+  const bronzeDesc = '采集快照';
 
   const allScores: number[] = [
     bronzeCutoff,
@@ -61,7 +56,7 @@ export const MedalCutoffTrack: React.FC<MedalCutoffTrackProps> = ({
         <div className="arena-cutoff-title-group">
           <Award size={16} color="#007aff" />
           <h3 className="arena-cutoff-title">
-            奖牌线切分 (总计 {totalTeams.toLocaleString()} 支参赛队{isFinished ? ' · 终榜线' : ''})
+            奖牌线切分 (总计 {totalTeams?.toLocaleString() ?? '未知'} 支参赛队{isFinished ? ' · 截止后快照' : ''})
           </h3>
         </div>
         <div className="arena-cutoff-legends">
@@ -98,7 +93,7 @@ export const MedalCutoffTrack: React.FC<MedalCutoffTrackProps> = ({
           const pos = getPinPct(score);
           const meta = getAgentMeta(ag, idx);
           const pColor = meta.accent || '#007aff';
-          const tierLabel = ag.medal_tier === 'gold' ? '金牌区' : ag.medal_tier === 'silver' ? '银牌区' : ag.medal_tier === 'bronze' ? '铜牌区' : '未入围';
+          const tierLabel = ag.medal_tier === 'gold' ? '金牌区' : ag.medal_tier === 'silver' ? '银牌区' : ag.medal_tier === 'bronze' ? '铜牌区' : '奖牌状态未知';
 
           return (
             <Tooltip

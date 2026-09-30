@@ -22,6 +22,8 @@ export type ArchiveVersionChoice = 'best' | 'latest' | `version:${number}`;
 
 interface KernelArchiveModalProps {
   open: boolean;
+  archiveCompetition?: string;
+  archiveSubmissionPending?: boolean;
   archiveRunning: boolean;
   archiveCompleted: boolean;
   archiveTargets: ScoredKernel[];
@@ -42,6 +44,8 @@ interface KernelArchiveModalProps {
 
 export const KernelArchiveModal: React.FC<KernelArchiveModalProps> = ({
   open,
+  archiveCompetition,
+  archiveSubmissionPending,
   archiveRunning,
   archiveCompleted,
   archiveTargets,
@@ -66,7 +70,7 @@ export const KernelArchiveModal: React.FC<KernelArchiveModalProps> = ({
         <DialogTitle
           icon={<Archive size={17} color="#007aff" />}
           title={archiveTargets.length > 1 ? `批量归档 ${archiveTargets.length} 个 Kernel` : '归档 Kernel'}
-          subtitle="本地结构化完整封存代码、运行环境与元数据"
+          subtitle="保存到应用所在服务器：源码、元数据及可选输出；不代表已验证复现"
           disabled={archiveRunning}
           onClose={() => !archiveRunning && onClose()}
         />
@@ -84,11 +88,13 @@ export const KernelArchiveModal: React.FC<KernelArchiveModalProps> = ({
         ) : (
           <Space>
             <Button disabled={archiveRunning} onClick={onClose}>取消</Button>
-            <Button type="primary" loading={archiveRunning} onClick={onRunArchive}>开始归档</Button>
+            <Button type="primary" loading={archiveRunning} onClick={onRunArchive}>提交后台任务</Button>
           </Space>
         )
       }
     >
+      <Alert type="info" message={`归档赛事：${archiveCompetition || '未指定'}`} description="已存在的版本会跳过，不会自动补下载输出或覆盖文件。" style={{ marginBottom: 12 }} />
+      {archiveSubmissionPending && <Alert type="info" message="正在确认这次提交。参数已固定，重试会恢复同一任务，不会重复创建。" style={{ marginBottom: 12 }} />}
       {!archiveRunning && !archiveCompleted ? (
         <>
           <div className="settings-group" style={{ marginTop: 4, marginBottom: 12 }}>
@@ -114,7 +120,7 @@ export const KernelArchiveModal: React.FC<KernelArchiveModalProps> = ({
                     onChange={(value) => onVersionChoiceChange(value as ArchiveVersionChoice)}
                     options={archiveVersionOptions}
                     loading={archiveVersionsLoading}
-                    disabled={archiveVersionsLoading}
+                    disabled={archiveVersionsLoading || archiveSubmissionPending}
                     style={{ width: '100%' }}
                   />
                 </div>
@@ -126,14 +132,14 @@ export const KernelArchiveModal: React.FC<KernelArchiveModalProps> = ({
                 <span className="settings-row-desc">除源码外一并抓取模型、权重与结果文件</span>
               </div>
               <div className="settings-row-control">
-                <Switch checked={includeOutputs} onChange={onIncludeOutputsChange} />
+                <Switch disabled={archiveSubmissionPending} checked={includeOutputs} onChange={onIncludeOutputsChange} />
               </div>
             </div>
           </div>
           {archiveVersionsError && archiveTargets.length === 1 && (
             <Alert type="warning" showIcon message="历史版本列表读取失败，仍可使用自动选择最佳版本。" description={archiveVersionsError} style={{ marginTop: 12 }} />
           )}
-          {includeOutputs && <Alert type="warning" showIcon message="输出文件可能显著增加下载时间与本地占用。" style={{ marginTop: 12 }} />}
+          {includeOutputs && <Alert type="warning" showIcon message="输出文件可能显著增加下载时间与服务器存储占用。" style={{ marginTop: 12 }} />}
         </>
       ) : (
         <div style={{ padding: '8px 0 4px' }}>

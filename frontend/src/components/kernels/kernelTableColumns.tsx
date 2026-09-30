@@ -131,7 +131,7 @@ export const buildKernelTableColumns = ({
     ),
   },
   {
-    title: '本地状态',
+    title: '归档状态',
     width: 125,
     render: (_, record) => {
       const values = archivedVersions.get(record.ref);

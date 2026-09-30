@@ -35,6 +35,7 @@ export function useKernelListState() {
   const [competition, setCompetition] = useState(
     () => localStorage.getItem('harvester.competition') || DEFAULT_COMPETITION,
   );
+  const competitionRef = useRef(competition);
   const [recentCompetitions, setRecentCompetitions] = useState(() => {
     const current = localStorage.getItem('harvester.competition') || DEFAULT_COMPETITION;
     return [...new Set([current, DEFAULT_COMPETITION, ...readRecentCompetitions()])].slice(0, 8);
@@ -112,6 +113,7 @@ export function useKernelListState() {
         setKernels(result.items);
         setCacheInfo(result.cache);
         setBackgroundRefreshing(result.cache.refreshing);
+        competitionRef.current = nextCompetition;
         setCompetition(nextCompetition);
         setCompetitionInput(nextCompetition);
         localStorage.setItem('harvester.competition', nextCompetition);
@@ -217,6 +219,19 @@ export function useKernelListState() {
       window.removeEventListener(HARVESTER_EVENTS.defaultCompetitionChanged, handleDefaultChanged);
     };
   }, []);
+
+  useEffect(() => {
+    const changed = (event: Event) => {
+      const slug = (event as CustomEvent<string>).detail;
+      if (!slug || slug === competitionRef.current) return;
+      competitionRef.current = slug;
+      setCompetitionInput(slug); setCompetition(slug);
+      setKernels([]); setArchives([]); setCompetitionInfo(null);
+      void loadKernels(false, slug);
+    };
+    window.addEventListener(HARVESTER_EVENTS.competitionChanged, changed);
+    return () => window.removeEventListener(HARVESTER_EVENTS.competitionChanged, changed);
+  }, [loadKernels]);
 
   useEffect(() => () => requestControllerRef.current?.abort(), []);
 

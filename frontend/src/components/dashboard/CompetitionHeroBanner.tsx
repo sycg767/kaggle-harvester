@@ -47,14 +47,14 @@ export const CompetitionHeroBanner: React.FC<CompetitionHeroBannerProps> = ({
             </span>
           ) : null}
         </div>
-        <span className="ios-hero-chip gray desktop-only">实时监控 · 一键直达</span>
+        <span className="ios-hero-chip gray desktop-only">当前赛事工作区</span>
       </div>
 
       <h1 className="ios-hero-title">{displayTitle}</h1>
       <div className="ios-hero-sub">
         {isSimulation
-          ? '当前处于对抗竞技模式，后台实时追踪 Agent 天梯胜率、对局流水战报与金银铜牌安全垫线。'
-          : '当前处于标准竞赛模式，支持自动化监控自提交最新出分，优先开源高分 Notebooks 智能归档与依赖提取。'}
+          ? '当前处于对抗竞技模式，配置监控后可查看 Agent 排名、最近对局和奖牌线快照。'
+          : '查看本赛事提交、发现代码并归档版本；自动化任务按各自保存的赛事范围执行。'}
       </div>
 
       <div className="ios-hero-bottom">
@@ -99,14 +99,14 @@ export const CompetitionHeroBanner: React.FC<CompetitionHeroBannerProps> = ({
             icon={<LayoutDashboard size={15} />}
             onClick={() => onNavigate('/kernels')}
           >
-            代码广场
+            代码发现
           </Button>
           <Button
             className="ios-btn ios-btn-ghost"
             icon={<Archive size={15} />}
             onClick={() => onNavigate('/archives')}
           >
-            本地归档
+            服务器归档
           </Button>
         </div>
       </div>

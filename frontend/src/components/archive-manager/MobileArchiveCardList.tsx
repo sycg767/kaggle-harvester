@@ -16,6 +16,7 @@ import {
   EllipsisOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
+import { studyOptions, type ArchiveStudy } from '../../archiveStudyApi';
 import type { ArchiveEntry } from '../../api';
 import {
   kaggleAuthorUrl,
@@ -27,6 +28,8 @@ import { formatBytes, formatDateParts, formatScore } from './archiveUtils';
 const { Text } = Typography;
 
 interface MobileArchiveCardListProps {
+  studyErrors?: Record<string, string>;
+  studies?: Record<string, ArchiveStudy>;
   archives: ArchiveEntry[];
   allDisplayArchives: ArchiveEntry[];
   loading: boolean;
@@ -43,6 +46,8 @@ interface MobileArchiveCardListProps {
 
 export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
   archives,
+  studies = {},
+  studyErrors = {},
   allDisplayArchives,
   loading,
   selectedRowKeys,
@@ -56,14 +61,14 @@ export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
   onDeleteArchives,
 }) => {
   return (
-    <div className="archive-mobile-list" aria-label="本地归档移动端列表">
+    <div className="archive-mobile-list" aria-label="服务器归档移动端列表">
       {loading && !allDisplayArchives.length ? (
         <div className="archive-mobile-empty" style={{ padding: '60px 0', textAlign: 'center' }}>
           <Spin size="large" tip="正在载入归档列表..." />
         </div>
       ) : !allDisplayArchives.length ? (
         <div className="archive-mobile-empty-card">
-          <Empty description="暂无本地归档">
+          <Empty description="暂无服务器归档">
             <Button type="primary" onClick={onNavigateToKernels}>前往 Kernel 广场</Button>
           </Empty>
         </div>
@@ -117,6 +122,7 @@ export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
                     <Tag className="archive-version-pill">v{archive.version_number}</Tag>
                   </div>
 
+                  <Tag color={studyErrors[archive.id] ? 'error' : undefined}>{studyErrors[archive.id] ? '状态无法读取' : studyOptions.find(option => option.value === (studies[archive.id]?.status || 'unread'))?.label}</Tag>
                   {/* Tier 2: Score + Competition */}
                   <div className="archive-mobile-score-row">
                     <div className="archive-mobile-score-box">

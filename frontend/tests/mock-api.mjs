@@ -9,6 +9,8 @@ const json = (response, body, headers = {}) => {
 
 http.createServer((request, response) => {
   const url = new URL(request.url || '/', `http://127.0.0.1:${port}`);
+  if (url.pathname === '/api/archive-jobs') { json(response, []); return; }
+  if (url.pathname === '/api/archives/studies') { json(response, {}); return; }
   if (url.pathname === '/api/health') {
     json(response, {
       status: 'ok', service: 'kaggle-harvester', version: 'test', ready: true,

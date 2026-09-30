@@ -132,7 +132,7 @@ export const AutoArchiveConfigForm: React.FC<AutoArchiveConfigFormProps> = ({
                         aria-label={`${slug} 分数阈值`}
                         precision={6}
                         style={{ width: '100%' }}
-                        placeholder="例如 7.0"
+                        placeholder="输入本赛事的目标公开分数"
                       />
                     </Form.Item>
                   </Col>
@@ -153,7 +153,7 @@ export const AutoArchiveConfigForm: React.FC<AutoArchiveConfigFormProps> = ({
       <Form.Item
         name="score_direction"
         label="分数方向"
-        extra="自动识别失败时任务会停止，不会按默认方向归档。多竞赛方向不一致时请拆分配置。"
+        extra="所有选中赛事共用频率和输出策略。方向不一致时请选择自动识别，各赛事分别判断；识别失败会停止该赛事。"
       >
         <Select options={[
           { value: 'auto', label: '自动识别（仅接受可靠来源）' },
