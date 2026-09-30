@@ -62,11 +62,15 @@ a:hover {
 }
 
 .mobile-only {
-  display: none;
+  display: none !important;
+}
+
+.newapi-sidebar-trigger.mobile-only {
+  display: none !important;
 }
 
 .mobile-data-list {
-  display: none;
+  display: none !important;
 }
 
 .newapi-app {
@@ -492,6 +496,20 @@ a:hover {
   border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+.newapi-center-state,
+.newapi-content-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  gap: 14px;
+  text-align: center;
+  padding: 60px 16px;
+  box-sizing: border-box;
+  margin: 0 auto;
 }
 
 .page-shell {
@@ -2159,6 +2177,14 @@ a:hover {
   }
 
   .mobile-only {
+    display: inline-flex !important;
+  }
+
+  .newapi-sidebar-trigger.desktop-only {
+    display: none !important;
+  }
+
+  .newapi-sidebar-trigger.mobile-only {
     display: inline-flex !important;
   }
 

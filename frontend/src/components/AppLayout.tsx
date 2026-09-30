@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   App as AntApp,
@@ -54,7 +54,22 @@ const AppLayout: React.FC = () => {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
   const [loadingSlow, setLoadingSlow] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= 768,
+  );
   const shortcutLabel = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setMobileNavOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -299,22 +314,25 @@ const AppLayout: React.FC = () => {
   return (
     <div className={`newapi-app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <header className="newapi-header">
-        <Tooltip title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
+        {!isMobile ? (
+          <Tooltip title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
+            <Button
+              type="text"
+              className="newapi-sidebar-trigger desktop-only"
+              icon={sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+              aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+              onClick={toggleSidebar}
+            />
+          </Tooltip>
+        ) : (
           <Button
             type="text"
-            className="newapi-sidebar-trigger desktop-only"
-            icon={sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-            aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
-            onClick={toggleSidebar}
+            className="newapi-sidebar-trigger mobile-only"
+            icon={<Menu size={18} />}
+            aria-label="打开功能导航"
+            onClick={() => setMobileNavOpen(true)}
           />
-        </Tooltip>
-        <Button
-          type="text"
-          className="newapi-sidebar-trigger mobile-only"
-          icon={<Menu size={18} />}
-          aria-label="打开功能导航"
-          onClick={() => setMobileNavOpen(true)}
-        />
+        )}
 
         <button
           type="button"
@@ -409,22 +427,7 @@ const AppLayout: React.FC = () => {
         </aside>
 
         <main className="newapi-content" id="main-content">
-          {loading && !backendOnline ? (
-            <div className="newapi-center-state">
-              <Spin size="large" />
-              <Typography.Text type="secondary">正在连接 Kaggle Harvester 后端服务...</Typography.Text>
-              {loadingSlow && (
-                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                  <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                    移动端连接较慢，若长时间无响应可点击下方重试
-                  </Typography.Text>
-                  <Button size="small" onClick={loadData}>
-                    重试连接
-                  </Button>
-                </div>
-              )}
-            </div>
-          ) : !backendOnline ? (
+          {!backendOnline && !loading ? (
             <div className="newapi-center-state">
               <Typography.Title level={4}>无法连接到后端服务</Typography.Title>
               <Typography.Paragraph type="secondary">
@@ -435,17 +438,30 @@ const AppLayout: React.FC = () => {
               </Button>
             </div>
           ) : (
-            <Outlet />
+            <Suspense
+              fallback={
+                <div className="newapi-content-loading">
+                  <Spin size="large" />
+                  <Typography.Text type="secondary" style={{ fontSize: 13, marginTop: 8 }}>
+                    正在载入页面...
+                  </Typography.Text>
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           )}
         </main>
       </div>
 
-      <MobileNavDrawer
-        open={mobileNavOpen}
-        onClose={() => setMobileNavOpen(false)}
-        renderNavigation={() => renderNavigation(true)}
-        renderArchiveSummary={renderArchiveSummary}
-      />
+      {isMobile && (
+        <MobileNavDrawer
+          open={mobileNavOpen}
+          onClose={() => setMobileNavOpen(false)}
+          renderNavigation={() => renderNavigation(true)}
+          renderArchiveSummary={renderArchiveSummary}
+        />
+      )}
 
       <RuntimeDiagnosticsDrawer
         open={runtimeOpen}

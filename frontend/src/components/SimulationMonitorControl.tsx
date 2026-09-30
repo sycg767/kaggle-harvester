@@ -35,12 +35,16 @@ interface SimulationMonitorControlProps {
   currentCompetition?: string;
   buttonText?: string;
   buttonIcon?: React.ReactNode;
+  buttonType?: 'primary' | 'default' | 'dashed' | 'link' | 'text';
+  buttonStyle?: React.CSSProperties;
 }
 
 export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> = ({
   currentCompetition,
   buttonText,
   buttonIcon,
+  buttonType,
+  buttonStyle,
 }) => {
   const { message } = AntApp.useApp();
   const [open, setOpen] = useState(false);
@@ -299,9 +303,10 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   return (
     <>
       <Button
+        type={buttonType || 'default'}
         icon={buttonIcon || <Swords size={14} />}
         onClick={() => setOpen(true)}
-        style={{ borderRadius: 6, fontSize: 12, fontWeight: 500 }}
+        style={{ borderRadius: 6, fontSize: 12, fontWeight: 500, ...buttonStyle }}
       >
         {buttonText || '天梯对战监控'}
       </Button>

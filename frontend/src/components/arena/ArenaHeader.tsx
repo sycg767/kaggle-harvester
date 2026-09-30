@@ -71,8 +71,8 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
               </Tag>
             )}
           </div>
-          <div style={{ fontSize: 13, color: '#64748b', marginTop: 3 }}>
-            支持仿真对抗赛事 ELO 积分追踪、对局流水回放、多 Agent 战力矩阵与奖牌安全垫评估
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
+            仿真对抗赛事 ELO 追踪与智能体战力评估
           </div>
         </div>
       </Space>

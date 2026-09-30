@@ -253,7 +253,7 @@ export const SimulationArena: React.FC = () => {
       />
 
       {loading ? (
-        <div style={{ display: 'grid', placeItems: 'center', padding: '80px 0', gap: 12 }}>
+        <div style={{ display: 'grid', placeItems: 'center', minHeight: '40vh', padding: '60px 0', gap: 12 }}>
           <Spin size="large" />
           <span style={{ color: '#64748b', fontSize: 13 }}>正在载入天梯战况与对局流水...</span>
         </div>

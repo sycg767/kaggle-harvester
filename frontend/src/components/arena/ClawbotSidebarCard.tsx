@@ -3,7 +3,7 @@ import { Button, Card, Space, Tag, Tooltip, Typography } from 'antd';
 import { Bot, RefreshCw, Smartphone } from 'lucide-react';
 import type { SimulationClawbotStatus } from '../../types/api';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 interface ClawbotSidebarCardProps {
   clawbot?: SimulationClawbotStatus | null;
@@ -117,17 +117,10 @@ export const ClawbotSidebarCard: React.FC<ClawbotSidebarCardProps> = ({
 
         {/* WeChat Commands Quick List */}
         <div style={{ fontSize: 12, color: '#475569', marginBottom: 14 }}>
-          <Space size={6} style={{ marginBottom: 6 }}>
+          <Space size={6} style={{ marginBottom: 8 }}>
             <Smartphone size={14} color="#0284c7" />
-            <span style={{ fontWeight: 600, color: '#0f172a' }}>
-              {isStandby ? '手机微信随时可用：' : '手机微信直接发送指令：'}
-            </span>
+            <span style={{ fontWeight: 600, color: '#0f172a' }}>微信快捷指令</span>
           </Space>
-          {isStandby && (
-            <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 8 }}>
-              在手机微信向管家发送指令，随时查询竞赛信息或唤醒对局巡检。
-            </Paragraph>
-          )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             <Tag color="blue">战况</Tag>
             <Tag color="gold">分数</Tag>

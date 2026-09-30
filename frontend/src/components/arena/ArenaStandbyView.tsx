@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Card, Col, Row, Space, Tag, Typography } from 'antd';
-import { Award, Calendar, CheckCircle2, LayoutDashboard, Swords, Users } from 'lucide-react';
+import { Award, Calendar, LayoutDashboard, Swords, Users, Zap } from 'lucide-react';
 import type {
   CompetitionInfo,
   EnteredCompetition,
@@ -8,8 +8,9 @@ import type {
 } from '../../types/api';
 import ClawbotSidebarCard from './ClawbotSidebarCard';
 import { calculateMedalRanks } from './medalRules';
+import SimulationMonitorControl from '../SimulationMonitorControl';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 interface ArenaStandbyViewProps {
   selectedCompetition: string;
@@ -38,11 +39,11 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
   healthReady = false,
   onNavigateToKernels,
 }) => {
-  const totalTeams = compInfo?.team_count ?? currentEnteredMeta?.team_count ?? 8991;
+  const totalTeams = compInfo?.team_count ?? currentEnteredMeta?.team_count ?? 0;
   const { goldRank, silverRank, bronzeRank } = calculateMedalRanks(totalTeams);
 
   return (
-    <Row gutter={[18, 18]} style={{ marginBottom: 22 }}>
+    <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
       <Col xs={24} lg={15}>
         <Card
           className="dashboard-glow-card"
@@ -51,27 +52,27 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
             border: '1px solid #e2e8f0',
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
           }}
-          styles={{ body: { padding: '24px 26px' } }}
+          styles={{ body: { padding: '20px 22px' } }}
         >
           {/* Competition Header Info */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-            <Space align="start" size={14}>
-              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#eff6ff', display: 'grid', placeItems: 'center', border: '1px solid #dbeafe' }}>
-                <Swords size={22} color="#2563eb" />
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <Space align="start" size={12}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#eff6ff', display: 'grid', placeItems: 'center', border: '1px solid #dbeafe', flexShrink: 0 }}>
+                <Swords size={20} color="#2563eb" />
               </div>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 800, fontSize: 18, color: '#0f172a' }}>
+                  <span style={{ fontWeight: 800, fontSize: 17, color: '#0f172a' }}>
                     {currentTitle}
                   </span>
-                  <Tag color="blue" style={{ fontWeight: 700, margin: 0 }}>
+                  <Tag color="blue" style={{ fontWeight: 600, margin: 0 }}>
                     {compInfo?.category || currentEnteredMeta?.category || '竞赛'}
                   </Tag>
                   <Tag color="orange" style={{ fontWeight: 600, margin: 0 }}>
-                    ⏳ 待最终提交后开启监控
+                    ⏳ 监控休眠中
                   </Tag>
                 </div>
-                <Text type="secondary" style={{ fontSize: 13, display: 'block', marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 3 }}>
                   比赛 ID：<code>{selectedCompetition}</code>
                 </Text>
               </div>
@@ -79,121 +80,118 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
           </div>
 
           {/* Competition Metadata Quick Cards */}
-          <Row gutter={[12, 12]} style={{ marginBottom: 22 }}>
+          <Row gutter={[10, 10]} style={{ marginBottom: 14 }}>
             <Col xs={24} sm={8}>
-              <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Calendar size={14} color="#64748b" />
+              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 14px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                  <Calendar size={13} color="#64748b" />
                   <span>截止时间</span>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a' }}>
                   {formatDate(compInfo?.deadline || currentEnteredMeta?.deadline)}
                 </div>
               </div>
             </Col>
 
             <Col xs={24} sm={8}>
-              <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Users size={14} color="#64748b" />
+              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 14px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                  <Users size={13} color="#64748b" />
                   <span>参赛队伍数</span>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
-                  {compInfo?.team_count ?? currentEnteredMeta?.team_count ?? '—'} 支队伍
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a' }}>
+                  {totalTeams > 0 ? `${totalTeams.toLocaleString()} 支队伍` : '—'}
                 </div>
               </div>
             </Col>
 
             <Col xs={24} sm={8}>
-              <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Award size={14} color="#64748b" />
+              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 14px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                  <Award size={13} color="#64748b" />
                   <span>奖金池 / 荣誉</span>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a' }}>
                   {compInfo?.reward || currentEnteredMeta?.reward || '—'}
                 </div>
               </div>
             </Col>
           </Row>
 
-          {/* Ready / Standby Guidance Box */}
-          <div
-            style={{
-              background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
-              borderRadius: 12,
-              padding: '20px 22px',
-              border: '1px solid #bbf7d0',
-              marginBottom: 20,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <CheckCircle2 size={18} color="#16a34a" />
-              <span style={{ fontWeight: 800, fontSize: 15, color: '#166534' }}>
-                模拟天梯对抗监控已就绪（当前保持休眠）
-              </span>
-            </div>
-            <Paragraph style={{ fontSize: 13, color: '#15803d', lineHeight: 1.6, marginBottom: 12 }}>
-              您已将 <strong>{currentTitle}</strong> 选为主视角。按照您的规划，当前阶段不主动拉取天梯流水以节约 API 配额；
-              <strong>等最后提交完全结束时</strong>，您只需点击右上角<strong>「对战监控」</strong>按钮输入您的 Agent Submission ID，系统将立即开始追踪 ELO 积分、战力安全垫并生成全赛程复盘走势。
-            </Paragraph>
-
-            <Space size={10} wrap>
-              <Button
-                type="primary"
-                icon={<LayoutDashboard size={14} />}
-                onClick={onNavigateToKernels}
-              >
-                前往 Kernel 广场探索该赛事代码
-              </Button>
-            </Space>
-          </div>
-
-          {/* Projected Medal Cutoffs Bracket */}
-          <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', border: '1px solid #e2e8f0', marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          {/* Official Medal Cutoffs (Pure Data, No Fluff) */}
+          <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e2e8f0', marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#475569', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
               <span style={{ fontWeight: 700, color: '#1e293b' }}>
-                🏆 预估奖牌席位分界 (根据当前 {totalTeams.toLocaleString()} 支参赛队伍测算)
+                🏆 官方奖牌线席位切分 {totalTeams > 0 ? `(共 ${totalTeams.toLocaleString()} 支队伍)` : ''}
               </span>
-              <Space size={14} wrap>
-                <span style={{ color: '#ca8a04', fontWeight: 700 }}>
-                  🥇 金牌区: Top {goldRank} 名
-                </span>
-                <span style={{ color: '#0284c7', fontWeight: 700 }}>
-                  🥈 银牌区: Top {silverRank} 名
-                </span>
-                <span style={{ color: '#d97706', fontWeight: 700 }}>
-                  🥉 铜牌区: Top {bronzeRank} 名
-                </span>
-              </Space>
             </div>
-            <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-              待您在 Kaggle 完成最终冲刺提交并填入 Submission ID 后，天梯监控模块将自动对照最新排行榜排位与 ELO 积分，实时计算您与金/银/铜牌线的安全垫差值。
-            </div>
-          </div>
-
-          {/* Standby Feature Slots preview */}
-          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 10 }}>
-              开启监控后将自动激活的能力：
-            </div>
-            <Row gutter={[10, 10]}>
-              <Col xs={24} sm={8}>
-                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, fontSize: 12, color: '#64748b' }}>
-                  ⚡ <strong>多 Agent 胜率矩阵</strong>：对比不同提交版本对抗效果
+            <Row gutter={[8, 8]}>
+              <Col xs={8}>
+                <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#a16207', fontWeight: 600 }}>🥇 金牌区</div>
+                  <div style={{ fontSize: 14, color: '#ca8a04', fontWeight: 800, marginTop: 2 }}>
+                    Top {goldRank > 0 ? goldRank : '—'}
+                  </div>
                 </div>
               </Col>
-              <Col xs={24} sm={8}>
-                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, fontSize: 12, color: '#64748b' }}>
-                  📈 <strong>全赛程 ELO 曲线</strong>：记录每场匹配胜负与分值波动
+              <Col xs={8}>
+                <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 600 }}>🥈 银牌区</div>
+                  <div style={{ fontSize: 14, color: '#0284c7', fontWeight: 800, marginTop: 2 }}>
+                    Top {silverRank > 0 ? silverRank : '—'}
+                  </div>
                 </div>
               </Col>
-              <Col xs={24} sm={8}>
-                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, fontSize: 12, color: '#64748b' }}>
-                  🛡️ <strong>奖牌安全垫预警</strong>：实时计算金/银/铜切分水线
+              <Col xs={8}>
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>🥉 铜牌区</div>
+                  <div style={{ fontSize: 14, color: '#d97706', fontWeight: 800, marginTop: 2 }}>
+                    Top {bronzeRank > 0 ? bronzeRank : '—'}
+                  </div>
                 </div>
               </Col>
             </Row>
+          </div>
+
+          {/* Action & Standby Control Strip (Clean & Direct) */}
+          <div
+            style={{
+              background: '#f8fafc',
+              borderRadius: 10,
+              padding: '12px 14px',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 10,
+            }}
+          >
+            <Space size={8}>
+              <Zap size={16} color="#d97706" />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                  当前保持休眠（节约 API 额度）
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b' }}>
+                  提交后输入 Submission ID 即可开始追踪战力
+                </div>
+              </div>
+            </Space>
+
+            <Space size={8} wrap>
+              <SimulationMonitorControl
+                currentCompetition={selectedCompetition}
+                buttonType="primary"
+                buttonText="开启对战监控"
+              />
+              <Button
+                icon={<LayoutDashboard size={14} />}
+                onClick={onNavigateToKernels}
+              >
+                Kernel 广场
+              </Button>
+            </Space>
           </div>
         </Card>
       </Col>

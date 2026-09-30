@@ -275,7 +275,7 @@ export const Dashboard: React.FC = () => {
       }}
     >
       {loading && !health ? (
-        <div style={{ display: 'grid', placeItems: 'center', padding: '100px 0', gap: 12 }}>
+        <div style={{ display: 'grid', placeItems: 'center', minHeight: '40vh', padding: '60px 0', gap: 12 }}>
           <Spin size="large" />
           <span style={{ color: '#64748b', fontSize: 13 }}>正在加载指挥中心全景态势数据...</span>
         </div>
