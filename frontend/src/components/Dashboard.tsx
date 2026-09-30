@@ -4,8 +4,6 @@ import {
   Spin,
   Alert,
   Button,
-  Card,
-  List,
   App as AntApp,
 } from 'antd';
 import {
@@ -287,7 +285,6 @@ export const Dashboard: React.FC = () => {
     isSimCompMatch && simMonitorStatus?.last_error ? `本赛事对战：${simMonitorStatus.last_error}` : '',
     archiveStats?.low_disk_space ? '服务器磁盘容量不足，请检查归档存储。' : '',
   ].filter(Boolean);
-  const currentArchiveResults = autoArchiveStatus?.recent_results?.filter(item => item.competition === currentCompetition) || [];
 
   return (
     <div
@@ -319,26 +316,13 @@ export const Dashboard: React.FC = () => {
             onNavigate={navigate}
           />
 
-          <section style={{ marginBottom: 24, display: 'grid', gap: 12 }} aria-label="当前赛事动态与待处理事项">
-            {(issues.length > 0 || !health) && <Alert
-              type="warning" showIcon
-              message={issues.length ? '需要关注的事项' : '尚未取得服务状态'}
-              description={issues.map(issue => <div key={issue}>{issue}</div>)}
-              action={<Button size="small" loading={loading} onClick={() => void loadDashboardData()}>重试刷新</Button>}
-            />}
-            <Card size="small" title="当前赛事 · 最新提交与归档结果">
-              {latestSubmission ? <div style={{ marginBottom: 12 }}>
-                <strong>提交 {latestSubmission.ref}：{latestSubmission.description || '无描述'}</strong>
-                <div>状态：{latestSubmission.status || '未知'} · 公开分：{latestSubmission.public_score_display || latestSubmission.public_score?.toString() || '尚无分数'}</div>
-                <div>提交时间：{latestSubmission.date || '未知'} · 出分时间：{latestSubmission.scored_at || '尚无记录'}</div>
-                {latestSubmission.error_description && <div style={{ color: '#cf1322' }}>{latestSubmission.error_description}</div>}
-              </div> : <p>最近监控摘要中暂无本赛事提交，可在下方「提交流水监控」检查配置与历史。</p>}
-              <List size="small" dataSource={currentArchiveResults.slice(0, 5)} locale={{ emptyText: '最近归档摘要中暂无本赛事记录' }} renderItem={item => <List.Item>
-                <span>{item.ref}{item.version_number != null ? ` · v${item.version_number}` : ''}：{item.status === 'archived' ? '已归档' : item.status === 'skipped' ? '已跳过' : '归档失败'}{item.error ? ` · ${item.error}` : ''}</span>
-              </List.Item>} />
-              <Button type="link" onClick={() => navigate('/archives')}>查看服务器归档</Button>
-            </Card>
-          </section>
+          {(issues.length > 0 || !health) && <Alert
+            style={{ marginBottom: 24 }}
+            type="warning" showIcon
+            message={issues.length ? '需要关注的事项' : '尚未取得服务状态'}
+            description={issues.map(issue => <div key={issue}>{issue}</div>)}
+            action={<Button size="small" loading={loading} onClick={() => void loadDashboardData()}>重试刷新</Button>}
+          />}
 
           <SchedulerCards
             currentCompetition={currentCompetition}
