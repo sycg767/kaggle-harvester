@@ -360,6 +360,42 @@ class TestSimulationMonitor(unittest.TestCase):
         self.assertEqual(agents[0].alias, "p32_challenger")
         self.assertEqual(agents[1].alias, "p46_final")
 
+    def test_calculate_kaggle_medal_cutoff_ranks(self) -> None:
+        from harvester.client.simulation import calculate_kaggle_medal_cutoff_ranks
+
+        # 10208 teams (active large competition):
+        # Gold: 10 + floor(10208 * 0.002) = 10 + 20 = 30
+        # Silver: floor(10208 * 0.05) = 510
+        # Bronze: floor(10208 * 0.10) = 1020
+        gold, silver, bronze = calculate_kaggle_medal_cutoff_ranks(10208)
+        self.assertEqual(gold, 30)
+        self.assertEqual(silver, 510)
+        self.assertEqual(bronze, 1020)
+
+        # 1000 teams
+        gold, silver, bronze = calculate_kaggle_medal_cutoff_ranks(1000)
+        self.assertEqual(gold, 12)
+        self.assertEqual(silver, 50)
+        self.assertEqual(bronze, 100)
+
+        # 500 teams (250-999 bracket: Top 10, Top 50, Top 100)
+        gold, silver, bronze = calculate_kaggle_medal_cutoff_ranks(500)
+        self.assertEqual(gold, 10)
+        self.assertEqual(silver, 50)
+        self.assertEqual(bronze, 100)
+
+        # 200 teams (100-249 bracket: Top 10, Top 20%, Top 40%)
+        gold, silver, bronze = calculate_kaggle_medal_cutoff_ranks(200)
+        self.assertEqual(gold, 10)
+        self.assertEqual(silver, 40)
+        self.assertEqual(bronze, 80)
+
+        # 80 teams (0-99 bracket: Top 10%, Top 20%, Top 40%)
+        gold, silver, bronze = calculate_kaggle_medal_cutoff_ranks(80)
+        self.assertEqual(gold, 8)
+        self.assertEqual(silver, 16)
+        self.assertEqual(bronze, 32)
+
 
 if __name__ == "__main__":
     unittest.main()

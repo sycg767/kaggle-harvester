@@ -9,6 +9,8 @@ interface AgentMetaItem {
   borderColor: string;
 }
 
+import { calculateMedalRanks } from './medalRules';
+
 interface MedalCutoffTrackProps {
   thresholds?: SimulationMedalThresholds;
   agents: SimulationAgentStats[];
@@ -28,9 +30,18 @@ export const MedalCutoffTrack: React.FC<MedalCutoffTrackProps> = ({
   const silverCutoff = thresholds?.silver_cutoff_score || 890;
   const bronzeCutoff = thresholds?.bronze_cutoff_score || 839;
 
-  const goldRank = thresholds?.gold_cutoff_rank || Math.max(1, Math.min(10 + Math.ceil(totalTeams * 0.002), totalTeams));
-  const silverRank = thresholds?.silver_cutoff_rank || Math.max(goldRank + 1, Math.ceil(totalTeams * 0.05));
-  const bronzeRank = thresholds?.bronze_cutoff_rank || Math.max(silverRank + 1, Math.ceil(totalTeams * 0.10));
+  const fallbackRanks = calculateMedalRanks(totalTeams, thresholds?.bronze_percentile || 0.10);
+  const goldRank = thresholds?.gold_cutoff_rank || fallbackRanks.goldRank;
+  const silverRank = thresholds?.silver_cutoff_rank || fallbackRanks.silverRank;
+  const bronzeRank = thresholds?.bronze_cutoff_rank || fallbackRanks.bronzeRank;
+
+  const goldDesc = totalTeams >= 1000 ? 'Top 10 + 0.2%' : totalTeams >= 100 ? 'Top 10' : 'Top 10%';
+  const silverDesc = totalTeams >= 1000 ? 'Top 5%' : totalTeams >= 250 ? 'Top 50' : 'Top 20%';
+  const bronzeDesc = totalTeams >= 1000
+    ? `Top ${Math.round((thresholds?.bronze_percentile || 0.10) * 100)}%`
+    : totalTeams >= 250
+      ? 'Top 100'
+      : 'Top 40%';
 
   const allScores: number[] = [
     bronzeCutoff,
@@ -56,19 +67,19 @@ export const MedalCutoffTrack: React.FC<MedalCutoffTrackProps> = ({
           🏆 奖牌线切分 (总计 {totalTeams} 支参赛队{isFinished ? ' · 终榜线' : ''})
         </span>
         <Space size={14} wrap>
-          <Tooltip title={`Top 10 + 0.2% 队伍 (第 ${goldRank} 名及以上)`}>
+          <Tooltip title={`${goldDesc} 队伍 (第 ${goldRank} 名及以上)`}>
             <span style={{ color: '#ca8a04', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              🥇 金牌线: {goldCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#a16207' }}>(Top {goldRank})</span>
+              🥇 金牌线: {goldCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#a16207' }}>({goldDesc} · 第{goldRank}名)</span>
             </span>
           </Tooltip>
-          <Tooltip title={`Top 5% 队伍 (第 ${silverRank} 名及以上)`}>
+          <Tooltip title={`${silverDesc} 队伍 (第 ${silverRank} 名及以上)`}>
             <span style={{ color: '#0284c7', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              🥈 银牌线: {silverCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#0369a1' }}>(Top {silverRank})</span>
+              🥈 银牌线: {silverCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#0369a1' }}>({silverDesc} · 第{silverRank}名)</span>
             </span>
           </Tooltip>
-          <Tooltip title={`Top 10% 队伍 (第 ${bronzeRank} 名及以上)`}>
+          <Tooltip title={`${bronzeDesc} 队伍 (第 ${bronzeRank} 名及以上)`}>
             <span style={{ color: '#d97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              🥉 铜牌线: {bronzeCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#b45309' }}>(Top {bronzeRank})</span>
+              🥉 铜牌线: {bronzeCutoff.toFixed(1)}分 <span style={{ fontSize: 11, color: '#b45309' }}>({bronzeDesc} · 第{bronzeRank}名)</span>
             </span>
           </Tooltip>
         </Space>

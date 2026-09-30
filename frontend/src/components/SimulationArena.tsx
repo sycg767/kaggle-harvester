@@ -317,7 +317,7 @@ export const SimulationArena: React.FC = () => {
               <MedalCutoffTrack
                 thresholds={thresholds}
                 agents={agents}
-                totalTeams={thresholds?.total_teams || 6807}
+                totalTeams={thresholds?.total_teams || compInfo?.team_count || currentEnteredMeta?.team_count || 1000}
                 isFinished={isFinished}
                 getAgentMeta={getAgentMeta}
               />

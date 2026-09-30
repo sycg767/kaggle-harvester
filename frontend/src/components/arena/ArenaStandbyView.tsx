@@ -7,6 +7,7 @@ import type {
   SimulationClawbotStatus,
 } from '../../types/api';
 import ClawbotSidebarCard from './ClawbotSidebarCard';
+import { calculateMedalRanks } from './medalRules';
 
 const { Text, Paragraph } = Typography;
 
@@ -38,9 +39,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
   onNavigateToKernels,
 }) => {
   const totalTeams = compInfo?.team_count ?? currentEnteredMeta?.team_count ?? 8991;
-  const goldRank = Math.max(1, Math.min(10 + Math.ceil(totalTeams * 0.002), totalTeams));
-  const silverRank = Math.max(goldRank + 1, Math.ceil(totalTeams * 0.05));
-  const bronzeRank = Math.max(silverRank + 1, Math.ceil(totalTeams * 0.10));
+  const { goldRank, silverRank, bronzeRank } = calculateMedalRanks(totalTeams);
 
   return (
     <Row gutter={[18, 18]} style={{ marginBottom: 22 }}>

@@ -279,6 +279,43 @@ def list_simulation_episodes_for_submission(
         return []
 
 
+def calculate_kaggle_medal_cutoff_ranks(
+    total_teams: int,
+    bronze_percentile: float = 0.10,
+) -> tuple[int, int, int]:
+    """Calculate official Kaggle medal cutoff ranks based on team count.
+
+    Official Kaggle Progression System brackets:
+    - 0-99 teams: Gold Top 10%, Silver Top 20%, Bronze Top 40%
+    - 100-249 teams: Gold Top 10, Silver Top 20%, Bronze Top 40%
+    - 250-999 teams: Gold Top 10, Silver Top 50, Bronze Top 100
+    - 1000+ teams: Gold Top 10 + 0.2%, Silver Top 5%, Bronze Top 10% (or custom bronze_percentile)
+
+    Truncation strictly uses int(...) / floor because qualifying requires rank / total_teams <= percentile.
+    """
+    if total_teams <= 0:
+        return 0, 0, 0
+
+    if total_teams < 100:
+        gold_rank = max(1, int(total_teams * 0.10))
+        silver_rank = max(gold_rank, int(total_teams * 0.20))
+        bronze_rank = max(silver_rank, int(total_teams * (bronze_percentile if bronze_percentile != 0.10 else 0.40)))
+    elif total_teams < 250:
+        gold_rank = min(10, total_teams)
+        silver_rank = max(gold_rank, int(total_teams * 0.20))
+        bronze_rank = max(silver_rank, int(total_teams * (bronze_percentile if bronze_percentile != 0.10 else 0.40)))
+    elif total_teams < 1000:
+        gold_rank = min(10, total_teams)
+        silver_rank = min(50, total_teams)
+        bronze_rank = max(silver_rank, int(total_teams * bronze_percentile)) if bronze_percentile != 0.10 else min(100, total_teams)
+    else:
+        gold_rank = min(total_teams, int(10 + total_teams * 0.002))
+        silver_rank = max(gold_rank, int(total_teams * 0.05))
+        bronze_rank = max(silver_rank, int(total_teams * bronze_percentile))
+
+    return gold_rank, silver_rank, bronze_rank
+
+
 def download_simulation_leaderboard_data(
     competition: str,
     bronze_percentile: float = 0.10,
@@ -350,9 +387,10 @@ def download_simulation_leaderboard_data(
         )
         return thresholds_empty, []
 
-    gold_rank = max(1, min(total_teams, int(10 + total_teams * 0.002)))
-    silver_rank = max(1, min(total_teams, int(total_teams * 0.05)))
-    bronze_rank = max(1, min(total_teams, int(total_teams * bronze_percentile)))
+    gold_rank, silver_rank, bronze_rank = calculate_kaggle_medal_cutoff_ranks(
+        total_teams,
+        bronze_percentile=bronze_percentile,
+    )
 
     def _get_score_at_rank(target_rank: int) -> float | None:
         if 1 <= target_rank <= len(rows):

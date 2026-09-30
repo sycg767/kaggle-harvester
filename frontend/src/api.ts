@@ -1,4 +1,4 @@
-export * from './types/api';
+export * from './types/api.ts';
 
 import type {
   ActiveCompetitionInfo,
@@ -27,7 +27,7 @@ import type {
   SubmissionMonitorRunDetail,
   SubmissionMonitorSnapshot,
   VersionScoreList,
-} from './types/api';
+} from './types/api.ts';
 
 // ---------------------------------------------------------------------------
 //  API client

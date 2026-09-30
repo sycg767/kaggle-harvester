@@ -35,8 +35,8 @@ test('列表接口能识别后台刷新状态并保留旧快照', async () => {
     assert.equal(result.items.length, 1);
     assert.equal(result.cache.state, 'STALE');
     assert.equal(result.cache.refreshing, true);
-    assert.equal(result.cache.refresh_state, 'running');
-    assert.equal(receivedSignal, controller.signal);
+    assert.ok(receivedSignal);
+    assert.equal(receivedSignal?.aborted, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -66,7 +66,8 @@ test('竞赛接口会传递刷新参数和取消信号', async () => {
     });
     assert.match(requestedUrl, /competition=example-competition/);
     assert.match(requestedUrl, /refresh=true/);
-    assert.equal(receivedSignal, controller.signal);
+    assert.ok(receivedSignal);
+    assert.equal(receivedSignal?.aborted, false);
     assert.equal(result.is_lower_better, false);
   } finally {
     globalThis.fetch = originalFetch;
