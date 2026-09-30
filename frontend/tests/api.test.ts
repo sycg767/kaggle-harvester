@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { api } from '../src/api.ts';
+import { api, ApiError, describeConnectionError } from '../src/api.ts';
 
 test('列表接口能识别后台刷新状态并保留旧快照', async () => {
   const originalFetch = globalThis.fetch;
@@ -74,3 +74,37 @@ test('竞赛接口会传递刷新参数和取消信号', async () => {
   }
 });
 
+
+test('健康检查区分认证和代理错误', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const status of [401, 502, 504]) {
+      globalThis.fetch = async () => new Response('upstream failed', { status });
+      await assert.rejects(api.health(), (error: unknown) => {
+        assert.ok(error instanceof ApiError);
+        assert.equal(error.status, status);
+        assert.match(describeConnectionError(error), status === 401 ? /访问认证/ : new RegExp(`HTTP ${status}`));
+        return true;
+      });
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('健康检查超时保留明确的错误类别', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+  });
+  try {
+    await assert.rejects(api.health({ timeoutMs: 5 }), (error: unknown) => {
+      assert.ok(error instanceof ApiError);
+      assert.equal(error.kind, 'timeout');
+      assert.match(describeConnectionError(error), /服务繁忙/);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

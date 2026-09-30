@@ -146,6 +146,14 @@ class NotificationManager:
             )
             temp_path.replace(self._state_path)
 
+    def health_status(self) -> dict[str, Any]:
+        """Read delivery counters without accessing configuration secrets."""
+        with self._lock:
+            status = self._status.model_dump()
+            status["worker_alive"] = bool(self._task is not None and not self._task.done())
+            status["pending_count"] = len(self._pending)
+            return status
+
     def snapshot(self) -> NotificationSnapshot:
         with self._lock:
             config = NotificationConfigView(

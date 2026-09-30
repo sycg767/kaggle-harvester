@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 
 from harvester.archiver import Archiver
 from harvester.auto_archive import AutoArchiveManager
@@ -23,8 +23,9 @@ router = APIRouter(tags=["System"])
 
 
 @router.get("/api/health")
-async def health(request: Request):
-    """System health check and readiness status."""
+def health(request: Request, response: Response):
+    """Dashboard readiness; local filesystem work runs in FastAPI's thread pool."""
+    response.headers["Cache-Control"] = "no-store"
     app = request.app
     client: KaggleClient = app.state.kaggle_client
     archiver: Archiver = app.state.archiver
@@ -72,8 +73,15 @@ async def health(request: Request):
             **competition_cache.stats(),
             **entered_cache.stats(),
         },
-        "auto_archive": auto_archive.snapshot().status.model_dump(),
-        "submission_monitor": submission_monitor.snapshot().status.model_dump(),
-        "simulation_monitor": simulation_monitor.snapshot().status.model_dump(),
-        "notifications": notifications.snapshot().status.model_dump(),
+        "auto_archive": auto_archive.health_status(),
+        "submission_monitor": submission_monitor.health_status(),
+        "simulation_monitor": simulation_monitor.health_status(),
+        "notifications": notifications.health_status(),
     }
+
+
+@router.get("/api/live")
+async def live(response: Response):
+    """Authenticated process liveness, independent of disk and external services."""
+    response.headers["Cache-Control"] = "no-store"
+    return {"status": "ok", "service": "kaggle-harvester"}

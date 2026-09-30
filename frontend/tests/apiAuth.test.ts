@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apiAuth } from '../src/api.ts';
+import { api, apiAuth } from '../src/api.ts';
 
 const createStorage = () => {
   const values = new Map<string, string>();
@@ -38,4 +38,19 @@ test('清除密钥会同时清理会话和持久存储', () => {
   localStorage.setItem('harvester.apiKey', 'old-persistent');
   apiAuth.clearKey();
   assert.equal(apiAuth.getKey(), '');
+});
+
+test('认证失败不会自动删除浏览器中保存的密钥', async () => {
+  const originalFetch = globalThis.fetch;
+  apiAuth.setKey('saved-key', true);
+  globalThis.fetch = async () => new Response('unauthorized', {
+    status: 401, headers: { 'X-Harvester-Auth': 'required' },
+  });
+  try {
+    await assert.rejects(api.health());
+    assert.equal(apiAuth.getKey(), 'saved-key');
+  } finally {
+    apiAuth.clearKey();
+    globalThis.fetch = originalFetch;
+  }
 });

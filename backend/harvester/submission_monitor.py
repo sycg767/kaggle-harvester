@@ -187,6 +187,18 @@ class SubmissionMonitorManager:
             )
             temp_path.replace(self._state_path)
 
+    def health_status(self) -> dict[str, object]:
+        """Return counters and the dashboard's latest submission, without history."""
+        with self._state_lock:
+            status = self._status.model_dump(exclude={"recent_events", "recent_items"})
+            status["recent_events"] = []
+            status["recent_items"] = [
+                item.model_dump() for item in self._status.recent_items[:1]
+            ]
+            status["running"] = bool(status["running"] and self._run_lock.locked())
+            status["scheduler_alive"] = bool(self._task is not None and not self._task.done())
+            return status
+
     def snapshot(self) -> SubmissionMonitorSnapshot:
         with self._state_lock:
             status = self._status.model_copy(deep=True)

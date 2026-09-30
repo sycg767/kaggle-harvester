@@ -67,6 +67,27 @@ function authHeaders(): Record<string, string> {
   return key ? { 'X-Harvester-Key': key } : {};
 }
 
+export class ApiError extends Error {
+  status?: number;
+  kind: 'http' | 'timeout' | 'network';
+
+  constructor(message: string, kind: 'http' | 'timeout' | 'network', status?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+export function describeConnectionError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return '访问认证未通过，请检查或重新输入访问密钥。';
+    if (error.kind === 'timeout') return '服务状态请求超过 15 秒；可能是访问链路延迟或服务繁忙，正在自动重试。';
+    if (error.status) return `服务状态请求返回 HTTP ${error.status}，请检查服务或反向代理。正在自动重试。`;
+  }
+  return '未能完成服务状态请求，请检查网络连接或服务器入口。正在自动重试。';
+}
+
 async function parseResponse<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     const body = await resp.text();
@@ -78,13 +99,12 @@ async function parseResponse<T>(resp: Response): Promise<T> {
       // 非 JSON 错误响应保留原文。
     }
     if (resp.status === 401 && resp.headers.get('X-Harvester-Auth') === 'required') {
-      apiAuth.clearKey();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('harvester:auth-required'));
       }
     }
     const fallback = resp.status >= 500 ? '服务暂时不可用，请稍后重试。' : '请求未完成。';
-    throw new Error((detail || fallback).slice(0, 500));
+    throw new ApiError((detail || fallback).slice(0, 500), 'http', resp.status);
   }
   return resp.json();
 }
@@ -145,7 +165,7 @@ async function request<T>(path: string, options?: ApiRequestOptions): Promise<T>
     return await parseResponse<T>(resp);
   } catch (err: any) {
     if (timeoutCtx.isTimeout()) {
-      throw new Error('网络请求超时，请检查移动端网络连接或后端服务状态。');
+      throw new ApiError('请求超时，访问链路延迟或服务繁忙，请稍后重试。', 'timeout');
     }
     throw err;
   } finally {

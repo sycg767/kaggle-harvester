@@ -192,6 +192,24 @@ class SimulationMonitorManager:
     def test_clawbot(cls) -> SimulationClawbotTestResult:
         return ClawbotService.test_gateway()
 
+    def health_status(self) -> dict[str, Any]:
+        """Return dashboard aggregates without copying histories or probing gateways."""
+        with self._state_lock:
+            status = self._status.model_dump(exclude={
+                "history": True,
+                "history_points": True,
+                "agents": {"__all__": {"recent_episodes", "rating_trajectory"}},
+            })
+            status["history"] = []
+            status["history_points"] = []
+            for agent in status["agents"]:
+                agent["recent_episodes"] = []
+                agent["rating_trajectory"] = []
+            status["running"] = bool(status["running"] and self._run_lock.locked())
+            status["scheduler_alive"] = bool(self._task is not None and not self._task.done())
+            status["enabled"] = bool(self._config.enabled)
+            return status
+
     def snapshot(self) -> SimulationMonitorSnapshot:
         with self._state_lock:
             status = self._status.model_copy(deep=True)

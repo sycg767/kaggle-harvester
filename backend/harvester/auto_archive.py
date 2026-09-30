@@ -134,6 +134,14 @@ class AutoArchiveManager:
             )
             temp_path.replace(self._state_path)
 
+    def health_status(self) -> dict[str, object]:
+        """Return scheduler status without copying archived run logs."""
+        with self._state_lock:
+            status = self._status.model_dump()
+            status["running"] = bool(status["running"] and self._run_lock.locked())
+            status["scheduler_alive"] = bool(self._task is not None and not self._task.done())
+            return status
+
     def snapshot(self) -> AutoArchiveSnapshot:
         with self._state_lock:
             status = self._status.model_copy(deep=True)

@@ -33,7 +33,7 @@ services:
         - -c
         - >-
           import os, urllib.request;
-          req=urllib.request.Request('http://127.0.0.1:8000/api/health', headers={'X-Harvester-Key': os.environ.get('HARVESTER_API_KEY','')});
+          req=urllib.request.Request('http://127.0.0.1:8000/api/live', headers={'X-Harvester-Key': os.environ.get('HARVESTER_API_KEY','')});
           urllib.request.urlopen(req, timeout=5)
       interval: 30s
       timeout: 10s

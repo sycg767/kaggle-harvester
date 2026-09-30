@@ -22,7 +22,7 @@ import {
   Trophy,
   WifiOff,
 } from 'lucide-react';
-import { api, apiAuth, type ArchiveStats, type CompetitionInfo, type EnteredCompetition, type HealthStatus } from '../api';
+import { api, apiAuth, ApiError, describeConnectionError, type ArchiveStats, type CompetitionInfo, type EnteredCompetition, type HealthStatus } from '../api';
 import { dispatchCompetitionChanged, HARVESTER_EVENTS } from '../events';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import kaggleLogo from '../assets/kaggle-logo.svg';
@@ -47,6 +47,10 @@ const AppLayout: React.FC = () => {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const consecutiveFailuresRef = useRef(0);
+  const loadedRef = useRef(false);
+  const healthRequestRef = useRef<Promise<HealthStatus | null> | null>(null);
+  const lastHealthErrorRef = useRef<unknown>(null);
+  const [connectionError, setConnectionError] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -76,55 +80,62 @@ const AppLayout: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const loadData = useCallback(async (isManualRetry = false) => {
-    if (!hasLoadedOnce || isManualRetry) {
-      setLoading(true);
-    }
+  // All triggers share one request and one failure count, including initial load and retries.
+  const loadData = useCallback((isManualRetry = false): Promise<HealthStatus | null> => {
+    if (healthRequestRef.current) return healthRequestRef.current;
+    const refreshCompetition = !loadedRef.current || isManualRetry;
+    if (refreshCompetition) setLoading(true);
     setLoadingSlow(false);
     const slowTimer = window.setTimeout(() => setLoadingSlow(true), 4000);
-    try {
-      const status = await api.health({ timeoutMs: 15_000 });
-      setHealth(status);
-      setBackendOnline(true);
-      setIsReconnecting(false);
-      consecutiveFailuresRef.current = 0;
-      setHasLoadedOnce(true);
-      setArchiveStats(status.archive);
-      const activeCompetition =
-        localStorage.getItem('harvester.competition') ||
-        status.active_competition?.competition ||
-        status.default_competition;
-      void api
-        .getCompetition(activeCompetition)
-        .then((comp) => {
-          if (comp) setCompetitionInfo(comp);
-        })
-        .catch(() => null);
-    } catch {
-      consecutiveFailuresRef.current += 1;
-      if (!hasLoadedOnce) {
-        setBackendOnline(false);
-        setHealth(null);
-      } else {
-        setIsReconnecting(true);
-        if (consecutiveFailuresRef.current >= 3) {
-          setBackendOnline(false);
+    const pending = (async () => {
+      try {
+        const status = await api.health({ timeoutMs: 15_000 });
+        setHealth(status);
+        setBackendOnline(true);
+        setIsReconnecting(false);
+        setConnectionError('');
+        lastHealthErrorRef.current = null;
+        consecutiveFailuresRef.current = 0;
+        loadedRef.current = true;
+        setHasLoadedOnce(true);
+        setArchiveStats(status.archive);
+        if (refreshCompetition) {
+          const activeCompetition =
+            localStorage.getItem('harvester.competition') ||
+            status.active_competition?.competition ||
+            status.default_competition;
+          void api.getCompetition(activeCompetition)
+            .then((comp) => { if (comp) setCompetitionInfo(comp); })
+            .catch(() => null);
         }
+        return status;
+      } catch (error) {
+        lastHealthErrorRef.current = error;
+        setConnectionError(describeConnectionError(error));
+        consecutiveFailuresRef.current += 1;
+        const authFailed = error instanceof ApiError && error.status === 401;
+        if (authFailed) setAuthOpen(true);
+        if (!loadedRef.current || authFailed) {
+          setBackendOnline(false);
+        } else {
+          setIsReconnecting(true);
+          if (consecutiveFailuresRef.current >= 3) setBackendOnline(false);
+        }
+        return null;
+      } finally {
+        window.clearTimeout(slowTimer);
+        healthRequestRef.current = null;
+        setLoading(false);
+        setLoadingSlow(false);
       }
-    } finally {
-      window.clearTimeout(slowTimer);
-      setLoading(false);
-      setLoadingSlow(false);
-    }
-  }, [hasLoadedOnce]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    })();
+    healthRequestRef.current = pending;
+    return pending;
+  }, []);
 
   useEffect(() => {
     const handleDefaultChanged = () => {
-      void loadData();
+      void loadData(true);
     };
     window.addEventListener(HARVESTER_EVENTS.defaultCompetitionChanged, handleDefaultChanged);
     return () =>
@@ -140,16 +151,17 @@ const AppLayout: React.FC = () => {
   const submitApiKey = async () => {
     if (!apiKey.trim()) return;
     setAuthChecking(true);
-    apiAuth.setKey(apiKey, rememberApiKey);
     try {
-      await api.health();
+      // Finish a request using the previous credentials before validating the new key.
+      await healthRequestRef.current;
+      apiAuth.setKey(apiKey, rememberApiKey);
+      const status = await loadData(true);
+      if (!status) throw lastHealthErrorRef.current;
       setAuthOpen(false);
       setApiKey('');
       message.success(rememberApiKey ? '访问密钥已记住' : '访问密钥验证成功');
-      await loadData();
-    } catch {
-      apiAuth.clearKey();
-      message.error('访问密钥无效');
+    } catch (error) {
+      message.error(describeConnectionError(error));
     } finally {
       setAuthChecking(false);
     }
@@ -164,56 +176,32 @@ const AppLayout: React.FC = () => {
   };
 
   useEffect(() => {
-    let retryTimeout: number | undefined;
-
+    let stopped = false;
+    let timer: number | undefined;
     const checkHealth = async () => {
-      try {
-        const status = await api.health({ timeoutMs: 15_000 });
-        setHealth(status);
-        setBackendOnline(true);
-        setIsReconnecting(false);
-        consecutiveFailuresRef.current = 0;
-        setArchiveStats(status.archive);
-      } catch {
-        consecutiveFailuresRef.current += 1;
-        if (hasLoadedOnce) {
-          setIsReconnecting(true);
-          if (consecutiveFailuresRef.current >= 3) {
-            setBackendOnline(false);
-          } else {
-            // 快速重试消抖：6 秒后重试，避免等待下一个 30 秒周期
-            retryTimeout = window.setTimeout(() => {
-              void checkHealth();
-            }, 6_000);
-          }
-        } else {
-          setBackendOnline(false);
-        }
-      }
+      await loadData();
+      if (stopped) return;
+      // Schedule from completion so a slow request never overlaps the next poll.
+      const failures = consecutiveFailuresRef.current;
+      const authFailed = lastHealthErrorRef.current instanceof ApiError &&
+        lastHealthErrorRef.current.status === 401;
+      timer = window.setTimeout(() => void checkHealth(),
+        failures > 0 && failures < 3 && !authFailed ? 6_000 : 30_000);
     };
-
-    const timer = window.setInterval(() => {
-      void checkHealth();
-    }, 30_000);
-
-    const handleOnline = () => {
-      void checkHealth();
-    };
+    void checkHealth();
+    const handleOnline = () => { void loadData(); };
     const handleFocus = () => {
-      if (consecutiveFailuresRef.current > 0 || !backendOnline) {
-        void checkHealth();
-      }
+      if (consecutiveFailuresRef.current > 0) void loadData();
     };
     window.addEventListener('online', handleOnline);
     window.addEventListener('focus', handleFocus);
-
     return () => {
-      window.clearInterval(timer);
-      if (retryTimeout) window.clearTimeout(retryTimeout);
+      stopped = true;
+      window.clearTimeout(timer);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [hasLoadedOnce, backendOnline]);
+  }, [loadData]);
 
   useEffect(() => {
     const handleCompetitionChanged = (event: Event) => {
@@ -453,9 +441,9 @@ const AppLayout: React.FC = () => {
           <Tooltip
             title={
               !backendOnline
-                ? '与后端服务的连接出现中断，正在后台自动重试连接...'
+                ? connectionError || '正在连接后端服务...'
                 : isReconnecting
-                ? '检测到瞬时网络波动，正在后台尝试重新握手...'
+                ? connectionError
                 : health?.ready
                 ? '后端、Kaggle CLI 与 UTF-8 门禁均正常'
                 : '后端已连接，但运行配置不完整'
@@ -468,7 +456,7 @@ const AppLayout: React.FC = () => {
                 }`}
               />
               <span>
-                {!backendOnline ? '连接中断' : isReconnecting ? '网络波动' : health?.ready ? '服务正常' : '部分降级'}
+                {!backendOnline ? '连接中断' : isReconnecting ? '同步重试中' : health?.ready ? '服务正常' : '部分降级'}
               </span>
             </div>
           </Tooltip>
@@ -504,7 +492,7 @@ const AppLayout: React.FC = () => {
             <div className="newapi-center-state">
               <Typography.Title level={4}>无法连接到后端服务</Typography.Title>
               <Typography.Paragraph type="secondary">
-                请确认 Python 后端服务已启动并正在监听接口。远端访问请检查服务器网络、防火墙或反向代理配置。
+                {connectionError}
               </Typography.Paragraph>
               <Button type="primary" icon={<RefreshCw size={16} />} onClick={() => void loadData(true)}>
                 重试连接
@@ -530,9 +518,7 @@ const AppLayout: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: !backendOnline ? '#c0392b' : '#b45309' }}>
                     <WifiOff size={16} />
                     <span>
-                      {!backendOnline
-                        ? '与后端服务的连接暂时中断，正在持续自动重连... 当前界面已保留最近数据快照。'
-                        : '网络连接出现短暂波动，正在重新与后端服务同步数据...'}
+                      {connectionError} 当前界面保留最近一次成功获取的数据。
                     </span>
                   </div>
                   <Button
