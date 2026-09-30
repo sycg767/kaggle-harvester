@@ -139,18 +139,12 @@ def calculate_agent_stats(
     my_team_name = sub.team_name or ""
     if not my_team_name and episodes:
         my_team_name = episodes[0].my_team_name or ""
-    if not my_team_name and comp == "pokemon-tcg-ai-battle":
-        my_team_name = "GrimmsnaRL"
 
     score = sub.public_score
-    if score is None:
-        if comp == "pokemon-tcg-ai-battle":
-            if sub_id == 55565346:
-                score = 843.0
-            elif sub_id == 55555162:
-                score = 847.8
-        if score is None and my_team_name and my_team_name.strip().lower() in team_scores:
-            score = team_scores[my_team_name.strip().lower()]
+    # Missing observations must remain unknown. Only an observed team identity
+    # may connect a submission to a score from the fetched leaderboard.
+    if score is None and my_team_name:
+        score = team_scores.get(my_team_name.strip().lower())
 
     rank: int | None = None
     if score is not None and leaderboard_rows:

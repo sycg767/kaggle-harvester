@@ -49,7 +49,7 @@ class WechatBotTests(unittest.TestCase):
     def test_quick_report_has_visual_groups_without_detail_noise(self):
         data = self.fixture()
         data['status']['agents'].append(dict(data['status']['agents'][0], alias='beta', medal_tier='silver'))
-        text = bot.format_message(data, now=datetime(2026, 10, 1, 0, 1, tzinfo=timezone.utc))
+        text = bot.format_message(data, now=datetime(2026, 10, 1, 0, 1, tzinfo=timezone.utc), brief=True)
         self.assertIn('🥇 alpha_agent', text)
         self.assertIn('🥈 beta', text)
         self.assertIn('0.0 分 · 第 3 名', text)
