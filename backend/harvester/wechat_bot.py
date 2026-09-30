@@ -150,7 +150,74 @@ def _episode_line(episode):
     return '{} {} {}{}'.format(stamp, result, _name(episode.get('opponent_team_name') or '对手未知'), delta_text)
 
 
-def format_message(data, history_only=False, limit=5, now=None):
+def _short_time(value, now):
+    stamp = _parse_time(value)
+    if not stamp:
+        return '尚无记录'
+    stamp = stamp.astimezone(timezone(timedelta(hours=8)))
+    pattern = '%m-%d %H:%M' if stamp.year == now.astimezone(timezone(timedelta(hours=8))).year else '%Y-%m-%d %H:%M'
+    return stamp.strftime(pattern)
+
+
+def _format_compact(data, now=None):
+    now = now or datetime.now(timezone.utc)
+    status, config = data.get('status') or {}, data.get('config') or {}
+    agents = status.get('agents') or []
+    competition = config.get('competition') or status.get('competition') or '对战'
+    title = '宝可梦对战' if competition == 'pokemon-tcg-ai-battle' else _name(competition)[:24]
+    lines = ['📊 ' + title + '速览']
+    flags = []
+    if status.get('last_error'):
+        flags.append('同步失败')
+    dates = [_parse_time(a.get('last_updated')) for a in agents]
+    dates = [d for d in dates if d] or [_parse_time(status.get('last_checked_at'))]
+    dates = [d for d in dates if d]
+    if dates and (now - min(dates)).total_seconds() > max(30, (config.get('interval_minutes') or 10) * 2) * 60:
+        flags.append('旧数据')
+    if status.get('running'):
+        flags.append('刷新中')
+    if not config.get('enabled', status.get('enabled', False)):
+        flags.append('监控已停')
+    if flags:
+        lines.append('⚠️ ' + ' · '.join(flags))
+    if not agents:
+        lines.append('暂无战报，请先配置 Agent')
+    for index, agent in enumerate(agents):
+        label = _name(agent.get('alias') or 'Agent {}'.format(index + 1))[:24]
+        medal = {'gold': '🥇', 'silver': '🥈', 'bronze': '🥉'}.get(agent.get('medal_tier'), '⚪')
+        rank = agent.get('rank')
+        rank_text = '第 {} 名'.format(rank) if isinstance(rank, int) and rank > 0 else '排名未知'
+        lines.extend(['', '{} {}'.format(medal, label), '{} 分 · {}'.format(_number(_score(agent)), rank_text)])
+        cushion, gap = agent.get('tier_cushion_score'), agent.get('bronze_gap_score')
+        safety = '安全垫 未知'
+        if isinstance(cushion, (int, float)):
+            safety = '安全垫 {:+.1f}'.format(cushion)
+        elif isinstance(gap, (int, float)):
+            safety = '铜牌线差 {:+.1f}'.format(gap)
+        games = sum(v for v in (agent.get('wins'), agent.get('losses'), agent.get('ties')) if isinstance(v, int))
+        rate = _number(agent.get('win_rate'), '%') if games > 0 else '未知'
+        lines.append('{} · 胜率 {}'.format(safety, rate))
+        episodes = agent.get('recent_episodes') or []
+        if episodes:
+            ep = episodes[0]
+            icon, outcome = {'win': ('🟢', '胜'), 'loss': ('🔴', '负'), 'tie': ('⚪', '平')}.get(ep.get('result'), ('❔', '结果未知'))
+            delta = ep.get('score_delta')
+            delta_text = ' {:+.1f}分'.format(delta) if isinstance(delta, (int, float)) else ''
+            stamp = _short_time(ep.get('end_time') or ep.get('create_time'), now)
+            parsed_stamp = _parse_time(ep.get('end_time') or ep.get('create_time'))
+            if parsed_stamp:
+                bj = timezone(timedelta(hours=8))
+                stamp = stamp.split(' ')[-1] if parsed_stamp.astimezone(bj).date() == now.astimezone(bj).date() else stamp.split(' ')[0]
+            lines.append('{} 最近{}{} · {}'.format(icon, outcome, delta_text, stamp))
+        else:
+            lines.append('最近：暂无对局')
+    lines.extend(['', '🕒 检查 ' + _short_time(status.get('last_checked_at'), now)])
+    return sanitize_plain_text('\n'.join(lines))
+
+
+def format_message(data, history_only=False, limit=5, now=None, details=False):
+    if not history_only and not details:
+        return _format_compact(data, now)
     status, config = data.get('status') or {}, data.get('config') or {}
     agents = status.get('agents') or []
     competition = config.get('competition') or status.get('competition') or '赛事未配置'
@@ -214,9 +281,9 @@ def format_message(data, history_only=False, limit=5, now=None):
     return sanitize_plain_text('\n'.join(lines))
 
 
-def get_status_text(history_only=False, refresh=False, limit=5):
+def get_status_text(history_only=False, refresh=False, limit=5, details=False):
     data = _fetch_snapshot(refresh=refresh)
-    return ('已完成一次检查。\n' if refresh else '') + format_message(data, history_only=history_only, limit=limit)
+    return ('已完成一次检查。\n' if refresh else '') + format_message(data, history_only=history_only, limit=limit, details=details)
 
 
 def get_chart_image(output_path=None):
@@ -251,6 +318,7 @@ if __name__ == '__main__':
         sys.stdout.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description='查询保存的对战快照，或主动刷新一次')
     parser.add_argument('--refresh', action='store_true')
+    parser.add_argument('--details', action='store_true')
     parser.add_argument('--history-only', '--only-history', action='store_true')
     parser.add_argument('--limit', type=int, choices=range(1, 16), default=5)
     parser.add_argument('--chart', '--image', '-c', '--pic', action='store_true')
@@ -263,7 +331,7 @@ if __name__ == '__main__':
                 _fetch_snapshot(refresh=True)
             print('MEDIA:' + get_chart_image())
         else:
-            print(get_status_text(args.history_only, args.refresh, args.limit))
+            print(get_status_text(args.history_only, args.refresh, args.limit, args.details))
             if args.with_chart:
                 print('\nMEDIA:' + get_chart_image())
     except Exception as exc:

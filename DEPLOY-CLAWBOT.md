@@ -43,6 +43,7 @@ OpenClaw 的模型配置按显式环境变量合并，缺少密钥时保留既�
 
 - 战况、分数、排名：调用 `python3 backend/harvester/wechat_bot.py`，重点在前，每个 Agent 显示关键指标和最近一局。
 - 刷新：加 `--refresh`，真实调用后台检查；失败明确报告，不改自动监控开关。
+- 详情、详细战报：加 `--details`，展开完整日期、胜负场数和对手信息。
 - 流水：加 `--history-only`，默认每 Agent 5 场，可用 `--limit 15` 增加。
 - 走势图：加 `--chart`，保留 `MEDIA:` 图片返回方式。
 

@@ -27,7 +27,7 @@ class WechatBotTests(unittest.TestCase):
         self.assertEqual(bot.format_beijing_time('2026-08-20T00:10:00-03:00', True), '2026-08-20 11:10')
 
     def test_nonempty_zero_unknown_and_concise(self):
-        text = bot.format_message(self.fixture(), now=datetime(2026, 10, 1, 0, 1, tzinfo=timezone.utc))
+        text = bot.format_message(self.fixture(), now=datetime(2026, 10, 1, 0, 1, tzinfo=timezone.utc), details=True)
         self.assertIn('第 3 名，0.0 分', text)
         self.assertIn('alpha_agent', text)
         self.assertIn('金牌区', text)
@@ -46,6 +46,21 @@ class WechatBotTests(unittest.TestCase):
         self.assertIn('排名未知', text)
         self.assertNotIn('0.0 分', text)
 
+    def test_quick_report_has_visual_groups_without_detail_noise(self):
+        data = self.fixture()
+        data['status']['agents'].append(dict(data['status']['agents'][0], alias='beta', medal_tier='silver'))
+        text = bot.format_message(data, now=datetime(2026, 10, 1, 0, 1, tzinfo=timezone.utc))
+        self.assertIn('🥇 alpha_agent', text)
+        self.assertIn('🥈 beta', text)
+        self.assertIn('0.0 分 · 第 3 名', text)
+        self.assertNotIn('other_agent', text)
+        self.assertNotIn('快照最佳排名', text)
+        self.assertNotIn('发送“流水”', text)
+        self.assertNotIn('1胜 / 0负', text)
+        self.assertLess(len(text), 260)
+        self.assertEqual(text.count('🕒'), 1)
+        self.assertIn('other_agent', bot.format_message(data, details=True))
+
     def test_empty(self):
         self.assertIn('暂无战报', bot.format_message({}))
         self.assertIn('尚无记录', bot.format_message({}))
@@ -55,7 +70,7 @@ class WechatBotTests(unittest.TestCase):
         data['config']['enabled'] = False
         data['status']['last_error'] = 'connection failed'
         text = bot.format_message(data, now=datetime(2026, 10, 2, tzinfo=timezone.utc))
-        for expected in ['自动监控已停用', '同步失败', '旧快照', '快照已过期']:
+        for expected in ['监控已停', '同步失败', '旧数据']:
             self.assertIn(expected, text)
 
     def test_history_limits(self):
@@ -71,7 +86,7 @@ class WechatBotTests(unittest.TestCase):
         data = self.fixture()
         data['status']['last_checked_at'] = '2026-10-02T00:00:00Z'
         text = bot.format_message(data, now=datetime(2026, 10, 2, tzinfo=timezone.utc))
-        self.assertIn('快照已过期', text)
+        self.assertIn('旧数据', text)
 
     def test_import_has_no_network(self):
         with patch.object(bot.urllib.request, 'urlopen', side_effect=AssertionError('network')):
