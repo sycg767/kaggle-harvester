@@ -32,7 +32,6 @@ export const Dashboard: React.FC = () => {
   const { message } = AntApp.useApp();
 
   const [loading, setLoading] = useState(true);
-  const [lastLoadedAt, setLastLoadedAt] = useState<string>();
   const [refreshError, setRefreshError] = useState('');
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [competitionInfo, setCompetitionInfo] = useState<CompetitionInfo | null>(null);
@@ -61,7 +60,6 @@ export const Dashboard: React.FC = () => {
       ]);
       setRefreshError([!h && '服务状态刷新失败', !a && '归档统计刷新失败'].filter(Boolean).join('；'));
       if (h) {
-        setLastLoadedAt(new Date().toLocaleString('zh-CN'));
         setHealth(h);
         const stored = localStorage.getItem('harvester.competition');
         const resolved = stored || h.active_competition?.competition || h.default_competition;
@@ -322,17 +320,13 @@ export const Dashboard: React.FC = () => {
           />
 
           <section style={{ marginBottom: 24, display: 'grid', gap: 12 }} aria-label="当前赛事动态与待处理事项">
-            <Alert
-              type={issues.length ? 'warning' : health ? 'info' : 'error'} showIcon
-              message={issues.length ? '需要关注的事项' : health ? '最近状态摘要' : '尚未取得服务状态'}
-              description={<>
-                <div>页面最近取得服务状态：{lastLoadedAt || '尚无记录'}。任务采集时间见下方；页面刷新不代表 Kaggle 数据已更新。</div>
-                {issues.map(issue => <div key={issue}>{issue}</div>)}
-              </>}
+            {(issues.length > 0 || !health) && <Alert
+              type="warning" showIcon
+              message={issues.length ? '需要关注的事项' : '尚未取得服务状态'}
+              description={issues.map(issue => <div key={issue}>{issue}</div>)}
               action={<Button size="small" loading={loading} onClick={() => void loadDashboardData()}>重试刷新</Button>}
-            />
+            />}
             <Card size="small" title="当前赛事 · 最新提交与归档结果">
-              <p style={{ color: '#64748b' }}>来源：后台监控最近记录，仅展示明确属于 {currentCompetition || '当前赛事'} 的条目；不是完整历史。</p>
               {latestSubmission ? <div style={{ marginBottom: 12 }}>
                 <strong>提交 {latestSubmission.ref}：{latestSubmission.description || '无描述'}</strong>
                 <div>状态：{latestSubmission.status || '未知'} · 公开分：{latestSubmission.public_score_display || latestSubmission.public_score?.toString() || '尚无分数'}</div>

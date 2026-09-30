@@ -193,14 +193,13 @@ export const SimulationArena: React.FC = () => {
         onRefresh={() => void loadArenaData(true)}
       />
 
-      <Alert
-        style={{ marginBottom: 16 }} showIcon
-        type={loadError || (matchesCompetition && simStatus?.last_error) ? 'warning' : 'info'}
-        message={loadError ? '本次刷新失败，已有数据可能过期' : matchesCompetition && simStatus?.last_error ? '最近一次采集异常' : '数据来源：Kaggle 对战监控快照'}
-        description={matchesCompetition
-          ? `最近检查：${formatDate(simStatus?.last_checked_at)}。${simStatus?.last_error || '检查时间不代表每个 Agent 均已更新，请结合分数轨迹判断。'}`
-          : '当前赛事暂无对应监控数据，可在「天梯对战监控」中配置。'}
-      />
+      {(loadError || (matchesCompetition && simStatus?.last_error)) && (
+        <Alert
+          style={{ marginBottom: 16 }} showIcon type="warning"
+          message={loadError ? '本次刷新失败，已有数据可能过期' : '最近一次采集异常'}
+          description={matchesCompetition && simStatus?.last_error ? simStatus.last_error : undefined}
+        />
+      )}
       {/* 2. Main Content Layout */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px 0' }}>
@@ -220,8 +219,8 @@ export const SimulationArena: React.FC = () => {
               </h2>
               <span className="arena-section-desc">
                 {isFinished
-                  ? '赛事已截止 · 以下为最近采集快照，未验证为官方终榜'
-                  : '最近采集快照 · 积分追踪与奖牌线参考'}
+                  ? '赛事已截止 · 对战记录'
+                  : '积分走势与奖牌线'}
               </span>
             </div>
           </div>
