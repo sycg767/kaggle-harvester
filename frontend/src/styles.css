@@ -1616,6 +1616,11 @@ a:hover {
   .newapi-content {
     width: 100%;
     height: calc(100vh - var(--app-header-height));
+    height: calc(100dvh - var(--app-header-height));
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
     margin: 0;
     border: 0;
     border-radius: 0;
@@ -2166,7 +2171,11 @@ a:hover {
     margin: 0 !important;
     border-radius: 0 !important;
     height: calc(100vh - var(--app-header-height)) !important;
+    height: calc(100dvh - var(--app-header-height)) !important;
+    overflow-y: auto !important;
     overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
 
   .newapi-header {
@@ -2179,10 +2188,19 @@ a:hover {
   }
 
   .newapi-competition-pill {
+    display: inline-flex !important;
+    align-items: center;
     width: auto;
     max-width: 140px;
-    padding: 0 8px;
+    padding: 2px 8px;
     font-size: 12px;
+    overflow: hidden;
+  }
+
+  .newapi-competition-pill span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .newapi-competition-pill kbd {

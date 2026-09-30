@@ -53,10 +53,13 @@ const AppLayout: React.FC = () => {
   );
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
+  const [loadingSlow, setLoadingSlow] = useState(false);
   const shortcutLabel = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadingSlow(false);
+    const slowTimer = window.setTimeout(() => setLoadingSlow(true), 4000);
     try {
       const status = await api.health();
       setHealth(status);
@@ -76,7 +79,9 @@ const AppLayout: React.FC = () => {
       setBackendOnline(false);
       setHealth(null);
     } finally {
+      window.clearTimeout(slowTimer);
       setLoading(false);
+      setLoadingSlow(false);
     }
   }, []);
 
@@ -408,12 +413,22 @@ const AppLayout: React.FC = () => {
             <div className="newapi-center-state">
               <Spin size="large" />
               <Typography.Text type="secondary">正在连接 Kaggle Harvester 后端服务...</Typography.Text>
+              {loadingSlow && (
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                    移动端连接较慢，若长时间无响应可点击下方重试
+                  </Typography.Text>
+                  <Button size="small" onClick={loadData}>
+                    重试连接
+                  </Button>
+                </div>
+              )}
             </div>
           ) : !backendOnline ? (
             <div className="newapi-center-state">
               <Typography.Title level={4}>无法连接到后端服务</Typography.Title>
               <Typography.Paragraph type="secondary">
-                请确认本地 Python 后端服务已启动并正在监听接口。
+                请确认本地 Python 后端服务已启动并正在监听接口。移动端访问请确保处于同一 Wi-Fi 局域网。
               </Typography.Paragraph>
               <Button type="primary" icon={<RefreshCw size={16} />} onClick={loadData}>
                 重试连接

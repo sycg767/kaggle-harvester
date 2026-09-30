@@ -32,7 +32,7 @@ export const Dashboard: React.FC = () => {
   const [archiveStats, setArchiveStats] = useState<ArchiveStats | null>(null);
   const [enteredCompetitions, setEnteredCompetitions] = useState<EnteredCompetition[]>([]);
   const [currentCompetition, setCurrentCompetition] = useState<string>(() => {
-    return localStorage.getItem('harvester.competition') || 'pokemon-tcg-ai-battle';
+    return localStorage.getItem('harvester.competition') || '';
   });
 
   // Action loading states for 1-click execution

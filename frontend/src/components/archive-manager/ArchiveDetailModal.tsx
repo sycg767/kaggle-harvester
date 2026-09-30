@@ -86,7 +86,7 @@ export const ArchiveDetailModal: React.FC<ArchiveDetailModalProps> = ({
       width={880}
       onCancel={onClose}
       footer={
-        <Space>
+        <Space wrap>
           {archive && (
             <>
               <Button icon={<CodeOutlined />} onClick={() => onOpenVsCode(archive)}>在 VS Code 中打开</Button>

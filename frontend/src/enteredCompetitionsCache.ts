@@ -28,6 +28,12 @@ export async function getEnteredCompetitions(options?: {
       }
       return items;
     })
+    .catch((err) => {
+      if (memoryItems && memoryItems.length > 0) {
+        return memoryItems;
+      }
+      throw err;
+    })
     .finally(() => {
       if (inflight === request) {
         inflight = null;

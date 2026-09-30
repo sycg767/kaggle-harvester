@@ -89,32 +89,88 @@ async function parseResponse<T>(resp: Response): Promise<T> {
   return resp.json();
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options?.headers },
-    ...options,
-  });
-  return parseResponse<T>(resp);
+export interface ApiRequestOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 25_000;
+
+function createTimeoutSignal(timeoutMs: number, userSignal?: AbortSignal | null) {
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+
+  const onUserAbort = () => {
+    controller.abort();
+  };
+
+  if (userSignal) {
+    if (userSignal.aborted) {
+      controller.abort();
+    } else {
+      userSignal.addEventListener('abort', onUserAbort, { once: true });
+    }
+  }
+
+  const cleanup = () => {
+    if (timer) clearTimeout(timer);
+    if (userSignal) {
+      userSignal.removeEventListener('abort', onUserAbort);
+    }
+  };
+
+  return {
+    signal: controller.signal,
+    isTimeout: () => timedOut,
+    cleanup,
+  };
+}
+
+async function request<T>(path: string, options?: ApiRequestOptions): Promise<T> {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutCtx = createTimeoutSignal(timeoutMs, options?.signal);
+  try {
+    const resp = await fetch(`${BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options?.headers },
+      ...options,
+      signal: timeoutCtx.signal,
+    });
+    return await parseResponse<T>(resp);
+  } catch (err: any) {
+    if (timeoutCtx.isTimeout()) {
+      throw new Error('网络请求超时，请检查移动端网络连接或后端服务状态。');
+    }
+    throw err;
+  } finally {
+    timeoutCtx.cleanup();
+  }
 }
 
 export const api = {
   // Competition
-  getCompetition(competition?: string, options?: { refresh?: boolean; signal?: AbortSignal }): Promise<CompetitionInfo> {
+  getCompetition(competition?: string, options?: { refresh?: boolean; signal?: AbortSignal; timeoutMs?: number }): Promise<CompetitionInfo> {
     const q = new URLSearchParams();
     if (competition) q.set('competition', competition);
     if (options?.refresh) q.set('refresh', 'true');
     const qs = q.toString();
-    return request(`/competition${qs ? `?${qs}` : ''}`, { signal: options?.signal });
+    return request(`/competition${qs ? `?${qs}` : ''}`, { signal: options?.signal, timeoutMs: options?.timeoutMs });
   },
 
   listEnteredCompetitions(
     pageSize = 100,
-    options?: { refresh?: boolean; signal?: AbortSignal },
+    options?: { refresh?: boolean; signal?: AbortSignal; timeoutMs?: number },
   ): Promise<EnteredCompetition[]> {
     const q = new URLSearchParams();
     q.set('page_size', String(pageSize));
     if (options?.refresh) q.set('refresh', 'true');
-    return request(`/competitions/entered?${q.toString()}`, { signal: options?.signal });
+    return request(`/competitions/entered?${q.toString()}`, { signal: options?.signal, timeoutMs: options?.timeoutMs });
   },
 
   // Kernels
@@ -127,6 +183,7 @@ export const api = {
     score_limit?: number;
     refresh?: boolean;
     signal?: AbortSignal;
+    timeoutMs?: number;
   }): Promise<KernelListResult> {
     const q = new URLSearchParams();
     if (params?.sort_by) q.set('sort_by', params.sort_by);
@@ -137,24 +194,38 @@ export const api = {
     if (params?.score_limit) q.set('score_limit', String(params.score_limit));
     if (params?.refresh) q.set('refresh', 'true');
     const qs = q.toString();
+
+    const timeoutMs = params?.timeoutMs ?? 45_000;
+    const timeoutCtx = createTimeoutSignal(timeoutMs, params?.signal);
+
     return fetch(`${BASE}/kernels${qs ? `?${qs}` : ''}`, {
-      signal: params?.signal,
+      signal: timeoutCtx.signal,
       headers: authHeaders(),
-    }).then(async (response) => {
-      const refreshState = (response.headers.get('X-Kernel-Refresh') || 'idle') as KernelCacheInfo['refresh_state'];
-      return {
-        items: await parseResponse<ScoredKernel[]>(response),
-        cache: {
-          state: (response.headers.get('X-Kernel-Cache') || 'MISS') as KernelCacheInfo['state'],
-          age_seconds: Number(response.headers.get('X-Kernel-Cache-Age') || 0),
-          fetched_at: response.headers.get('X-Kernel-Cache-Fetched-At')
-            ? Number(response.headers.get('X-Kernel-Cache-Fetched-At'))
-            : undefined,
-          refresh_state: refreshState,
-          refreshing: refreshState === 'scheduled' || refreshState === 'running',
-        },
-      };
-    });
+    })
+      .then(async (response) => {
+        const refreshState = (response.headers.get('X-Kernel-Refresh') || 'idle') as KernelCacheInfo['refresh_state'];
+        return {
+          items: await parseResponse<ScoredKernel[]>(response),
+          cache: {
+            state: (response.headers.get('X-Kernel-Cache') || 'MISS') as KernelCacheInfo['state'],
+            age_seconds: Number(response.headers.get('X-Kernel-Cache-Age') || 0),
+            fetched_at: response.headers.get('X-Kernel-Cache-Fetched-At')
+              ? Number(response.headers.get('X-Kernel-Cache-Fetched-At'))
+              : undefined,
+            refresh_state: refreshState,
+            refreshing: refreshState === 'scheduled' || refreshState === 'running',
+          },
+        };
+      })
+      .catch((err: any) => {
+        if (timeoutCtx.isTimeout()) {
+          throw new Error('拉取 Kernel 列表超时，请检查网络连接后重试。');
+        }
+        throw err;
+      })
+      .finally(() => {
+        timeoutCtx.cleanup();
+      });
   },
 
   enrichKernels(refs: string[], competition?: string): Promise<ScoredKernel[]> {
@@ -339,8 +410,8 @@ export const api = {
     return request(`/simulation-monitor/submissions${q}`);
   },
 
-  health(): Promise<HealthStatus> {
-    return request('/health');
+  health(options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HealthStatus> {
+    return request('/health', { timeoutMs: options?.timeoutMs ?? 10_000, signal: options?.signal });
   },
 
   getActiveCompetition(options?: { signal?: AbortSignal }): Promise<ActiveCompetitionInfo> {

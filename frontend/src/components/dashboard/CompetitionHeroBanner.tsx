@@ -41,7 +41,7 @@ export const CompetitionHeroBanner: React.FC<CompetitionHeroBannerProps> = ({
       styles={{ body: { padding: '20px 24px' } }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-        <div style={{ flex: 1, minWidth: 320 }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
           {/* Meta labels */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <Tag
@@ -69,7 +69,7 @@ export const CompetitionHeroBanner: React.FC<CompetitionHeroBannerProps> = ({
               value={currentCompetition}
               onChange={onSelectCompetition}
               options={competitionOptions}
-              style={{ minWidth: 360, maxWidth: 560 }}
+              style={{ minWidth: 220, maxWidth: 560, flex: '1 1 240px' }}
               size="large"
               showSearch
               placeholder="切换当前竞赛..."

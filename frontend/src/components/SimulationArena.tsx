@@ -70,7 +70,7 @@ export const SimulationArena: React.FC = () => {
   const [compInfo, setCompInfo] = useState<CompetitionInfo | null>(null);
   const [testingClawbot, setTestingClawbot] = useState(false);
   const [selectedCompetition, setSelectedCompetition] = useState<string>(() => {
-    return localStorage.getItem('harvester.competition') || localStorage.getItem('harvester.arenaCompetition') || 'pokemon-tcg-ai-battle';
+    return localStorage.getItem('harvester.competition') || localStorage.getItem('harvester.arenaCompetition') || '';
   });
 
   useEffect(() => {
@@ -118,8 +118,18 @@ export const SimulationArena: React.FC = () => {
       if (sim) setSimSnapshot(sim);
       if (enteredList && enteredList.length > 0) setEnteredComps(enteredList);
 
-      const targetComp = selectedCompetition || sim?.config?.competition || 'pokemon-tcg-ai-battle';
-      void api.getCompetition(targetComp).then(setCompInfo).catch(() => setCompInfo(null));
+      const targetComp =
+        selectedCompetition ||
+        sim?.config?.competition ||
+        h?.active_competition?.competition ||
+        h?.default_competition ||
+        '';
+      if (targetComp && !selectedCompetition) {
+        setSelectedCompetition(targetComp);
+      }
+      if (targetComp) {
+        void api.getCompetition(targetComp).then(setCompInfo).catch(() => setCompInfo(null));
+      }
     } catch (err: any) {
       if (!quiet) message.error(`加载模拟对战数据失败: ${err.message}`);
     } finally {

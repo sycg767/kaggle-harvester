@@ -209,8 +209,8 @@ export const KernelFilterBar: React.FC<KernelFilterBarProps> = ({
           />
         </Col>
 
-        {/* 排序方式 */}
-        <Col xs={14} md={5} lg={5} className="desktop-sort-control">
+        {/* 排序方式 (桌面端常驻) */}
+        <Col xs={0} md={5} lg={5} className="desktop-sort-control">
           <Select
             aria-label="Kernel 排序方式"
             value={sortBy}
@@ -221,8 +221,8 @@ export const KernelFilterBar: React.FC<KernelFilterBarProps> = ({
         </Col>
 
         {/* 快捷操作与高级展开 */}
-        <Col xs={10} md={4} lg={4} style={{ textAlign: 'right' }}>
-          <Space size={4}>
+        <Col xs={24} md={4} lg={4} style={{ textAlign: 'right' }}>
+          <Space size={6} style={{ width: '100%', justifyContent: 'flex-end' }}>
             <Button
               type="primary"
               icon={<SearchOutlined />}
@@ -234,10 +234,11 @@ export const KernelFilterBar: React.FC<KernelFilterBarProps> = ({
             </Button>
             <Button
               icon={<Filter size={14} />}
+              type={mobileFiltersOpen ? 'primary' : 'default'}
               onClick={() => setMobileFiltersOpen((curr) => !curr)}
-              title="高级设置 (分页与取分限制)"
+              title="排序与高级设置"
             >
-              高级
+              排序/筛选
             </Button>
           </Space>
         </Col>
@@ -316,6 +317,15 @@ export const KernelFilterBar: React.FC<KernelFilterBarProps> = ({
       <div className={`toolbar-advanced${mobileFiltersOpen ? ' is-open' : ''}`}>
         <div className="toolbar-divider" />
         <Row gutter={[8, 8]} align="middle">
+          <Col xs={24} md={0} className="mobile-only" style={{ width: '100%' }}>
+            <Select
+              aria-label="Kernel 排序方式"
+              value={sortBy}
+              onChange={setSortBy}
+              style={{ width: '100%' }}
+              options={sortOptions}
+            />
+          </Col>
           <Col xs={24} md={6}>
             <Select
               aria-label="分数筛选"

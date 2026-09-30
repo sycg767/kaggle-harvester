@@ -78,12 +78,12 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
       </Space>
 
       <Space size={10} wrap>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', maxWidth: '100%' }}>
           <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>赛事切换:</span>
           <Select
             value={selectedCompetition}
             onChange={onCompetitionChange}
-            style={{ minWidth: 320 }}
+            style={{ minWidth: 200, maxWidth: 360, flex: 1 }}
             options={competitionOptions}
             showSearch
             filterOption={(input, option) =>

@@ -196,12 +196,12 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowX: 'hidden', overflowY: 'auto', padding: '16px 24px' } }}
         onCancel={() => setOpen(false)}
         footer={[
-          <div key="footer-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div key="footer-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
               <ShieldCheck size={14} color="#10b981" />
               <span>凭据安全保护：{snapshot?.config.secret_storage === 'windows_dpapi' ? 'Windows DPAPI 加密' : '环境密钥加密'}</span>
             </div>
-            <Space size={8}>
+            <Space size={8} wrap>
               <Button key="close" onClick={() => setOpen(false)}>关闭</Button>
               <Button
                 key="test"

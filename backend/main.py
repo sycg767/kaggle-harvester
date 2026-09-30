@@ -166,6 +166,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins(),
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Harvester-Key"],
@@ -183,5 +184,5 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.environ.get("PORT", "8000"))
-    host = os.environ.get("HOST", "127.0.0.1")
+    host = os.environ.get("HOST", "0.0.0.0")
     uvicorn.run("main:app", host=host, port=port, reload=False)

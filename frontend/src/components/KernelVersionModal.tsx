@@ -84,6 +84,7 @@ export const KernelVersionModal: React.FC<KernelVersionModalProps> = ({
           size="small"
           pagination={{ pageSize: 8, hideOnSinglePage: true }}
           locale={{ emptyText: <Empty description="没有可用版本" /> }}
+          scroll={{ x: 580 }}
           columns={[
             { title: '版本', dataIndex: 'version_number', width: 75, render: (value) => <Text code>v{value}</Text> },
             {

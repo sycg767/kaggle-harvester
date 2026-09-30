@@ -24,7 +24,7 @@ export const KernelBatchBar: React.FC<KernelBatchBarProps> = ({
     <div
       style={{
         position: 'fixed',
-        bottom: 28,
+        bottom: 24,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 1000,
@@ -32,10 +32,15 @@ export const KernelBatchBar: React.FC<KernelBatchBarProps> = ({
         boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
         border: '1px solid #d9d9d9',
         borderRadius: 24,
-        padding: '8px 20px',
+        padding: '8px 16px',
         display: 'flex',
         alignItems: 'center',
-        gap: 16,
+        justifyContent: 'center',
+        flexWrap: 'wrap',
+        gap: 12,
+        maxWidth: 'calc(100vw - 24px)',
+        width: 'max-content',
+        boxSizing: 'border-box',
       }}
     >
       <Text strong>

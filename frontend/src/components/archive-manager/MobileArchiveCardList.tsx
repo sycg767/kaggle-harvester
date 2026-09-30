@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Checkbox, Empty, Pagination, Tag, Tooltip, Typography } from 'antd';
+import { Button, Checkbox, Empty, Pagination, Spin, Tag, Tooltip, Typography } from 'antd';
 import {
   CodeOutlined,
   DeleteOutlined,
@@ -53,11 +53,16 @@ export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
 }) => {
   return (
     <div className="mobile-data-list" aria-label="本地归档列表">
-      {!allDisplayArchives.length && !loading && (
+      {loading && !allDisplayArchives.length ? (
+        <div className="mobile-empty-state" style={{ padding: '60px 0', textAlign: 'center' }}>
+          <Spin size="large" tip="正在载入归档列表..." />
+        </div>
+      ) : !allDisplayArchives.length ? (
         <Empty description="暂无本地归档">
           <Button type="primary" onClick={onNavigateToKernels}>前往 Kernel 广场</Button>
         </Empty>
-      )}
+      ) : (
+        <Spin spinning={loading} tip="正在同步归档列表...">
       {archives.map((archive) => {
         const owner = kaggleOwnerFromRef(archive.ref) || archive.author;
         const selected = selectedRowKeys.includes(archive.id);
@@ -125,6 +130,8 @@ export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
             onChange={setMobilePage}
           />
         </div>
+      )}
+        </Spin>
       )}
     </div>
   );

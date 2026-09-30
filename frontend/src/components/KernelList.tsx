@@ -36,6 +36,7 @@ import {
   useKernelArchive,
   useKernelVersions,
   useKernelListState,
+  MOBILE_PAGE_SIZE,
 } from './kernels';
 
 const { Text } = Typography;
@@ -219,7 +220,7 @@ const KernelList: React.FC = () => {
   }, [archivedOnly, kernels, scoreFilter, searchText, sortBy]);
 
   const mobileKernels = useMemo(
-    () => displayKernels.slice((mobilePage - 1) * 20, mobilePage * 20),
+    () => displayKernels.slice((mobilePage - 1) * MOBILE_PAGE_SIZE, mobilePage * MOBILE_PAGE_SIZE),
     [displayKernels, mobilePage],
   );
 

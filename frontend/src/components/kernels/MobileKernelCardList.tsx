@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Checkbox, Empty, Pagination, Tag, Typography } from 'antd';
+import { Button, Checkbox, Empty, Pagination, Spin, Tag, Typography } from 'antd';
 import {
   ClockCircleOutlined,
   CloudDownloadOutlined,
@@ -43,11 +43,16 @@ export const MobileKernelCardList: React.FC<MobileKernelCardListProps> = ({
 }) => {
   return (
     <div className="mobile-data-list" aria-label="Kernel 列表">
-      {!displayKernels.length && !loading && (
+      {loading && !displayKernels.length ? (
+        <div className="mobile-empty-state" style={{ padding: '60px 0', textAlign: 'center' }}>
+          <Spin size="large" tip="正在载入 Kernel 列表..." />
+        </div>
+      ) : !displayKernels.length ? (
         <div className="mobile-empty-state">
           <Empty description="暂无 Kernel 数据" />
         </div>
-      )}
+      ) : (
+        <Spin spinning={loading} tip="正在同步最新数据...">
       {mobileKernels.map((kernel) => {
         const owner = kaggleOwnerFromRef(kernel.ref);
         const archived = archivedVersions.get(kernel.ref);
@@ -115,6 +120,8 @@ export const MobileKernelCardList: React.FC<MobileKernelCardListProps> = ({
             onChange={onPageChange}
           />
         </div>
+      )}
+        </Spin>
       )}
     </div>
   );
