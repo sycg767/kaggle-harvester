@@ -12,6 +12,7 @@ import {
   type FormInstance,
 } from 'antd';
 import { SaveOutlined, TagOutlined } from '@ant-design/icons';
+import { Crosshair, Zap } from 'lucide-react';
 import type { SimulationMonitorConfig } from '../../types/api';
 
 export interface AvailableSubmissionItem {
@@ -55,9 +56,10 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
 }) => {
   return (
     <Drawer
+      className="app-drawer"
       title="模拟对战监控设置"
       placement="right"
-      width="min(420px, 100vw)"
+      width="min(440px, 100vw)"
       open={open}
       zIndex={1200}
       forceRender
@@ -128,8 +130,9 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
         <Form.Item
           name="target_submission_ids"
           label={
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-              <span>🎯 监控的目标 Agent 提交 ID (支持团队成员提交)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+              <Crosshair size={14} color="#007aff" />
+              <span>监控的目标 Agent 提交 ID (支持团队成员提交)</span>
             </div>
           }
           tooltip="可直接下拉勾选团队提交，或直接输入/粘贴 8 位 Submission ID"
@@ -155,6 +158,7 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
           <Button
             size="small"
             type="dashed"
+            icon={<Zap size={13} color="#007aff" />}
             loading={loadingSubmissions}
             onClick={() => {
               if (availableSubmissions.length > 0) {
@@ -172,7 +176,7 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
               }
             }}
           >
-            ⚡ 快捷填入最新 2 个有效提交
+            快捷填入最新 2 个有效提交
           </Button>
           <Button
             size="small"

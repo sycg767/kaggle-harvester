@@ -1,6 +1,6 @@
 import React from 'react';
-import { Space, Tag, Select, Button } from 'antd';
-import { Swords, RefreshCw } from 'lucide-react';
+import { Tag, Select, Button } from 'antd';
+import { Swords, RefreshCw, CheckCircle2, Activity, Clock } from 'lucide-react';
 import SimulationMonitorControl from '../SimulationMonitorControl';
 
 interface ArenaHeaderProps {
@@ -23,67 +23,44 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
   onRefresh,
 }) => {
   return (
-    <div
-      style={{
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        borderRadius: 14,
-        border: '1px solid #e2e8f0',
-        padding: '20px 24px',
-        marginBottom: 20,
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 16,
-      }}
-    >
-      <Space align="center" size={14}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 12,
-            background: '#fffbeb',
-            display: 'grid',
-            placeItems: 'center',
-            border: '1px solid #fde68a',
-          }}
-        >
-          <Swords size={24} color="#d97706" />
+    <div className="arena-header-banner">
+      <div className="arena-header-main">
+        <div className="arena-header-icon-tile">
+          <Swords size={20} color="#007aff" />
         </div>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 800, fontSize: 20, color: '#0f172a' }}>
-              天梯对抗竞技场 (Simulation Arena)
-            </span>
+        <div className="arena-header-text-group">
+          <div className="arena-header-title-row">
+            <h1 className="arena-header-title">天梯对抗</h1>
             {hasSimData && isFinished ? (
-              <Tag color="cyan" style={{ fontWeight: 700, margin: 0 }}>
-                🏁 已完赛封榜存档
+              <Tag color="cyan" className="arena-status-tag">
+                <CheckCircle2 size={12} />
+                <span>已完赛</span>
               </Tag>
             ) : hasSimData ? (
-              <Tag color="gold" style={{ fontWeight: 700, margin: 0 }}>
-                ⚔️ 实时对抗巡检中
+              <Tag color="gold" className="arena-status-tag">
+                <Activity size={12} />
+                <span>实时</span>
               </Tag>
             ) : (
-              <Tag color="blue" style={{ fontWeight: 700, margin: 0 }}>
-                ⏳ 备战待命中 (未启用巡检)
+              <Tag color="blue" className="arena-status-tag">
+                <Clock size={12} />
+                <span>待命</span>
               </Tag>
             )}
           </div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
-            仿真对抗赛事 ELO 追踪与智能体战力评估
+          <div className="arena-header-subtitle">
+            Simulation Arena · ELO 追踪与智能体战力评估
           </div>
         </div>
-      </Space>
+      </div>
 
-      <Space size={10} wrap>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', maxWidth: '100%' }}>
-          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>赛事切换:</span>
+      <div className="arena-header-controls">
+        <div className="arena-header-select-group">
+          <span className="arena-header-select-label">赛事:</span>
           <Select
             value={selectedCompetition}
             onChange={onCompetitionChange}
-            style={{ minWidth: 200, maxWidth: 360, flex: 1 }}
+            className="arena-header-select"
             options={competitionOptions}
             showSearch
             filterOption={(input, option) =>
@@ -91,15 +68,19 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
             }
           />
         </div>
-        <SimulationMonitorControl currentCompetition={selectedCompetition} />
-        <Button
-          icon={<RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />}
-          loading={refreshing}
-          onClick={onRefresh}
-        >
-          刷新
-        </Button>
-      </Space>
+        <div className="arena-header-actions">
+          <SimulationMonitorControl currentCompetition={selectedCompetition} buttonText="天梯对战监控" />
+          <Button
+            icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
+            loading={refreshing}
+            onClick={onRefresh}
+            className="arena-refresh-btn"
+            aria-label="刷新"
+          >
+            <span>刷新</span>
+          </Button>
+        </div>
+      </div>
     </div>
   );
 };

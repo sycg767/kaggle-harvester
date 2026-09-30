@@ -4,7 +4,6 @@ import {
   Alert,
   App as AntApp,
   Button,
-  Card,
   Empty,
   Space,
   Spin,
@@ -99,6 +98,7 @@ const KernelList: React.FC = () => {
     versionKernel,
     versions,
     versionsLoading,
+    refreshing,
     versionsError,
     showVersions,
     closeVersionModal,
@@ -261,14 +261,15 @@ const KernelList: React.FC = () => {
   );
 
   return (
-    <div className="page-shell">
-      <header className="page-header">
+    <div className="page-shell kernel-workspace">
+      <header className="page-header kernel-page-header">
         <div className="page-title-wrap">
-          <h1 className="page-title">Kernel 广场</h1>
-          <span className="page-subtitle">浏览公开分数榜并保存可复现的本地版本</span>
+          <h1 className="page-title kernel-page-title">Kernel 广场</h1>
+          <span className="page-subtitle kernel-page-subtitle">浏览公开分数榜并保存可复现的本地版本</span>
         </div>
         <div className="page-actions">
           <Button
+            className="kernel-header-refresh-btn"
             icon={<ReloadOutlined />}
             aria-label={isScoreSort(sortBy) ? '刷新分数榜' : '强制刷新'}
             loading={loading}
@@ -279,7 +280,7 @@ const KernelList: React.FC = () => {
         </div>
       </header>
 
-      <div className="page-content">
+      <div className="page-content kernel-page-content">
         <KernelMetricsCards
           kernelsCount={kernels.length}
           scoredCount={scoredKernels.length}
@@ -330,13 +331,14 @@ const KernelList: React.FC = () => {
 
         {competitionInfo?.score_direction_source === 'fallback' && !confirmedDirection && (
           <Alert
+            className="kernel-direction-alert"
             type="warning"
             showIcon
             message="需要确认分数方向"
             description="Kaggle 未返回可靠的优化方向。确认后才能按最佳分数排序和归档最佳版本。"
             style={{ marginBottom: 16 }}
             action={
-              <Space>
+              <Space wrap>
                 <Button
                   size="small"
                   type="primary"
@@ -373,23 +375,22 @@ const KernelList: React.FC = () => {
         />
 
         {loading && !kernels.length && (
-          <Card size="small" className="data-toolbar">
-            <div style={{ textAlign: 'center', padding: 12 }}>
-              <Space direction="vertical">
-                <Spin size="large" />
-                <Text>
-                  {isScoreSort(sortBy)
-                    ? '正在读取 Kaggle 公开分数榜，已缓存版本不会重复拉取分数...'
-                    : `正在读取 Kernel，并补充前 ${scoreLimit} 条的公开分数...`}
-                </Text>
-                <Text type="secondary">已等待 {elapsedSeconds} 秒</Text>
-              </Space>
-            </div>
-          </Card>
+          <div className="kernel-loading-panel">
+            <Space direction="vertical" size={10} style={{ width: '100%', alignItems: 'center' }}>
+              <Spin size="large" />
+              <Text strong style={{ color: '#1c1c1e' }}>
+                {isScoreSort(sortBy)
+                  ? '正在读取 Kaggle 公开分数榜，已缓存版本不会重复拉取分数...'
+                  : `正在读取 Kernel，并补充前 ${scoreLimit} 条的公开分数...`}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 13 }}>已等待 {elapsedSeconds} 秒</Text>
+            </Space>
+          </div>
         )}
 
         {error && !loading && (
           <Alert
+            className="kernel-error-alert"
             type="error"
             showIcon
             closable
@@ -407,7 +408,7 @@ const KernelList: React.FC = () => {
           onBatchArchive={openArchiveDialog}
         />
 
-        <Card className="data-panel desktop-data-table" styles={{ body: { padding: 0 } }}>
+        <div className="kernel-data-panel desktop-data-table">
           <Table<ScoredKernel>
             columns={columns}
             dataSource={displayKernels}
@@ -423,7 +424,7 @@ const KernelList: React.FC = () => {
             locale={{ emptyText: loading ? <Spin /> : <Empty description="暂无 Kernel 数据" /> }}
             scroll={{ x: 1080 }}
           />
-        </Card>
+        </div>
 
         <MobileKernelCardList
           displayKernels={displayKernels}
@@ -450,6 +451,7 @@ const KernelList: React.FC = () => {
         versionKernel={versionKernel}
         versions={versions}
         versionsLoading={versionsLoading}
+        refreshing={refreshing}
         versionsError={versionsError || ''}
         onCheckNewVersions={(kernel) => showVersions(kernel, true)}
         onArchiveVersion={(kernel, versionNum) => openArchiveDialog([kernel], versionNum)}

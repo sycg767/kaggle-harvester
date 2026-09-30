@@ -1,7 +1,7 @@
 import React from 'react';
-import { Card, Statistic } from 'antd';
 import {
   DatabaseOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -21,19 +21,46 @@ export const ArchiveMetricsCards: React.FC<ArchiveMetricsCardsProps> = ({
   totalSize,
 }) => {
   return (
-    <div className="metric-grid archive-metrics">
-      <Card size="small" className="metric-card">
-        <Statistic title="归档版本" value={totalArchives} prefix={<DatabaseOutlined />} />
-      </Card>
-      <Card size="small" className="metric-card">
-        <Statistic title="唯一 Kernel" value={uniqueKernels} />
-      </Card>
-      <Card size="small" className="metric-card">
-        <Statistic title="作者" value={uniqueAuthors} prefix={<UserOutlined />} />
-      </Card>
-      <Card size="small" className="metric-card">
-        <Statistic title="本地占用" value={formatBytes(totalSize)} prefix={<FolderOpenOutlined />} />
-      </Card>
+    <div className="archive-metrics-strip" role="region" aria-label="归档指标概览">
+      <div className="archive-metric-item">
+        <div className="archive-metric-label">
+          <DatabaseOutlined className="archive-metric-icon" />
+          <span>归档版本</span>
+        </div>
+        <div className="archive-metric-value">
+          {totalArchives}
+        </div>
+      </div>
+
+      <div className="archive-metric-item">
+        <div className="archive-metric-label">
+          <FileTextOutlined className="archive-metric-icon" />
+          <span>唯一 Kernel</span>
+        </div>
+        <div className="archive-metric-value">
+          {uniqueKernels}
+        </div>
+      </div>
+
+      <div className="archive-metric-item">
+        <div className="archive-metric-label">
+          <UserOutlined className="archive-metric-icon" />
+          <span>作者</span>
+        </div>
+        <div className="archive-metric-value">
+          {uniqueAuthors}
+        </div>
+      </div>
+
+      <div className="archive-metric-item">
+        <div className="archive-metric-label">
+          <FolderOpenOutlined className="archive-metric-icon" />
+          <span>本地占用</span>
+        </div>
+        <div className="archive-metric-value is-size">
+          {formatBytes(totalSize)}
+        </div>
+      </div>
     </div>
   );
 };

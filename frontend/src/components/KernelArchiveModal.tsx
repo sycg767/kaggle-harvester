@@ -11,6 +11,7 @@ import {
   Typography,
 } from 'antd';
 import { CloseCircleOutlined } from '@ant-design/icons';
+import { Archive } from 'lucide-react';
 import type { DefaultOptionType } from 'antd/es/select';
 import type { ScoredKernel } from '../api';
 import DialogTitle from './DialogTitle';
@@ -60,13 +61,15 @@ export const KernelArchiveModal: React.FC<KernelArchiveModalProps> = ({
 }) => {
   return (
     <Modal
+      className="app-modal"
       title={(
         <DialogTitle
+          icon={<Archive size={17} color="#007aff" />}
+          title={archiveTargets.length > 1 ? `批量归档 ${archiveTargets.length} 个 Kernel` : '归档 Kernel'}
+          subtitle="本地结构化完整封存代码、运行环境与元数据"
           disabled={archiveRunning}
           onClose={() => !archiveRunning && onClose()}
-        >
-          {archiveTargets.length > 1 ? `批量归档 ${archiveTargets.length} 个 Kernel` : '归档 Kernel'}
-        </DialogTitle>
+        />
       )}
       open={open}
       closable={false}
@@ -88,24 +91,45 @@ export const KernelArchiveModal: React.FC<KernelArchiveModalProps> = ({
     >
       {!archiveRunning && !archiveCompleted ? (
         <>
-          <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="目标">{archiveTargets.length === 1 ? archiveTargets[0]?.ref : `${archiveTargets.length} 个 Kernel`}</Descriptions.Item>
-            <Descriptions.Item label="版本">
-              {archiveTargets.length === 1 ? (
-                <Select
-                  value={archiveVersionChoice}
-                  onChange={(value) => onVersionChoiceChange(value as ArchiveVersionChoice)}
-                  options={archiveVersionOptions}
-                  loading={archiveVersionsLoading}
-                  disabled={archiveVersionsLoading}
-                  style={{ width: '100%' }}
-                />
-              ) : (
-                '每个 Kernel 自动选择最佳公开分数版本；无分数时选择最新版本'
+          <div className="settings-group" style={{ marginTop: 4, marginBottom: 12 }}>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span className="settings-row-title">归档目标</span>
+                <span className="settings-row-desc" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  {archiveTargets.length === 1 ? archiveTargets[0]?.ref : `${archiveTargets.length} 个 Kernel 待归档`}
+                </span>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span className="settings-row-title">版本选择</span>
+                <span className="settings-row-desc">
+                  {archiveTargets.length === 1 ? '指定要保存的历史或最新版本' : '每个 Kernel 自动选择最佳公开分数版本；无分数时选择最新版本'}
+                </span>
+              </div>
+              {archiveTargets.length === 1 && (
+                <div className="settings-row-control" style={{ minWidth: 200 }}>
+                  <Select
+                    value={archiveVersionChoice}
+                    onChange={(value) => onVersionChoiceChange(value as ArchiveVersionChoice)}
+                    options={archiveVersionOptions}
+                    loading={archiveVersionsLoading}
+                    disabled={archiveVersionsLoading}
+                    style={{ width: '100%' }}
+                  />
+                </div>
               )}
-            </Descriptions.Item>
-            <Descriptions.Item label="包含输出"><Switch checked={includeOutputs} onChange={onIncludeOutputsChange} /></Descriptions.Item>
-          </Descriptions>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span className="settings-row-title">包含输出文件</span>
+                <span className="settings-row-desc">除源码外一并抓取模型、权重与结果文件</span>
+              </div>
+              <div className="settings-row-control">
+                <Switch checked={includeOutputs} onChange={onIncludeOutputsChange} />
+              </div>
+            </div>
+          </div>
           {archiveVersionsError && archiveTargets.length === 1 && (
             <Alert type="warning" showIcon message="历史版本列表读取失败，仍可使用自动选择最佳版本。" description={archiveVersionsError} style={{ marginTop: 12 }} />
           )}

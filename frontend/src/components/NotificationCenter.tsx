@@ -176,16 +176,14 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       </Button>
 
       <Modal
-        className="newapi-dialog notification-center-modal"
+        className="app-modal notification-center-modal"
         title={(
-          <DialogTitle onClose={() => setOpen(false)}>
-            <Space align="center" size={8}>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: '#fef2f2', display: 'grid', placeItems: 'center' }}>
-                <Bell size={16} color="#ef4444" />
-              </div>
-              <span style={{ fontWeight: 800 }}>竞赛与系统通知中心</span>
-            </Space>
-          </DialogTitle>
+          <DialogTitle
+            icon={<Bell size={17} color="#ef4444" />}
+            title="竞赛与系统通知中心"
+            subtitle="企业微信、飞书、钉钉与邮件多渠道通知及凭据安全加密"
+            onClose={() => setOpen(false)}
+          />
         )}
         open={open}
         forceRender
@@ -193,13 +191,13 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         closable={false}
         width={920}
         confirmLoading={saving}
-        styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowX: 'hidden', overflowY: 'auto', padding: '16px 24px' } }}
+        styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowX: 'hidden', overflowY: 'auto', padding: '16px 20px' } }}
         onCancel={() => setOpen(false)}
         footer={[
           <div key="footer-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
-              <ShieldCheck size={14} color="#10b981" />
-              <span>凭据安全保护：{snapshot?.config.secret_storage === 'windows_dpapi' ? 'Windows DPAPI 加密' : '环境密钥加密'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#8e8e93' }}>
+              <ShieldCheck size={14} color="#059669" />
+              <span>凭据保护：{snapshot?.config.secret_storage === 'windows_dpapi' ? 'Windows DPAPI 本地加密' : '环境密钥加密'}</span>
             </div>
             <Space size={8} wrap>
               <Button key="close" onClick={() => setOpen(false)}>关闭</Button>
@@ -217,7 +215,6 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 type="primary"
                 loading={saving}
                 onClick={() => void saveConfig()}
-                style={{ fontWeight: 600 }}
               >
                 保存配置
               </Button>

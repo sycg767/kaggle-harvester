@@ -78,26 +78,45 @@ export const getSideEpisodeColumns = (): TableColumnsType<SimulationEpisode> => 
         );
       }
       const delta = record.score_delta;
-      if (res === 'win' || record.reward === 1) {
-        const deltaStr = delta !== undefined && delta !== null ? `+${Math.abs(delta).toFixed(1)}` : '+3.0';
-        return (
-          <Tag color="success" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
-            {deltaStr}
-          </Tag>
-        );
-      }
-      if (res === 'loss' || record.reward === -1) {
-        const deltaStr = delta !== undefined && delta !== null ? `-${Math.abs(delta).toFixed(1)}` : '-3.0';
-        return (
-          <Tag color="error" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
-            {deltaStr}
-          </Tag>
-        );
-      }
-      if (res === 'tie' || record.reward === 0) {
+      if (delta !== undefined && delta !== null) {
+        if (delta > 0) {
+          return (
+            <Tag color="success" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
+              +{delta.toFixed(1)}
+            </Tag>
+          );
+        }
+        if (delta < 0) {
+          return (
+            <Tag color="error" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
+              {delta.toFixed(1)}
+            </Tag>
+          );
+        }
         return (
           <Tag color="default" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
             0.0
+          </Tag>
+        );
+      }
+      if (res === 'win') {
+        return (
+          <Tag color="success" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
+            +胜
+          </Tag>
+        );
+      }
+      if (res === 'loss') {
+        return (
+          <Tag color="error" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
+            -负
+          </Tag>
+        );
+      }
+      if (res === 'tie') {
+        return (
+          <Tag color="default" style={{ margin: 0, fontSize: 12, fontWeight: 800, borderRadius: 6, minWidth: 50, textAlign: 'center' }}>
+            平
           </Tag>
         );
       }

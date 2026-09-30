@@ -29,40 +29,44 @@ const KernelFreshnessBanner: React.FC<KernelFreshnessBannerProps> = ({
 
   return (
     <div
-      className={`data-freshness${cacheInfo.refresh_state === 'failed' ? ' is-error' : ''}`}
+      className={`kernel-freshness-strip${cacheInfo.refresh_state === 'failed' ? ' is-error' : ''}`}
       role="status"
+      aria-label="数据新鲜度快照"
     >
-      <div>
-        <strong>数据范围</strong>
-        <span>
+      <div className="kernel-freshness-item">
+        <span className="kernel-freshness-label">范围</span>
+        <span className="kernel-freshness-value">
           {isScoreSort(sortBy) && confirmedDirection
-            ? '公开分数榜前 50 条'
+            ? '公开榜前 50 条'
             : `当前查询 ${kernelsCount} 条`}
         </span>
       </div>
-      <div>
-        <strong>快照时间</strong>
-        <span>
+      <span className="kernel-freshness-dot">·</span>
+      <div className="kernel-freshness-item">
+        <span className="kernel-freshness-label">快照</span>
+        <span className="kernel-freshness-value">
           {cacheInfo.fetched_at
             ? formatDate(new Date(cacheInfo.fetched_at * 1000).toISOString())
             : formatCacheAge(cacheInfo.age_seconds)}
         </span>
       </div>
-      <div>
-        <strong>数据状态</strong>
-        <span>
+      <span className="kernel-freshness-dot">·</span>
+      <div className="kernel-freshness-item">
+        <span className="kernel-freshness-label">状态</span>
+        <span className="kernel-freshness-value">
           {cacheInfo.refresh_state === 'failed'
-            ? '后台刷新失败，正在展示旧数据'
+            ? '后台刷新失败 (旧数据)'
             : backgroundRefreshing
-              ? '旧数据可用，后台更新中'
+              ? '更新中'
               : cacheInfo.state === 'STALE'
-                ? '正在展示旧数据'
-                : '快照可用'}
+                ? '旧数据'
+                : '快照正常'}
         </span>
       </div>
-      <div>
-        <strong>方向来源</strong>
-        <span>{scoreDirectionSourceLabel(directionSource)}</span>
+      <span className="kernel-freshness-dot">·</span>
+      <div className="kernel-freshness-item">
+        <span className="kernel-freshness-label">方向</span>
+        <span className="kernel-freshness-value">{scoreDirectionSourceLabel(directionSource)}</span>
       </div>
     </div>
   );

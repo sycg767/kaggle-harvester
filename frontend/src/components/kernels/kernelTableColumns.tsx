@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Space, Tag, Tooltip, Typography, type TableColumnsType } from 'antd';
+import { Button, Space, Tooltip, Typography, type TableColumnsType } from 'antd';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -12,6 +12,7 @@ import {
 import type { ScoredKernel } from '../../api';
 import type { ScoreDirection } from '../../scoreDirection';
 import { kaggleAuthorUrl, kaggleKernelUrl, kaggleOwnerFromRef } from '../../kaggleUrls';
+import CopyButton from '../CopyButton';
 import { comparePublicScores, formatDate, SCORE_SORT_BEST } from './kernelUtils';
 
 const { Text } = Typography;
@@ -47,52 +48,58 @@ export const buildKernelTableColumns = ({
       );
     },
     render: (score?: number) => (
-      <Space>
-        <TrophyOutlined style={{ color: getScoreColor(score) }} />
-        <Text strong style={{ color: getScoreColor(score) }}>
+      <div className="kernel-table-score">
+        <TrophyOutlined style={{ color: getScoreColor(score), fontSize: 13 }} />
+        <span
+          className="kernel-table-score-val"
+          style={{ color: getScoreColor(score) }}
+        >
           {score === undefined || score === null ? '—' : score.toFixed(4)}
-        </Text>
-      </Space>
+        </span>
+      </div>
     ),
   },
   {
     title: 'Kernel',
     key: 'kernel',
-    width: 290,
+    width: 300,
     render: (_, record) => (
-      <div style={{ minWidth: 0 }}>
+      <div className="kernel-col-cell">
         <a
           href={kaggleKernelUrl(record.ref)}
           target="_blank"
           rel="noreferrer"
-          style={{ display: 'block', overflow: 'hidden', fontWeight: 600, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          className="kernel-col-title"
+          title={record.title || record.ref}
         >
           {record.title || record.ref}
         </a>
-        <Text type="secondary" ellipsis style={{ display: 'block', fontSize: 12 }}>
-          {record.ref}
-        </Text>
+        <div className="kernel-col-ref-line">
+          <span className="kernel-col-ref">{record.ref}</span>
+          <CopyButton value={record.ref} label="复制 Kernel ref" />
+        </div>
       </div>
     ),
   },
   {
     title: '作者',
     dataIndex: 'author',
-    width: 135,
+    width: 140,
     ellipsis: true,
     render: (author: string, record: ScoredKernel) => {
       const username = kaggleOwnerFromRef(record.ref);
       return (
-        <Space align="start">
-          <UserOutlined style={{ marginTop: 4 }} />
+        <Space align="start" size={6} className="kernel-author-cell">
+          <UserOutlined style={{ marginTop: 3, color: '#8e8e93' }} />
           <a
             href={kaggleAuthorUrl(username)}
             target="_blank"
             rel="noreferrer"
             aria-label={`打开 @${username} 的 Kaggle 主页`}
+            className="kernel-author-link"
           >
-            <span style={{ display: 'block' }}>{author || username}</span>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
+            <span className="kernel-author-name">{author || username}</span>
+            <Text type="secondary" className="kernel-author-handle">
               @{username}
             </Text>
           </a>
@@ -106,9 +113,9 @@ export const buildKernelTableColumns = ({
     width: 85,
     sorter: (a, b) => a.total_votes - b.total_votes,
     render: (votes: number) => (
-      <Space>
+      <Space size={4} className="kernel-votes-cell">
         <StarOutlined style={{ color: warningColor }} />
-        {votes}
+        <span className="kernel-votes-val">{votes}</span>
       </Space>
     ),
   },
@@ -117,35 +124,53 @@ export const buildKernelTableColumns = ({
     dataIndex: 'last_run_time',
     width: 170,
     render: (value?: string) => (
-      <Space>
-        <ClockCircleOutlined />
-        <Text type="secondary">{formatDate(value)}</Text>
+      <Space size={5} className="kernel-runtime-cell">
+        <ClockCircleOutlined style={{ color: '#8e8e93' }} />
+        <span className="kernel-runtime-val">{formatDate(value)}</span>
       </Space>
     ),
   },
   {
     title: '本地状态',
-    width: 120,
+    width: 125,
     render: (_, record) => {
       const values = archivedVersions.get(record.ref);
       return values?.length ? (
         <Tooltip title={values.map((value) => `v${value}`).join('、')}>
-          <Tag color="success" icon={<CheckCircleOutlined />}>{values.length} 个版本</Tag>
+          <span className="kernel-status-chip is-success">
+            <CheckCircleOutlined style={{ fontSize: 11 }} />
+            <span>{values.length} 个版本</span>
+          </span>
         </Tooltip>
-      ) : <Text type="secondary">未归档</Text>;
+      ) : (
+        <span className="kernel-status-chip is-neutral">未归档</span>
+      );
     },
   },
   {
     title: '操作',
     fixed: 'right',
-    width: 125,
+    width: 130,
     render: (_, record) => (
-      <Space size="small">
+      <Space size={6} className="kernel-actions-cell">
         <Tooltip title="查看版本历史">
-          <Button icon={<EyeOutlined />} aria-label={`查看 ${record.ref} 的版本`} onClick={() => onShowVersions(record)} />
+          <Button
+            size="small"
+            className="kernel-action-btn-view"
+            icon={<EyeOutlined />}
+            aria-label={`查看 ${record.ref} 的版本`}
+            onClick={() => onShowVersions(record)}
+          />
         </Tooltip>
         <Tooltip title="归档最佳版本">
-          <Button type="primary" icon={<CloudDownloadOutlined />} aria-label={`归档 ${record.ref}`} onClick={() => onOpenArchive([record])} />
+          <Button
+            size="small"
+            type="primary"
+            className="kernel-action-btn-archive"
+            icon={<CloudDownloadOutlined />}
+            aria-label={`归档 ${record.ref}`}
+            onClick={() => onOpenArchive([record])}
+          />
         </Tooltip>
       </Space>
     ),

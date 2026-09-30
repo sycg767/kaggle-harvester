@@ -32,6 +32,38 @@ def clean_system_check_episodes(episodes: list[SimulationEpisode]) -> None:
             ep.reward = None
             ep.score_delta = None
             ep.opponent_score = None
+        else:
+            # 重新矫正非系统自检对局的胜负平属性（纠正旧版本或缓存数据）
+            my_agent = next(
+                (a for a in ep.agents if a.submission_id == ep.my_submission_id),
+                None,
+            )
+            opponents = [a for a in ep.agents if a.submission_id != ep.my_submission_id]
+            if my_agent and opponents:
+                my_rew = my_agent.reward
+                opp_rewards = [a.reward for a in opponents if a.reward is not None]
+                if my_rew is not None and opp_rewards:
+                    opp_max = max(opp_rewards)
+                    if my_rew > opp_max:
+                        ep.result = "win"
+                    elif my_rew < opp_max:
+                        ep.result = "loss"
+                    else:
+                        ep.result = "tie"
+                elif ep.score_delta is not None:
+                    if ep.score_delta > 0:
+                        ep.result = "win"
+                    elif ep.score_delta < 0:
+                        ep.result = "loss"
+                    else:
+                        ep.result = "tie"
+            elif ep.score_delta is not None:
+                if ep.score_delta > 0:
+                    ep.result = "win"
+                elif ep.score_delta < 0:
+                    ep.result = "loss"
+                else:
+                    ep.result = "tie"
 
 
 def resolve_agent_alias(

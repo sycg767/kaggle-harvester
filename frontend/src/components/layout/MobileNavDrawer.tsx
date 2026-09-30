@@ -17,6 +17,7 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
 }) => {
   return (
     <Drawer
+      className="mobile-nav-drawer"
       title={(
         <Space align="center" size={8}>
           <span className="newapi-brand-mark" style={{ width: 36, height: 16 }}>
@@ -26,10 +27,19 @@ export const MobileNavDrawer: React.FC<MobileNavDrawerProps> = ({
         </Space>
       )}
       placement="left"
-      width={270}
+      width={275}
       open={open}
       onClose={onClose}
-      styles={{ body: { padding: '8px 6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' } }}
+      styles={{
+        body: {
+          padding: '12px 10px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+        },
+      }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ flex: 1 }}>

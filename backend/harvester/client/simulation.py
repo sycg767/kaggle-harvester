@@ -22,6 +22,53 @@ from harvester.models import (
 )
 
 
+def determine_episode_outcome(
+    my_agent: SimulationEpisodeAgent | None,
+    opponents: list[SimulationEpisodeAgent],
+    score_delta: float | None = None,
+) -> tuple[str, bool]:
+    """
+    精确判定仿真对抗对局的胜负平结果。
+    依据规则：
+    1. 无对手视为系统自检 (unknown, True)。
+    2. 若双/多方均有有效 reward，比对得分：我方得分高于对手最高分为胜，低于为负，相等为平。
+    3. 若无 opponent reward，但有官方天梯分结算变动 score_delta：正数为胜，负数为负，0为平。
+    4. 兜底回退：若仅我方有 reward（如 +/- 1 格式）：>0 为胜，<0 为负，=0 为平。
+    """
+    if not opponents:
+        return "unknown", True
+
+    my_rew = my_agent.reward if my_agent is not None else None
+    opp_rewards = [a.reward for a in opponents if a.reward is not None]
+
+    if my_rew is not None and opp_rewards:
+        opp_max = max(opp_rewards)
+        if my_rew > opp_max:
+            return "win", False
+        elif my_rew < opp_max:
+            return "loss", False
+        else:
+            return "tie", False
+
+    if score_delta is not None:
+        if score_delta > 0:
+            return "win", False
+        elif score_delta < 0:
+            return "loss", False
+        else:
+            return "tie", False
+
+    if my_rew is not None:
+        if my_rew > 0:
+            return "win", False
+        elif my_rew < 0:
+            return "loss", False
+        else:
+            return "tie", False
+
+    return "unknown", False
+
+
 def list_simulation_episodes_for_submission(
     submission_id: int,
     *,
@@ -102,28 +149,19 @@ def list_simulation_episodes_for_submission(
 
             my_idx = my_agent.index if my_agent is not None else 0
             my_team = my_agent.team_name if my_agent is not None else ""
-            is_system_check = opponent_agent is None
+            opponents = [a for a in agents if a.submission_id != sub_id]
+            outcome, is_system_check = determine_episode_outcome(my_agent, opponents, my_delta)
             if is_system_check:
                 opp_team = "系统自检"
                 opp_team_id = None
                 opp_sub_id = None
                 rew = None
-                outcome = "unknown"
                 my_delta = None
             else:
-                opp_team = opponent_agent.team_name or "对手"
-                opp_team_id = opponent_agent.team_id
-                opp_sub_id = opponent_agent.submission_id
+                opp_team = opponent_agent.team_name or "对手" if opponent_agent else "对手"
+                opp_team_id = opponent_agent.team_id if opponent_agent else None
+                opp_sub_id = opponent_agent.submission_id if opponent_agent else None
                 rew = my_agent.reward if my_agent is not None else None
-                if rew is not None:
-                    if rew > 0:
-                        outcome = "win"
-                    elif rew < 0:
-                        outcome = "loss"
-                    else:
-                        outcome = "tie"
-                else:
-                    outcome = "unknown"
 
             replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
 
@@ -228,27 +266,18 @@ def list_simulation_episodes_for_submission(
 
             my_idx = my_agent.index if my_agent is not None else 0
             my_team = my_agent.team_name if my_agent is not None else ""
-            is_system_check = opponent_agent is None
+            opponents = [a for a in agents if a.submission_id != sub_id]
+            outcome, is_system_check = determine_episode_outcome(my_agent, opponents, None)
             if is_system_check:
                 opp_team = "系统自检"
                 opp_team_id = None
                 opp_sub_id = None
                 rew = None
-                outcome = "unknown"
             else:
-                opp_team = opponent_agent.team_name or "对手"
-                opp_team_id = opponent_agent.team_id
-                opp_sub_id = opponent_agent.submission_id
+                opp_team = opponent_agent.team_name or "对手" if opponent_agent else "对手"
+                opp_team_id = opponent_agent.team_id if opponent_agent else None
+                opp_sub_id = opponent_agent.submission_id if opponent_agent else None
                 rew = my_agent.reward if my_agent is not None else None
-                if rew is not None:
-                    if rew > 0:
-                        outcome = "win"
-                    elif rew < 0:
-                        outcome = "loss"
-                    else:
-                        outcome = "tie"
-                else:
-                    outcome = "unknown"
 
             replay_url = f"https://www.kaggle.com/competitions/{competition}/leaderboard?dialog=episodes-episode-{ep_id}"
 

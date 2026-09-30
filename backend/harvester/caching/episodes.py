@@ -132,6 +132,25 @@ class PersistentSimulationEpisodeStore:
                     agents_data = [SimulationEpisodeAgent(**item) for item in raw]
                 except Exception:
                     agents_data = []
+            outcome = r["result"] or "unknown"
+            is_system_check = bool(r["is_system_check"])
+            if not is_system_check and agents_data:
+                my_sub = r["submission_id"]
+                my_agent = next((a for a in agents_data if a.submission_id == my_sub), None)
+                opponents = [a for a in agents_data if a.submission_id != my_sub]
+                if my_agent and opponents:
+                    my_rew = my_agent.reward
+                    opp_rewards = [a.reward for a in opponents if a.reward is not None]
+                    if my_rew is not None and opp_rewards:
+                        opp_max = max(opp_rewards)
+                        outcome = "win" if my_rew > opp_max else ("loss" if my_rew < opp_max else "tie")
+                    elif r["score_delta"] is not None:
+                        outcome = "win" if r["score_delta"] > 0 else ("loss" if r["score_delta"] < 0 else "tie")
+                elif r["score_delta"] is not None:
+                    outcome = "win" if r["score_delta"] > 0 else ("loss" if r["score_delta"] < 0 else "tie")
+            elif not is_system_check and r["score_delta"] is not None:
+                outcome = "win" if r["score_delta"] > 0 else ("loss" if r["score_delta"] < 0 else "tie")
+
             ep = SimulationEpisode(
                 id=r["id"],
                 create_time=r["create_time"],
@@ -146,8 +165,8 @@ class PersistentSimulationEpisodeStore:
                 opponent_team_name=r["opponent_team_name"] or "",
                 opponent_team_id=r["opponent_team_id"],
                 opponent_submission_id=r["opponent_submission_id"],
-                result=r["result"] or "unknown",
-                is_system_check=bool(r["is_system_check"]),
+                result=outcome,
+                is_system_check=is_system_check,
                 reward=r["reward"],
                 score_delta=r["score_delta"],
                 opponent_score=r["opponent_score"],

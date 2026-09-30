@@ -215,12 +215,12 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
                       let bannerClass = 'sim-cushion-banner-danger';
 
                       if (medalTier === 'gold') {
-                        cushionTitle = '🥇 金牌安全垫 (高于金牌线)';
+                        cushionTitle = '金牌安全垫 (高于金牌线)';
                         const c = agent.tier_cushion_score ?? (thresholds?.gold_cutoff_score ? sc - thresholds.gold_cutoff_score : 0);
                         cushionVal = `+${c.toFixed(1)} 分`;
                         bannerClass = 'sim-cushion-banner-gold';
                       } else if (medalTier === 'silver') {
-                        cushionTitle = '🥈 银牌安全垫 (高于银牌线)';
+                        cushionTitle = '银牌安全垫 (高于银牌线)';
                         const c = agent.tier_cushion_score ?? (thresholds?.silver_cutoff_score ? sc - thresholds.silver_cutoff_score : 0);
                         cushionVal = `+${c.toFixed(1)} 分`;
                         bannerClass = 'sim-cushion-banner-silver';
@@ -229,7 +229,7 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
                           nextGapText = `距金牌线 ${nextGap.toFixed(1)} 分`;
                         }
                       } else if (medalTier === 'bronze') {
-                        cushionTitle = '🥉 铜牌安全垫 (高于铜牌线)';
+                        cushionTitle = '铜牌安全垫 (高于铜牌线)';
                         const c = agent.tier_cushion_score ?? agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
                         cushionVal = `+${c.toFixed(1)} 分`;
                         bannerClass = 'sim-cushion-banner-bronze';
@@ -238,7 +238,7 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
                           nextGapText = `距银牌线 ${nextGap.toFixed(1)} 分`;
                         }
                       } else {
-                        cushionTitle = '⚠️ 距离铜牌线差距';
+                        cushionTitle = '距离铜牌线差距';
                         const gap = agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
                         cushionVal = `${gap.toFixed(1)} 分`;
                         bannerClass = 'sim-cushion-banner-danger';
@@ -284,7 +284,7 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
 
                     {/* Card Footer Meta */}
                     <div className="sim-footer-meta">
-                      <span>提交 ID: <code style={{ fontFamily: 'monospace', color: '#475569', fontWeight: 600 }}>#{agent.submission_id}</code></span>
+                      <span>提交 ID: <code style={{ fontFamily: 'var(--font-mono)', color: '#475569', fontWeight: 600 }}>#{agent.submission_id}</code></span>
                       {agent.alias && (
                         <span>别名: <strong style={{ color: '#0284c7' }}>{agent.alias}</strong></span>
                       )}

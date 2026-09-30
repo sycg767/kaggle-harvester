@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
-import { Alert, Card, Empty, Modal, Space, Spin, Table, Tag, Typography } from 'antd';
+import { Card, Empty, Modal, Space, Spin, Table, Tag, Typography } from 'antd';
+import { Activity, Swords } from 'lucide-react';
 import type { SimulationMonitorRunDetail } from '../../types/api';
 import { formatDate, formatDuration } from './utils';
 import { getSideEpisodeColumns } from './sideEpisodeColumns';
+import DialogTitle from '../DialogTitle';
 
 const { Text } = Typography;
 
@@ -23,7 +25,16 @@ export const RunDetailModal: React.FC<RunDetailModalProps> = ({
 
   return (
     <Modal
-      title="模拟对战检查明细"
+      className="app-modal"
+      closable={false}
+      title={(
+        <DialogTitle
+          icon={<Swords size={17} color="#d97706" />}
+          title="模拟对战检查明细"
+          subtitle={logDetail ? `${logDetail.log.trigger === 'manual' ? '手动触发' : '定时调度'} · ${formatDate(logDetail.log.started_at)}` : '运行检查详细记录'}
+          onClose={onClose}
+        />
+      )}
       open={open}
       onCancel={onClose}
       width={1000}
@@ -34,33 +45,42 @@ export const RunDetailModal: React.FC<RunDetailModalProps> = ({
       <Spin spinning={loading} tip="正在读取运行明细...">
         {logDetail ? (
           <div>
-            <Alert
-              type={
-                logDetail.log.outcome === 'success'
-                  ? 'success'
-                  : logDetail.log.outcome === 'partial'
-                  ? 'warning'
-                  : 'error'
-              }
-              showIcon
-              style={{ marginBottom: 16 }}
-              message={
-                <Space wrap>
-                  <span>{logDetail.log.trigger === 'manual' ? '手动检查' : '定时调度'}</span>
-                  <Text>{formatDate(logDetail.log.started_at)}</Text>
-                  <Text type="secondary">耗时 {formatDuration(logDetail.log.duration_seconds)}</Text>
-                </Space>
-              }
-              description={
-                <Space wrap>
-                  <span>
-                    本次抓取 {logDetail.log.total_episodes_found} 场，总计新增/补抓 {logDetail.log.new_episodes_found} 场
-                  </span>
-                  <span>代理数：{logDetail.log.agent_count}</span>
-                  {logDetail.log.error ? <span>{logDetail.log.error}</span> : null}
-                </Space>
-              }
-            />
+            <div className="dialog-summary-grid" style={{ marginTop: 0, marginBottom: 16 }}>
+              <div className="dialog-summary-cell">
+                <span className="dialog-summary-label">检查结果</span>
+                <span className="dialog-summary-value">
+                  {logDetail.log.outcome === 'success' ? (
+                    <span className="dialog-status-pill is-success">成功</span>
+                  ) : logDetail.log.outcome === 'partial' ? (
+                    <span className="dialog-status-pill is-warning">部分完成</span>
+                  ) : (
+                    <span className="dialog-status-pill is-error">失败</span>
+                  )}
+                </span>
+              </div>
+              <div className="dialog-summary-cell">
+                <span className="dialog-summary-label">开始时间</span>
+                <span className="dialog-summary-value">{formatDate(logDetail.log.started_at)}</span>
+              </div>
+              <div className="dialog-summary-cell">
+                <span className="dialog-summary-label">耗时</span>
+                <span className="dialog-summary-value">{formatDuration(logDetail.log.duration_seconds)}</span>
+              </div>
+              <div className="dialog-summary-cell">
+                <span className="dialog-summary-label">对局抓取</span>
+                <span className="dialog-summary-value">抓取 {logDetail.log.total_episodes_found} / 新增 {logDetail.log.new_episodes_found}</span>
+              </div>
+              <div className="dialog-summary-cell">
+                <span className="dialog-summary-label">代理数</span>
+                <span className="dialog-summary-value">{logDetail.log.agent_count} 个</span>
+              </div>
+            </div>
+
+            {logDetail.log.error ? (
+              <div style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, color: '#dc2626', fontSize: 12.5, marginBottom: 16 }}>
+                错误信息: {logDetail.log.error}
+              </div>
+            ) : null}
 
             {logDetail.agents.length === 0 ? (
               <Empty description="这次运行没有可用的代理明细" />

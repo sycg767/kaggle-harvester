@@ -24,13 +24,15 @@ export const AliasEditModal: React.FC<AliasEditModalProps> = ({
 }) => {
   return (
     <Modal
+      className="app-modal"
+      closable={false}
       title={(
-        <DialogTitle onClose={onClose}>
-          <Space size={8} align="center">
-            <TagOutlined style={{ color: '#2563eb' }} />
-            <span style={{ fontWeight: 600, fontSize: 16 }}>设置 Agent 自定义别名</span>
-          </Space>
-        </DialogTitle>
+        <DialogTitle
+          icon={<TagOutlined style={{ color: '#007aff' }} />}
+          title="设置 Agent 自定义别名"
+          subtitle={`提交 #${subId} · 同步展示于天梯卡片与战报`}
+          onClose={onClose}
+        />
       )}
       open={open}
       onCancel={onClose}
@@ -50,9 +52,9 @@ export const AliasEditModal: React.FC<AliasEditModalProps> = ({
         </Button>,
       ]}
     >
-      <div style={{ paddingTop: 10 }}>
-        <div style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>
-          为提交 <code>#{subId}</code> 赋予专属代号（如 <code>p32</code>、<code>p46</code>、<code>主力模型</code> 等），将立即同步至全景天梯卡片、折线走势图与微信机器人战报：
+      <div style={{ paddingTop: 4 }}>
+        <div style={{ fontSize: 12.5, color: '#8e8e93', marginBottom: 12 }}>
+          设置专属代号（如 <code>p46</code>、<code>主力模型</code>），方便快速辨识。
         </div>
         <Input
           size="large"

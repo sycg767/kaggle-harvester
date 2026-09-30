@@ -33,6 +33,15 @@ export const formatDate = (value: string) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
 };
 
+export const formatDateParts = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: value, time: '' };
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const d = `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
+  const t = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return { date: d, time: t };
+};
+
 export const formatScore = (value?: number) => (
   value === undefined || value === null ? '—' : value.toFixed(4)
 );

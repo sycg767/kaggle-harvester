@@ -128,13 +128,16 @@ def get_status_text(history_only=False):
 
 def format_message(data, history_only=False):
     status = data.get("status", {})
+    config = data.get("config", {})
+    comp_slug = config.get("competition") or status.get("competition") or "Simulation Arena"
+    comp_title = "Pokemon TCG AI" if comp_slug == "pokemon-tcg-ai-battle" else (comp_slug.replace("-", " ").title())
     agents = status.get("agents", [])
     thresholds = status.get("thresholds") or status.get("medal_thresholds") or {}
     
-    total_teams = thresholds.get("total_teams", 6807)
-    gold_score = thresholds.get("gold_cutoff_score", 1131.9)
-    silver_score = thresholds.get("silver_cutoff_score", 917.4)
-    bronze_score = thresholds.get("bronze_cutoff_score", 839.1)
+    total_teams = thresholds.get("total_teams")
+    gold_score = thresholds.get("gold_cutoff_score")
+    silver_score = thresholds.get("silver_cutoff_score")
+    bronze_score = thresholds.get("bronze_cutoff_score")
 
     try:
         now_bj = datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
@@ -145,10 +148,10 @@ def format_message(data, history_only=False):
             now_bj = datetime.now().strftime("%H:%M")
 
     if history_only:
-        lines = [f"📋 最近对局流水时间一览 (北京时间 {now_bj})", ""]
-        for a in agents:
+        lines = [f"📋 最近对局流水时间一览 ({comp_title} · 北京时间 {now_bj})", ""]
+        for idx, a in enumerate(agents):
             sub_id = a.get("submission_id")
-            label = a.get("alias") or ("p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"Agent #{sub_id}"))
+            label = a.get("alias") or f"Agent #{idx + 1}"
             eps = a.get("recent_episodes", [])[:15]
             lines.append(f"【{label}】最近 {len(eps)} 场对局 (最新在上):")
             for ep in eps:
@@ -162,11 +165,11 @@ def format_message(data, history_only=False):
             lines.append("")
         return "\n".join(lines)
 
-    lines = [f"📊 Pokemon TCG AI 实时战报 ({now_bj} 北京时间)", ""]
+    lines = [f"📊 {comp_title} 实时战报 ({now_bj} 北京时间)", ""]
 
     for idx, a in enumerate(agents):
         sub_id = a.get("submission_id")
-        label = a.get("alias") or ("p46" if sub_id == 55565346 else ("p31" if sub_id == 55555162 else f"Agent #{sub_id}"))
+        label = a.get("alias") or f"Agent #{idx + 1}"
         score = a.get("score") or a.get("public_score") or 0.0
         rank = a.get("rank") or "—"
         tier = a.get("medal_tier", "none")
@@ -225,8 +228,16 @@ def format_message(data, history_only=False):
 
         lines.append("")
 
-    lines.append(f"【奖牌线】(总参赛 {total_teams} 队)")
-    lines.append(f"• 金牌: {gold_score:.1f} 分 | 银牌: {silver_score:.1f} 分 | 铜牌: {bronze_score:.1f} 分")
+    if any(s is not None for s in (gold_score, silver_score, bronze_score)):
+        lines.append(f"【奖牌线】" + (f"(总参赛 {total_teams} 队)" if total_teams else ""))
+        parts = []
+        if gold_score is not None:
+            parts.append(f"金牌: {gold_score:.1f} 分")
+        if silver_score is not None:
+            parts.append(f"银牌: {silver_score:.1f} 分")
+        if bronze_score is not None:
+            parts.append(f"铜牌: {bronze_score:.1f} 分")
+        lines.append("• " + " | ".join(parts))
     
     return "\n".join(lines)
 

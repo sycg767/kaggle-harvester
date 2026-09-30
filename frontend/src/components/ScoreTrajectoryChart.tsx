@@ -17,9 +17,14 @@ import {
 interface ScoreTrajectoryChartProps {
   agents: SimulationAgentStats[];
   thresholds?: SimulationMedalThresholds;
+  competitionTitle?: string;
 }
 
-const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thresholds }) => {
+const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({
+  agents,
+  thresholds,
+  competitionTitle,
+}) => {
   const chart = useMemo(() => {
     const series = agents
       .map((agent, index) => {
@@ -54,9 +59,12 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
       .filter((item) => item.points.length > 0);
 
     const allPoints = series.flatMap((item) => item.points);
-    const cutoffValues = [thresholds?.silver_cutoff_score, thresholds?.bronze_cutoff_score].filter(
-      (value): value is number => value !== undefined && value !== null,
-    );
+    const cutoffValues = [
+      thresholds?.gold_cutoff_score,
+      thresholds?.silver_cutoff_score,
+      thresholds?.bronze_cutoff_score,
+    ].filter((value): value is number => value !== undefined && value !== null);
+
     if (allPoints.length === 0) {
       return {
         series,
@@ -66,17 +74,18 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
         yMax: 100,
         xTicks: [0, 5, 10],
         yTicks: [0, 50, 100],
+        goldCutoff: thresholds?.gold_cutoff_score,
         silverCutoff: thresholds?.silver_cutoff_score,
         bronzeCutoff: thresholds?.bronze_cutoff_score,
       };
     }
 
     const maxGames = Math.max(...allPoints.map((point) => point.x), ...series.map((item) => item.games));
-    // 聚焦于有效竞争区间，底部分数下限收敛至天梯基准（600分），防止开局倒推异常压扁全图真实走势
-    const effectiveMinScore = Math.max(600, Math.min(...allPoints.map((point) => point.y), ...cutoffValues));
+    const minPointScore = Math.min(...allPoints.map((point) => point.y));
+    const effectiveMinScore = Math.min(minPointScore, ...cutoffValues);
     const maxScore = Math.max(...allPoints.map((point) => point.y), ...cutoffValues);
-    // 右侧预留充足外边距，确保即使各 Agent 局数不同，终点右侧分数标签也能完整横向展示，绝不下沉压线
-    const xPaddingRight = Math.max(72, maxGames * 0.08);
+    // 右侧预留外边距，确保即使各 Agent 局数不同，终点右侧分数标签也能完整横向展示
+    const xPaddingRight = Math.max(16, Math.round(maxGames * 0.08));
     const yTickInfo = calculateYAxisTicks(effectiveMinScore - 10, maxScore + 15, 6);
 
     return {
@@ -87,10 +96,11 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
       yMax: yTickInfo.yMax,
       xTicks: integerTicks(0, Math.max(10, maxGames + xPaddingRight), 5),
       yTicks: yTickInfo.ticks,
+      goldCutoff: thresholds?.gold_cutoff_score,
       silverCutoff: thresholds?.silver_cutoff_score,
       bronzeCutoff: thresholds?.bronze_cutoff_score,
     };
-  }, [agents, thresholds?.bronze_cutoff_score, thresholds?.silver_cutoff_score]);
+  }, [agents, thresholds?.gold_cutoff_score, thresholds?.silver_cutoff_score, thresholds?.bronze_cutoff_score]);
 
   const hasData = chart.series.length > 0;
 
@@ -108,7 +118,10 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({ agents, thr
           style={{ margin: '24px 0' }}
         />
       ) : (
-        <TrajectorySvg chart={chart} />
+        <TrajectorySvg
+          chart={chart}
+          title={competitionTitle ? `${competitionTitle} — Rating Progression` : undefined}
+        />
       )}
     </Card>
   );

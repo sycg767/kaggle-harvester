@@ -1,8 +1,9 @@
 import React from 'react';
-import { Alert, Button, Card, Col, Modal, Row, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Col, Modal, Row, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Smartphone } from 'lucide-react';
 import type { SimulationClawbotTestResult, SimulationMonitorStatus } from '../../types/api';
+import DialogTitle from '../DialogTitle';
 
 const { Text, Title } = Typography;
 
@@ -25,12 +26,16 @@ export const ClawbotModal: React.FC<ClawbotModalProps> = ({
 }) => {
   return (
     <Modal
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <MessageCircle size={18} color="#16a34a" />
-          <span style={{ fontWeight: 700 }}>微信 ClawBot 智能对战助手</span>
-        </div>
-      }
+      className="app-modal"
+      closable={false}
+      title={(
+        <DialogTitle
+          icon={<MessageCircle size={17} color="#16a34a" />}
+          title="微信 ClawBot 智能对战助手"
+          subtitle="大模型对抗解析与移动端即时指令服务"
+          onClose={onClose}
+        />
+      )}
       open={open}
       onCancel={onClose}
       width={560}
@@ -45,7 +50,7 @@ export const ClawbotModal: React.FC<ClawbotModalProps> = ({
           探测网关连通性
         </Button>,
         <Button key="close" type="primary" onClick={onClose}>
-          我知道了
+          关闭
         </Button>,
       ]}
     >
@@ -70,50 +75,53 @@ export const ClawbotModal: React.FC<ClawbotModalProps> = ({
           style={{ marginBottom: 16 }}
         />
 
-        <Card size="small" style={{ marginBottom: 16, background: '#f8fafc' }}>
-          <Row gutter={[12, 10]}>
-            <Col span={12}>
-              <Text type="secondary" style={{ fontSize: 12 }}>网关活跃状态</Text>
-              <div style={{ marginTop: 2 }}>
-                {status?.clawbot?.is_online ? (
-                  <Tag color="success" style={{ fontWeight: 700 }}>端口 18789 活跃</Tag>
-                ) : status?.clawbot?.configured ? (
-                  <Tag color="warning">已配置 · 网关离线</Tag>
-                ) : (
-                  <Tag color="default">未就绪</Tag>
-                )}
-              </div>
-            </Col>
-            <Col span={12}>
-              <Text type="secondary" style={{ fontSize: 12 }}>解析大模型引擎</Text>
-              <div style={{ marginTop: 2, fontWeight: 700, color: '#0f172a' }}>
-                {status?.clawbot?.model || 'deepseek-v4-flash-0731'}
-              </div>
-            </Col>
-            <Col span={12}>
-              <Text type="secondary" style={{ fontSize: 12 }}>模型服务商</Text>
-              <div style={{ marginTop: 2, color: '#334155' }}>
-                {status?.clawbot?.provider || 'TokenRhythm Studio'}
-              </div>
-            </Col>
-            <Col span={12}>
-              <Text type="secondary" style={{ fontSize: 12 }}>当前连接网关</Text>
-              <div style={{ marginTop: 2, color: '#334155', fontSize: 12, wordBreak: 'break-all' }}>
+        <div className="settings-group" style={{ marginBottom: 16 }}>
+          <div className="settings-group-header">
+            <span>网关与大模型引擎配置</span>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              <span className="settings-row-title">网关活跃状态</span>
+              <span className="settings-row-desc">默认本地端口 18789</span>
+            </div>
+            <div className="settings-row-control">
+              {status?.clawbot?.is_online ? (
+                <span className="dialog-status-pill is-success">端口 18789 活跃</span>
+              ) : status?.clawbot?.configured ? (
+                <span className="dialog-status-pill is-warning">已配置 · 网关离线</span>
+              ) : (
+                <span className="dialog-status-pill is-default">未就绪</span>
+              )}
+            </div>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              <span className="settings-row-title">解析大模型引擎</span>
+              <span className="settings-row-desc">服务商: {status?.clawbot?.provider || 'TokenRhythm Studio'}</span>
+            </div>
+            <div className="settings-row-control" style={{ fontWeight: 600, fontSize: 13 }}>
+              {status?.clawbot?.model || 'deepseek-v4-flash-0731'}
+            </div>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              <span className="settings-row-title">当前连接网关</span>
+              <span className="settings-row-desc" style={{ wordBreak: 'break-all' }}>
                 {status?.clawbot?.gateway_url || 'http://127.0.0.1:18789'}
-              </div>
-            </Col>
-          </Row>
+              </span>
+            </div>
+          </div>
 
           {testResult && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
-              <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: testResult.success ? '#166534' : '#b45309' }}>
+            <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(60, 60, 67, 0.08)', background: '#ffffff' }}>
+              <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 8, color: testResult.success ? '#059669' : '#d97706' }}>
                 诊断详情：{testResult.message}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {testResult.candidates.map((c) => (
-                  <div key={c.target} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, background: '#fff', padding: '3px 8px', borderRadius: 4, border: '1px solid #f1f5f9' }}>
-                    <Text code style={{ fontSize: 11 }}>{c.target}</Text>
-                    <Tag color={c.reachable ? 'success' : 'default'} style={{ margin: 0, fontSize: 11, padding: '0 4px' }}>
+                  <div key={c.target} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5, background: '#f8fafc', padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(60, 60, 67, 0.08)' }}>
+                    <Text code style={{ fontSize: 11.5 }}>{c.target}</Text>
+                    <Tag color={c.reachable ? 'success' : 'default'} style={{ margin: 0, fontSize: 11 }}>
                       {c.detail}
                     </Tag>
                   </div>
@@ -121,29 +129,32 @@ export const ClawbotModal: React.FC<ClawbotModalProps> = ({
               </div>
             </div>
           )}
-        </Card>
+        </div>
 
-        <Title level={5} style={{ fontSize: 14, marginBottom: 8 }}>
-          📱 手机微信常用指令速查
-        </Title>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
-            <Space>
-              <Tag color="blue" style={{ margin: 0, fontWeight: 700 }}>战况 / 查战况</Tag>
-              <Text style={{ fontSize: 13 }}>获取双 Agent 实时积分、排位、胜率及最新一局对战</Text>
+        <div className="settings-group">
+          <div className="settings-group-header">
+            <Space size={6}>
+              <Smartphone size={13} color="#007aff" />
+              <span>手机微信常用指令速查</span>
             </Space>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
-            <Space>
-              <Tag color="gold" style={{ margin: 0, fontWeight: 700 }}>分数 / 排名</Tag>
-              <Text style={{ fontSize: 13 }}>快速汇总金银铜牌线切分点与我方安全垫</Text>
-            </Space>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              <Tag color="blue" style={{ width: 'fit-content', fontWeight: 600, margin: 0 }}>战况 / 查战况</Tag>
+              <span className="settings-row-desc" style={{ marginTop: 4 }}>获取双 Agent 实时积分、排位、胜率及最新一局对战</span>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: 6 }}>
-            <Space>
-              <Tag color="purple" style={{ margin: 0, fontWeight: 700 }}>刷新 / 立即检查</Tag>
-              <Text style={{ fontSize: 13 }}>触发后端立刻向 Kaggle 同步一次最新对局数据</Text>
-            </Space>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              <Tag color="gold" style={{ width: 'fit-content', fontWeight: 600, margin: 0 }}>分数 / 排名</Tag>
+              <span className="settings-row-desc" style={{ marginTop: 4 }}>快速汇总金银铜牌线切分点与我方安全垫</span>
+            </div>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              <Tag color="purple" style={{ width: 'fit-content', fontWeight: 600, margin: 0 }}>刷新 / 立即检查</Tag>
+              <span className="settings-row-desc" style={{ marginTop: 4 }}>触发后端立刻向 Kaggle 同步一次最新对局数据</span>
+            </div>
           </div>
         </div>
       </div>

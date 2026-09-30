@@ -7,15 +7,15 @@ import {
   Modal,
   Space,
   Tag,
+  Typography,
 } from 'antd';
+
+const { Text } = Typography;
 import {
-  CheckCircleOutlined,
   ClockCircleOutlined,
-  ExclamationCircleOutlined,
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { Gauge } from 'lucide-react';
 import {
   api,
   type AutoArchiveConfig,
@@ -224,11 +224,6 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
 
   const status = snapshot?.status;
   const enabled = snapshot?.config.enabled ?? false;
-  const directionLabel = status?.effective_score_direction === 'maximize'
-    ? '高于阈值时归档'
-    : status?.effective_score_direction === 'minimize'
-      ? '低于阈值时归档'
-      : '首次检查时自动识别分数方向';
 
   return (
     <>
@@ -245,11 +240,15 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
       </Space>
 
       <Modal
-        className="newapi-dialog auto-archive-modal"
+        className="app-modal auto-archive-modal"
         title={(
-          <DialogTitle disabled={running} onClose={() => !running && setOpen(false)}>
-            <Space><ClockCircleOutlined />自动归档设置</Space>
-          </DialogTitle>
+          <DialogTitle
+            icon={<ClockCircleOutlined style={{ color: '#007aff' }} />}
+            title="自动归档设置"
+            subtitle="后台定时巡检并保存高质量开源代码与输出文件"
+            disabled={running}
+            onClose={() => !running && setOpen(false)}
+          />
         )}
         open={open}
         forceRender
@@ -295,29 +294,8 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
           />
         )}
 
-        <Alert
-          className="auto-archive-note"
-          type="info"
-          showIcon
-          icon={<Gauge size={16} strokeWidth={1.9} />}
-          message={`每次检查公开分数榜前 50 条；${directionLabel}。运行时间未变化时复用缓存，新版本出现后才检查历史并归档。通知通道请在「通知中心」配置。`}
-          style={{ marginBottom: 16 }}
-        />
-
-        <div
-          className={`auto-archive-scheduler-status${status?.scheduler_alive ? ' is-online' : ' is-offline'}`}
-          role="status"
-          aria-live="polite"
-        >
-          <span className="auto-archive-scheduler-icon" aria-hidden="true">
-            {status?.scheduler_alive ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />}
-          </span>
-          <div className="auto-archive-scheduler-copy">
-            <span className="auto-archive-scheduler-title">本地调度器</span>
-            <span className="auto-archive-scheduler-detail">
-              {status?.scheduler_alive ? '在线' : '未运行'}
-            </span>
-          </div>
+        <div className="dialog-section-heading" style={{ marginBottom: 10 }}>
+          <Text strong style={{ fontSize: 13.5 }}>配置</Text>
         </div>
 
         <AutoArchiveConfigForm
@@ -331,34 +309,49 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
           currentCompetition={currentCompetition}
         />
 
-        <div className="auto-archive-summary-grid" role="group" aria-label="自动归档运行状态">
-          <SummaryItem label="任务状态">
-            {!status?.scheduler_alive
-              ? <Tag color="error">调度器离线</Tag>
-              : status?.running
-              ? <Tag color="processing">正在检查</Tag>
-              : enabled
-                ? <Tag color="success">等待下次检查</Tag>
-                : <Tag>已关闭</Tag>}
-          </SummaryItem>
-          <SummaryItem label="监控竞赛" tabular>
-            {snapshot?.config.competitions?.length
-              ? `${snapshot.config.competitions.length} 个`
-              : '—'}
-          </SummaryItem>
-          <SummaryItem label="最近检查" tabular>{formatDate(status?.last_checked_at)}</SummaryItem>
-          <SummaryItem label="下次检查" tabular>{formatDate(status?.next_run_at)}</SummaryItem>
-          <SummaryItem label="调度心跳" tabular>{formatDate(status?.scheduler_heartbeat_at)}</SummaryItem>
-          <SummaryItem label="服务启动" tabular>{formatDate(status?.service_started_at)}</SummaryItem>
-          <SummaryItem label="最近结果">
-            {status
-              ? `${status.checked_count} 个已检查，${status.matched_count} 个命中`
-              : '—'}
-          </SummaryItem>
-          <SummaryItem label="本地新增" tabular>{status?.archived_count ?? 0}</SummaryItem>
-          <SummaryItem label="已存在 / 失败" tabular>
-            {status ? `${status.skipped_count} / ${status.failed_count}` : '0 / 0'}
-          </SummaryItem>
+        <div className="dialog-section-heading" style={{ marginTop: 20, marginBottom: 8 }}>
+          <Text strong style={{ fontSize: 13.5 }}>运行状态</Text>
+        </div>
+
+        <div className="dialog-summary-grid" role="group" aria-label="自动归档运行状态">
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">任务状态</span>
+            <span className="dialog-summary-value">
+              {!status?.scheduler_alive
+                ? <span className="dialog-status-pill is-error">调度器离线</span>
+                : status?.running
+                ? <span className="dialog-status-pill is-running">正在检查</span>
+                : enabled
+                  ? <span className="dialog-status-pill is-success">等待下次检查</span>
+                  : <span className="dialog-status-pill is-default">已关闭</span>}
+            </span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">监控竞赛</span>
+            <span className="dialog-summary-value">
+              {snapshot?.config.competitions?.length
+                ? `${snapshot.config.competitions.length} 个`
+                : '—'}
+            </span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">最近检查</span>
+            <span className="dialog-summary-value">{formatDate(status?.last_checked_at)}</span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">下次检查</span>
+            <span className="dialog-summary-value">{formatDate(status?.next_run_at)}</span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">本地新增</span>
+            <span className="dialog-summary-value">{status?.archived_count ?? 0}</span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">已存在 / 失败</span>
+            <span className="dialog-summary-value">
+              {status ? `${status.skipped_count} / ${status.failed_count}` : '0 / 0'}
+            </span>
+          </div>
         </div>
 
         {status?.last_error && (
@@ -370,6 +363,10 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
             style={{ marginTop: 16 }}
           />
         )}
+
+        <div className="dialog-section-heading" style={{ marginTop: 20, marginBottom: 8 }}>
+          <Text strong style={{ fontSize: 13.5 }}>运行记录</Text>
+        </div>
 
         <AutoArchiveLogsList
           logs={snapshot?.logs || []}

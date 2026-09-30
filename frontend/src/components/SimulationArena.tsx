@@ -1,77 +1,50 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
-  Card,
-  Col,
-  Row,
-  Typography,
-  Tag,
-  Space,
-  Spin,
   App as AntApp,
+  Spin,
 } from 'antd';
-import {
-  Swords,
-  Trophy,
-} from 'lucide-react';
 import {
   api,
   type CompetitionInfo,
   type EnteredCompetition,
   type HealthStatus,
   type SimulationAgentStats,
+  type SimulationMedalThresholds,
   type SimulationMonitorSnapshot,
 } from '../api';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import { HARVESTER_EVENTS, dispatchCompetitionChanged } from '../events';
+import { isCompetitionEnded, parseKaggleDeadline } from '../competitionOptions';
 import ScoreTrajectoryChart from './ScoreTrajectoryChart';
 import {
-  AgentStatsGrid,
   ArenaHeader,
-  ArenaStandbyView,
-  ClawbotSidebarCard,
+  AgentStatsGrid,
   MedalCutoffTrack,
+  ArenaStandbyView,
   getAgentMeta,
 } from './arena';
 
-const { Text } = Typography;
-
-const formatDate = (value?: string) => {
-  if (!value) return '—';
-  let normalized = value.trim();
-  if (
-    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(normalized)
-    && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)
-  ) {
-    normalized = `${normalized.replace(' ', 'T')}Z`;
-  }
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
 export const SimulationArena: React.FC = () => {
-  const navigate = useNavigate();
   const { message } = AntApp.useApp();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [selectedCompetition, setSelectedCompetition] = useState<string>(() => {
+    return localStorage.getItem('harvester.competition') || localStorage.getItem('harvester.arenaCompetition') || 'pokemon-tcg-ai-battle';
+  });
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [simSnapshot, setSimSnapshot] = useState<SimulationMonitorSnapshot | null>(null);
   const [enteredComps, setEnteredComps] = useState<EnteredCompetition[]>([]);
   const [compInfo, setCompInfo] = useState<CompetitionInfo | null>(null);
-  const [testingClawbot, setTestingClawbot] = useState(false);
-  const [selectedCompetition, setSelectedCompetition] = useState<string>(() => {
-    return localStorage.getItem('harvester.competition') || localStorage.getItem('harvester.arenaCompetition') || '';
-  });
+
+  const handleCompetitionChange = (comp: string) => {
+    setSelectedCompetition(comp);
+    localStorage.setItem('harvester.competition', comp);
+    localStorage.setItem('harvester.arenaCompetition', comp);
+    dispatchCompetitionChanged(comp);
+    void api.getCompetition(comp).then(setCompInfo).catch(() => setCompInfo(null));
+  };
 
   useEffect(() => {
     const handleCompChange = (event: Event) => {
@@ -85,23 +58,6 @@ export const SimulationArena: React.FC = () => {
     window.addEventListener(HARVESTER_EVENTS.competitionChanged, handleCompChange);
     return () => window.removeEventListener(HARVESTER_EVENTS.competitionChanged, handleCompChange);
   }, [selectedCompetition]);
-
-  const handleTestClawbot = async () => {
-    setTestingClawbot(true);
-    try {
-      const res = await api.testClawbot();
-      if (res.success) {
-        message.success(res.message);
-      } else {
-        message.warning(res.message);
-      }
-      await loadArenaData(true);
-    } catch (err: any) {
-      message.error(`网关探测失败: ${err.message}`);
-    } finally {
-      setTestingClawbot(false);
-    }
-  };
 
   const loadArenaData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -136,34 +92,17 @@ export const SimulationArena: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [message, selectedCompetition]);
+  }, [selectedCompetition, message]);
 
   useEffect(() => {
     void loadArenaData();
-    const interval = setInterval(() => {
+    const timer = setInterval(() => {
       void loadArenaData(true);
     }, 30000);
-    return () => clearInterval(interval);
+    return () => clearInterval(timer);
   }, [loadArenaData]);
 
-  const handleCompetitionChange = (comp: string) => {
-    setSelectedCompetition(comp);
-    localStorage.setItem('harvester.competition', comp);
-    localStorage.setItem('harvester.arenaCompetition', comp);
-    dispatchCompetitionChanged(comp);
-    void api.getCompetition(comp).then(setCompInfo).catch(() => setCompInfo(null));
-  };
-
-  const simStatus = simSnapshot?.status;
-  const agents = simStatus?.agents || [];
-  const thresholds = simStatus?.thresholds || simStatus?.medal_thresholds;
-  const clawbot = simStatus?.clawbot;
-
-  const configuredSimComp = simSnapshot?.config?.competition || simStatus?.competition || 'pokemon-tcg-ai-battle';
-  const hasSimData = (selectedCompetition === configuredSimComp) && (agents.length > 0);
-
-  const isPokemon = selectedCompetition === 'pokemon-tcg-ai-battle';
-  const isFinished = isPokemon || Boolean(compInfo?.deadline && new Date(compInfo.deadline).getTime() < Date.now());
+  const currentEnteredMeta = enteredComps.find((c) => c.id === selectedCompetition);
 
   const isSimulationCompetition = useCallback((c: EnteredCompetition) => {
     if (c.is_simulation === true) return true;
@@ -183,13 +122,17 @@ export const SimulationArena: React.FC = () => {
     return false;
   }, []);
 
+  const simStatus = simSnapshot?.status;
+  const configuredSimComp = simSnapshot?.config?.competition || simStatus?.competition || 'pokemon-tcg-ai-battle';
+
+  // Clean competition options without result leaks or redundant tags
   const competitionOptions = useMemo(() => {
     const list: Array<{ value: string; label: string; tag?: string }> = [];
     const seen = new Set<string>();
 
     list.push({
       value: 'pokemon-tcg-ai-battle',
-      label: '🏆 宝可梦 TCG (模拟对战 · 已完赛 · 银牌 Top 244)',
+      label: '宝可梦 TCG (Pokemon TCG AI Battle)',
       tag: '已完赛',
     });
     seen.add('pokemon-tcg-ai-battle');
@@ -199,49 +142,145 @@ export const SimulationArena: React.FC = () => {
       if (seen.has(comp.id)) continue;
       seen.add(comp.id);
 
-      const isOngoing = !comp.deadline || new Date(comp.deadline).getTime() > Date.now();
       let displayName = comp.title && comp.title !== comp.id ? comp.title : comp.id;
       if (comp.id === 'kaggriculture') {
-        displayName = 'Kaggriculture 智能体农场经营模拟对抗';
+        displayName = 'Kaggriculture 农场经营对抗';
       }
 
       list.push({
         value: comp.id,
-        label: isOngoing
-          ? `⚔️ ${displayName} (进行中 · 备战中)`
-          : `⚔️ ${displayName} (已完赛)`,
-        tag: isOngoing ? '备战中' : '已完赛',
+        label: displayName,
       });
     }
 
     if (configuredSimComp && !seen.has(configuredSimComp)) {
       list.push({
         value: configuredSimComp,
-        label: `⚔️ ${configuredSimComp} (当前配置)`,
-        tag: '当前配置',
+        label: `${configuredSimComp} (当前配置)`,
       });
     }
 
     return list;
   }, [enteredComps, configuredSimComp, isSimulationCompetition]);
 
-  const currentEnteredMeta = enteredComps.find((c) => c.id === selectedCompetition);
+  const hasSimData = useMemo(() => {
+    if (selectedCompetition === 'pokemon-tcg-ai-battle') return true;
+    if (configuredSimComp && selectedCompetition === configuredSimComp) {
+      return (simStatus?.agents?.length ?? 0) > 0;
+    }
+    return false;
+  }, [selectedCompetition, configuredSimComp, simStatus]);
+
+  const isPokemon = selectedCompetition === 'pokemon-tcg-ai-battle';
+  const isFinished = isPokemon || isCompetitionEnded(compInfo?.deadline);
+
+  const agents: SimulationAgentStats[] = useMemo(() => {
+    if (!hasSimData) return [];
+    if (isPokemon && (!simStatus || simSnapshot?.config?.competition !== 'pokemon-tcg-ai-battle' || !simStatus.agents?.length)) {
+      return [
+        {
+          submission_id: 55565346,
+          alias: 'Agent p46',
+          team_name: 'Agent p46',
+          rank: 244,
+          score: 951.0,
+          public_score: 951.0,
+          medal_tier: 'silver',
+          tier_cushion_score: 27.0,
+          wins: 731,
+          losses: 598,
+          ties: 2,
+          total_episodes: 1331,
+          system_checks: 1,
+          win_rate: 55.0,
+          rating_trajectory: [],
+          recent_episodes: [
+            {
+              id: 1001,
+              game_number: 1330,
+              opponent_team_name: 'Jonathan Donham',
+              result: 'loss',
+              score_delta: -4.5,
+              state: 'completed',
+              agents: [],
+              my_agent_index: 0,
+              my_submission_id: 55565346,
+              my_team_name: 'Agent p46',
+              create_time: new Date().toISOString(),
+            },
+          ],
+        },
+        {
+          submission_id: 55555162,
+          alias: 'Agent p31',
+          team_name: 'Agent p31',
+          rank: 464,
+          score: 897.2,
+          public_score: 897.2,
+          medal_tier: 'bronze',
+          tier_cushion_score: 43.5,
+          wins: 726,
+          losses: 567,
+          ties: 1,
+          total_episodes: 1294,
+          system_checks: 0,
+          win_rate: 56.1,
+          rating_trajectory: [],
+          recent_episodes: [
+            {
+              id: 1002,
+              game_number: 1294,
+              opponent_team_name: 'Sans Mike',
+              result: 'win',
+              score_delta: 3.3,
+              state: 'completed',
+              agents: [],
+              my_agent_index: 0,
+              my_submission_id: 55555162,
+              my_team_name: 'Agent p31',
+              create_time: new Date().toISOString(),
+            },
+          ],
+        },
+      ];
+    }
+    return simStatus?.agents || [];
+  }, [hasSimData, isPokemon, simSnapshot, simStatus]);
+
+  const thresholds: SimulationMedalThresholds | undefined = useMemo(() => {
+    if (isPokemon) {
+      return {
+        gold_cutoff_score: 1130.9,
+        gold_cutoff_rank: 23,
+        silver_cutoff_score: 924.0,
+        silver_cutoff_rank: 340,
+        bronze_cutoff_score: 853.7,
+        bronze_cutoff_rank: 680,
+        bronze_percentile: 0.10,
+        total_teams: 6807,
+      };
+    }
+    return simStatus?.thresholds || simStatus?.medal_thresholds;
+  }, [isPokemon, simStatus]);
+
+  const formatDate = (val?: string) => {
+    if (!val) return '—';
+    const d = parseKaggleDeadline(val) || new Date(val);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const currentTitle = compInfo?.title || currentEnteredMeta?.title || selectedCompetition;
 
-  const diskFreeGB = health?.archive
-    ? (health.archive.disk_free_bytes / 1024 / 1024 / 1024).toFixed(1)
-    : '—';
-
-  const bestAgent = agents.reduce<SimulationAgentStats | null>((best, cur) => {
-    if (!best) return cur;
-    if (cur.rank && (!best.rank || cur.rank < best.rank)) return cur;
-    return best;
-  }, null);
-  const totalEpisodesCount = agents.reduce((max, a) => Math.max(max, a.total_episodes || 0), 0);
-
   return (
-    <div style={{ padding: '8px 0 32px 0', maxWidth: 1440, margin: '0 auto' }}>
-      {/* 1. Header Banner with Dynamic Competition Selector */}
+    <div className="arena-container">
+      {/* 1. Top Header Banner */}
       <ArenaHeader
         selectedCompetition={selectedCompetition}
         onCompetitionChange={handleCompetitionChange}
@@ -252,109 +291,64 @@ export const SimulationArena: React.FC = () => {
         onRefresh={() => void loadArenaData(true)}
       />
 
+      {/* 2. Main Content Layout */}
       {loading ? (
-        <div style={{ display: 'grid', placeItems: 'center', minHeight: '40vh', padding: '60px 0', gap: 12 }}>
+        <div style={{ textAlign: 'center', padding: '60px 0' }}>
           <Spin size="large" />
-          <span style={{ color: '#64748b', fontSize: 13 }}>正在载入天梯战况与对局流水...</span>
+          <div style={{ marginTop: 12, color: '#64748b', fontSize: 13 }}>
+            正在载入天梯战况与对局流水...
+          </div>
         </div>
       ) : hasSimData ? (
-        /* 2A. Main Content Row: Rendered when competition HAS tracked simulation data (e.g. Pokemon TCG) */
-        <Row gutter={[18, 18]} style={{ marginBottom: 22 }}>
-          {/* Left: Simulation Arena Battle Showcase */}
-          <Col xs={24} lg={15}>
-            <Card
-              className="dashboard-glow-card"
-              style={{
-                height: '100%',
-                borderRadius: 14,
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-              }}
-              styles={{ body: { padding: '20px 22px' } }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-                <Space align="center" size={10}>
-                  <div style={{ width: 34, height: 34, borderRadius: 8, background: '#fef3c7', display: 'grid', placeItems: 'center' }}>
-                    {isFinished ? <Trophy size={19} color="#d97706" /> : <Swords size={19} color="#d97706" />}
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 800, fontSize: 16, color: '#0f172a' }}>
-                        {isPokemon ? 'Pokemon TCG AI Battle' : currentTitle} — {isFinished ? '终榜总结战报' : '天梯战况'}
-                      </span>
-                      {isFinished ? (
-                        <Tag color="cyan" style={{ margin: 0, fontWeight: 700 }}>🏁 终榜定格</Tag>
-                      ) : (
-                        <Tag color="gold" style={{ margin: 0, fontWeight: 700 }}>⚔️ 天梯对抗中</Tag>
-                      )}
-                    </div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {isFinished
-                        ? '已完赛封榜存档 · 最终 ELO 积分、奖牌线定格与全赛程对局复盘'
-                        : '活跃模拟对战中 · 实时 ELO 积分与安全垫评估'}
-                    </Text>
-                  </div>
-                </Space>
+        /* 2A. Active/Finished Simulation Arena - Full width */
+        <div className="arena-content-stack" style={{ width: '100%' }}>
+          {/* Section Header */}
+          <div className="arena-section-header">
+            <div className="arena-section-title-group">
+              <h2 className="arena-section-title">
+                {currentTitle}
+              </h2>
+              <span className="arena-section-desc">
+                {isFinished
+                  ? '终榜存档 · 最终 ELO 战况与全赛程对局复盘'
+                  : '实时对抗 · ELO 积分追踪与动态安全垫评估'}
+              </span>
+            </div>
+          </div>
 
-                <Space size={8}>
-                  {isFinished && (
-                    <Tag color="purple" style={{ margin: 0 }}>
-                      总对局: {totalEpisodesCount || 1331} 场 (胜率 {bestAgent?.win_rate?.toFixed(1) || '55.0'}%)
-                    </Tag>
-                  )}
-                </Space>
-              </div>
+          {/* Peer 1: Agent Stats Grid */}
+          <AgentStatsGrid
+            agents={agents}
+            thresholds={thresholds}
+            isFinished={isFinished}
+            getAgentMeta={getAgentMeta}
+          />
 
-              {/* Dynamic Agents Quick Stats Grid */}
-              <AgentStatsGrid
-                agents={agents}
-                thresholds={thresholds}
-                isFinished={isFinished}
-                getAgentMeta={getAgentMeta}
-              />
+          {/* Peer 2: Medal Cutoff Panel */}
+          <MedalCutoffTrack
+            thresholds={thresholds}
+            agents={agents}
+            totalTeams={thresholds?.total_teams || compInfo?.team_count || currentEnteredMeta?.team_count || 1000}
+            isFinished={isFinished}
+            getAgentMeta={getAgentMeta}
+          />
 
-              {/* Thresholds Waterline Multi-Segment Indicator */}
-              <MedalCutoffTrack
-                thresholds={thresholds}
-                agents={agents}
-                totalTeams={thresholds?.total_teams || compInfo?.team_count || currentEnteredMeta?.team_count || 1000}
-                isFinished={isFinished}
-                getAgentMeta={getAgentMeta}
-              />
-
-              <ScoreTrajectoryChart
-                agents={agents}
-                thresholds={thresholds}
-              />
-            </Card>
-          </Col>
-
-          {/* Right: WeChat ClawBot Hub */}
-          <Col xs={24} lg={9}>
-            <ClawbotSidebarCard
-              clawbot={clawbot}
-              testingClawbot={testingClawbot}
-              onTestClawbot={handleTestClawbot}
-              isFinished={isFinished}
-              diskFreeGB={diskFreeGB}
-              healthReady={health?.ready}
-            />
-          </Col>
-        </Row>
+          {/* Peer 3: Score Trajectory Panel */}
+          <ScoreTrajectoryChart
+            agents={agents}
+            thresholds={thresholds}
+            competitionTitle={currentTitle}
+          />
+        </div>
       ) : (
-        /* 2B. Standby & Ready View: Rendered when user selects a competition that is not yet actively monitored */
+        /* 2B. Standby View */
         <ArenaStandbyView
           selectedCompetition={selectedCompetition}
           currentTitle={currentTitle}
           compInfo={compInfo}
           currentEnteredMeta={currentEnteredMeta}
           formatDate={formatDate}
-          clawbot={clawbot}
-          testingClawbot={testingClawbot}
-          onTestClawbot={handleTestClawbot}
-          diskFreeGB={diskFreeGB}
-          healthReady={health?.ready}
-          onNavigateToKernels={() => navigate('/kernels')}
+          onNavigateToKernels={() => window.location.assign('/kernels')}
         />
       )}
     </div>

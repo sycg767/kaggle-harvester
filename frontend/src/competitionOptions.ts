@@ -12,15 +12,25 @@ export function competitionDisplayName(item: Pick<EnteredCompetition, 'id' | 'ti
   return item.id;
 }
 
+/**
+ * Kaggle 官方 API 返回的 deadline 通常为 UTC 时间（如 2026-09-30T23:59:00），
+ * 若缺少时区指示符，按 UTC 解析，避免浏览器本地时区解析偏差导致提前 8 小时误判为已结束。
+ */
+export function parseKaggleDeadline(deadline?: string | null): Date | null {
+  if (!deadline) return null;
+  const trimmed = deadline.trim();
+  if (!trimmed) return null;
+  const hasTz = /([Zz]|[+-]\d{2}:?\d{2})$/.test(trimmed);
+  const normalized = hasTz ? trimmed : `${trimmed}Z`;
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** 判断比赛是否已经截止完赛 */
 export function isCompetitionEnded(deadline?: string | null): boolean {
-  if (!deadline) return false;
-  try {
-    const end = new Date(deadline).getTime();
-    return !Number.isNaN(end) && end < Date.now();
-  } catch {
-    return false;
-  }
+  const d = parseKaggleDeadline(deadline);
+  if (!d) return false;
+  return d.getTime() < Date.now();
 }
 
 export function competitionOptionLabel(
@@ -77,7 +87,7 @@ export function buildEnteredCompetitionOptions(
     const isDefault = activeSlug && item.id.toLowerCase() === activeSlug.toLowerCase();
     const isEnded = isCompetitionEnded(item.deadline);
     const hint = isDefault
-      ? (isEnded ? '⭐ 全站主攻 · 已结束' : '⭐ 全站主攻')
+      ? (isEnded ? '全站主攻 · 已结束' : '全站主攻')
       : (isEnded ? '已结束' : undefined);
     return {
       value: item.id,
@@ -102,7 +112,7 @@ export function buildEnteredCompetitionOptions(
       const deadline = enteredDeadlines.get(slug.toLowerCase());
       const isEnded = deadline ? isCompetitionEnded(deadline) : false;
       const hint = isDefault
-        ? (isEnded ? '⭐ 全站主攻 · 已结束' : '⭐ 全站主攻')
+        ? (isEnded ? '全站主攻 · 已结束' : '全站主攻')
         : (isEnded ? '已结束' : '已保存');
       return {
         value: slug,

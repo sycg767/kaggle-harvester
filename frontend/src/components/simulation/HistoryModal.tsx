@@ -6,8 +6,10 @@ import {
   ExclamationCircleOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
+import { History } from 'lucide-react';
 import type { SimulationMonitorRunLog } from '../../types/api';
 import { formatDate, formatDuration } from './utils';
+import DialogTitle from '../DialogTitle';
 
 const { Text } = Typography;
 
@@ -30,7 +32,16 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 }) => {
   return (
     <Modal
-      title="模拟对战监控运行日志"
+      className="app-modal"
+      closable={false}
+      title={(
+        <DialogTitle
+          icon={<History size={17} color="#007aff" />}
+          title="模拟对战监控运行日志"
+          subtitle={`历史巡检检查记录（共 ${logs.length} 次运行）`}
+          onClose={onClose}
+        />
+      )}
       open={open}
       onCancel={onClose}
       width={720}

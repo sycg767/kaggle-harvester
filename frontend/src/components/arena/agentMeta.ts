@@ -4,18 +4,52 @@ export interface AgentMetaItem {
   name: string;
   shortName: string;
   tagColor: string;
+  accent: string;
   borderColor: string;
   bg: string;
 }
 
+export const AGENT_PALETTE: Array<{ accent: string; tagColor: string; borderColor: string; bg: string }> = [
+  {
+    accent: '#007aff',
+    tagColor: 'blue',
+    borderColor: 'rgba(0, 122, 255, 0.22)',
+    bg: 'rgba(0, 122, 255, 0.04)',
+  },
+  {
+    accent: '#af52de',
+    tagColor: 'purple',
+    borderColor: 'rgba(175, 82, 222, 0.22)',
+    bg: 'rgba(175, 82, 222, 0.04)',
+  },
+  {
+    accent: '#34c759',
+    tagColor: 'green',
+    borderColor: 'rgba(52, 199, 89, 0.22)',
+    bg: 'rgba(52, 199, 89, 0.04)',
+  },
+  {
+    accent: '#ff9500',
+    tagColor: 'orange',
+    borderColor: 'rgba(255, 149, 0, 0.22)',
+    bg: 'rgba(255, 149, 0, 0.04)',
+  },
+  {
+    accent: '#5856d6',
+    tagColor: 'geekblue',
+    borderColor: 'rgba(88, 86, 214, 0.22)',
+    bg: 'rgba(88, 86, 214, 0.04)',
+  },
+  {
+    accent: '#ff2d55',
+    tagColor: 'magenta',
+    borderColor: 'rgba(255, 45, 85, 0.22)',
+    bg: 'rgba(255, 45, 85, 0.04)',
+  },
+];
+
 export const getAgentMeta = (agent: SimulationAgentStats, index: number): AgentMetaItem => {
-  const themes = [
-    { tagColor: 'green', borderColor: '#bbf7d0', bg: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)' },
-    { tagColor: 'purple', borderColor: '#e9d5ff', bg: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)' },
-    { tagColor: 'blue', borderColor: '#bfdbfe', bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)' },
-    { tagColor: 'orange', borderColor: '#fed7aa', bg: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)' },
-  ];
-  const theme = themes[index % themes.length];
+  const theme = AGENT_PALETTE[index % AGENT_PALETTE.length];
 
   const customAlias = agent.alias?.trim();
   if (customAlias) {
@@ -27,18 +61,14 @@ export const getAgentMeta = (agent: SimulationAgentStats, index: number): AgentM
     return {
       name: 'Agent p46',
       shortName: 'p46',
-      tagColor: 'green',
-      borderColor: '#bbf7d0',
-      bg: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+      ...theme,
     };
   }
   if (agent.submission_id === 55555162) {
     return {
       name: 'Agent p31',
       shortName: 'p31',
-      tagColor: 'purple',
-      borderColor: '#e9d5ff',
-      bg: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)',
+      ...theme,
     };
   }
   const raw = (agent.description || agent.file_name || '').trim();
@@ -50,3 +80,4 @@ export const getAgentMeta = (agent: SimulationAgentStats, index: number): AgentM
   }
   return { name: `Agent #${index + 1}`, shortName: `Agent #${index + 1}`, ...theme };
 };
+

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Button, Checkbox, Empty, Pagination, Spin, Tag, Typography } from 'antd';
+import { Button, Checkbox, Empty, Pagination, Spin, Typography } from 'antd';
 import {
+  CheckCircleOutlined,
   ClockCircleOutlined,
   CloudDownloadOutlined,
   EyeOutlined,
@@ -42,7 +43,7 @@ export const MobileKernelCardList: React.FC<MobileKernelCardListProps> = ({
   onOpenArchive,
 }) => {
   return (
-    <div className="mobile-data-list" aria-label="Kernel 列表">
+    <div className="mobile-data-list kernel-mobile-list" aria-label="Kernel 列表">
       {loading && !displayKernels.length ? (
         <div className="mobile-empty-state" style={{ padding: '60px 0', textAlign: 'center' }}>
           <Spin size="large" tip="正在载入 Kernel 列表..." />
@@ -53,74 +54,101 @@ export const MobileKernelCardList: React.FC<MobileKernelCardListProps> = ({
         </div>
       ) : (
         <Spin spinning={loading} tip="正在同步最新数据...">
-      {mobileKernels.map((kernel) => {
-        const owner = kaggleOwnerFromRef(kernel.ref);
-        const archived = archivedVersions.get(kernel.ref);
-        const selected = selectedRowKeys.includes(kernel.ref);
-        return (
-          <article className="mobile-data-card" key={kernel.ref}>
-            <div className="mobile-data-card-head">
-              <Checkbox
-                checked={selected}
-                aria-label={`选择 ${kernel.ref}`}
-                onChange={(event) => onToggleSelect(kernel.ref, event.target.checked)}
-              />
-              <div className="mobile-data-card-title">
-                <a className="kernel-title" href={kaggleKernelUrl(kernel.ref)} target="_blank" rel="noreferrer">
-                  {kernel.title || kernel.ref}
-                </a>
-                <span className="kernel-ref-line">
-                  <span className="kernel-ref">{kernel.ref}</span>
+          {mobileKernels.map((kernel) => {
+            const owner = kaggleOwnerFromRef(kernel.ref);
+            const archived = archivedVersions.get(kernel.ref);
+            const selected = selectedRowKeys.includes(kernel.ref);
+            return (
+              <article className="mobile-data-card kernel-mobile-card" key={kernel.ref}>
+                {/* 1. 顶部行：Checkbox + 标题（最多2行） + 分数（右上固定，不被标题挤掉） */}
+                <div className="kernel-mobile-card-top">
+                  <div className="kernel-mobile-check-title">
+                    <Checkbox
+                      checked={selected}
+                      aria-label={`选择 ${kernel.ref}`}
+                      onChange={(event) => onToggleSelect(kernel.ref, event.target.checked)}
+                    />
+                    <a className="kernel-mobile-title" href={kaggleKernelUrl(kernel.ref)} target="_blank" rel="noreferrer">
+                      {kernel.title || kernel.ref}
+                    </a>
+                  </div>
+                  <div className="kernel-mobile-score" style={{ color: getScoreColor(kernel.public_score) }}>
+                    <span className="kernel-mobile-score-val">
+                      {kernel.public_score === undefined || kernel.public_score === null
+                        ? '—'
+                        : kernel.public_score.toFixed(4)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. 第二行：ref / slug（辅助信息，单行 ellipsis，低对比度） + 紧凑 Copy 按钮 */}
+                <div className="kernel-mobile-ref-row">
+                  <span className="kernel-mobile-ref" title={kernel.ref}>{kernel.ref}</span>
                   <CopyButton value={kernel.ref} label="复制 Kernel ref" />
-                </span>
-              </div>
-              <span className="score-value" style={{ color: getScoreColor(kernel.public_score) }}>
-                {kernel.public_score === undefined || kernel.public_score === null
-                  ? '—'
-                  : kernel.public_score.toFixed(4)}
-              </span>
+                </div>
+
+                {/* 3. 第三行：作者、投票、时间、本地状态（wrap 排布，间距适度） */}
+                <div className="kernel-mobile-card-meta">
+                  <a href={kaggleAuthorUrl(owner)} target="_blank" rel="noreferrer" className="kernel-mobile-meta-link">
+                    <UserOutlined style={{ fontSize: 11 }} />
+                    <span>@{owner}</span>
+                  </a>
+                  <span className="kernel-mobile-meta-dot">·</span>
+                  <span className="kernel-mobile-meta-item">
+                    <StarOutlined style={{ fontSize: 11, color: '#f59e0b' }} />
+                    <span>{kernel.total_votes} 票</span>
+                  </span>
+                  <span className="kernel-mobile-meta-dot">·</span>
+                  <span className="kernel-mobile-meta-item">
+                    <ClockCircleOutlined style={{ fontSize: 11 }} />
+                    <span>{formatDate(kernel.last_run_time)}</span>
+                  </span>
+                  <span className="kernel-mobile-meta-dot">·</span>
+                  {archived?.length ? (
+                    <span className="kernel-status-chip is-success">
+                      <CheckCircleOutlined style={{ fontSize: 10 }} />
+                      <span>已归档 {archived.length} 版</span>
+                    </span>
+                  ) : (
+                    <span className="kernel-status-chip is-neutral">未归档</span>
+                  )}
+                </div>
+
+                {/* 4. 底部操作：双列 grid [版本历史] [归档] */}
+                <div className="kernel-mobile-card-actions">
+                  <Button
+                    className="kernel-mobile-btn-versions"
+                    icon={<EyeOutlined />}
+                    onClick={() => onShowVersions(kernel)}
+                  >
+                    版本历史
+                  </Button>
+                  <Button
+                    type="primary"
+                    className="kernel-mobile-btn-archive"
+                    icon={<CloudDownloadOutlined />}
+                    onClick={() => onOpenArchive([kernel])}
+                  >
+                    归档
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
+          {displayKernels.length > MOBILE_PAGE_SIZE && (
+            <div className="kernel-mobile-footer">
+              <span className="kernel-mobile-total">总计 {displayKernels.length} 条</span>
+              <Pagination
+                simple
+                size="small"
+                current={mobilePage}
+                pageSize={MOBILE_PAGE_SIZE}
+                total={displayKernels.length}
+                showSizeChanger={false}
+                onChange={onPageChange}
+              />
             </div>
-            <div className="mobile-data-card-meta">
-              <a href={kaggleAuthorUrl(owner)} target="_blank" rel="noreferrer">
-                <UserOutlined /> @{owner}
-              </a>
-              <span><StarOutlined /> {kernel.total_votes} 票</span>
-              <span><ClockCircleOutlined /> {formatDate(kernel.last_run_time)}</span>
-              {archived?.length ? (
-                <Tag color="success">已归档 {archived.length} 个版本</Tag>
-              ) : (
-                <span>未归档</span>
-              )}
-            </div>
-            <div className="mobile-data-card-actions">
-              <Button icon={<EyeOutlined />} onClick={() => onShowVersions(kernel)}>
-                版本历史
-              </Button>
-              <Button
-                type="primary"
-                icon={<CloudDownloadOutlined />}
-                onClick={() => onOpenArchive([kernel])}
-              >
-                归档
-              </Button>
-            </div>
-          </article>
-        );
-      })}
-      {displayKernels.length > MOBILE_PAGE_SIZE && (
-        <div className="mobile-list-footer">
-          <Text type="secondary">总计：{displayKernels.length}</Text>
-          <Pagination
-            simple
-            size="small"
-            current={mobilePage}
-            pageSize={MOBILE_PAGE_SIZE}
-            total={displayKernels.length}
-            showSizeChanger={false}
-            onChange={onPageChange}
-          />
-        </div>
-      )}
+          )}
         </Spin>
       )}
     </div>

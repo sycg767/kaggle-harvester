@@ -19,6 +19,18 @@ from .parser import (
 )
 
 
+def normalize_iso_utc(val: Any) -> Optional[str]:
+    """确保 Kaggle 截止时间带有明确的 UTC 时区标识，避免前端被当成本地时间解析。"""
+    if val in (None, ""):
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    if not re.search(r"([Zz]|[+-]\d{2}:?\d{2})$", s):
+        s = f"{s}Z"
+    return s
+
+
 def detect_score_direction_from_leaderboard(competition: str) -> bool | None:
     """根据公开榜单从优到劣的分数顺序判断优化方向。"""
     try:
@@ -146,7 +158,7 @@ def fetch_competition_info_impl(
                 id=comp,
                 title=raw_title_info,
                 category=data.get("category", ""),
-                deadline=data.get("deadline"),
+                deadline=normalize_iso_utc(data.get("deadline")),
                 reward=data.get("reward"),
                 team_count=data.get("teamCount"),
                 kernel_count=data.get("kernelCount"),
@@ -255,11 +267,7 @@ def list_entered_competitions_impl(
                 id=slug,
                 title=raw_title or slug,
                 category=str(row.get("category") or ""),
-                deadline=(
-                    str(row.get("deadline"))
-                    if row.get("deadline") not in (None, "")
-                    else None
-                ),
+                deadline=normalize_iso_utc(row.get("deadline")),
                 reward=(
                     str(row.get("reward"))
                     if row.get("reward") not in (None, "")

@@ -6,14 +6,19 @@ export function useKernelVersions() {
   const [versionKernel, setVersionKernel] = useState<ScoredKernel | null>(null);
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [versionsError, setVersionsError] = useState<string | null>(null);
 
   const showVersions = async (kernel: ScoredKernel, refresh = false) => {
     setVersionKernel(kernel);
     setVersionModalOpen(true);
-    setVersions([]);
     setVersionsError(null);
-    setVersionsLoading(true);
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setVersions([]);
+      setVersionsLoading(true);
+    }
     try {
       const [owner, slug] = kernel.ref.split('/', 2);
       const data = await api.getKernelVersions(owner, slug, refresh);
@@ -22,6 +27,7 @@ export function useKernelVersions() {
       setVersionsError(err instanceof Error ? err.message : '版本历史读取失败。');
     } finally {
       setVersionsLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -35,6 +41,7 @@ export function useKernelVersions() {
     versionKernel,
     versions,
     versionsLoading,
+    refreshing,
     versionsError,
     showVersions,
     closeVersionModal,

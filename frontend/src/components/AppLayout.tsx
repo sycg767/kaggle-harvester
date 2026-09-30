@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
+  Star,
   Swords,
   Trophy,
 } from 'lucide-react';
@@ -314,64 +315,73 @@ const AppLayout: React.FC = () => {
   return (
     <div className={`newapi-app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <header className="newapi-header">
-        {!isMobile ? (
-          <Tooltip title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
+        <div className="newapi-header-brand-group">
+          {!isMobile ? (
+            <Tooltip title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
+              <Button
+                type="text"
+                className="newapi-sidebar-trigger desktop-only"
+                icon={sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+                aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+                onClick={toggleSidebar}
+              />
+            </Tooltip>
+          ) : (
             <Button
               type="text"
-              className="newapi-sidebar-trigger desktop-only"
-              icon={sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-              aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
-              onClick={toggleSidebar}
+              className="newapi-sidebar-trigger mobile-only"
+              icon={<Menu size={18} />}
+              aria-label="打开功能导航"
+              onClick={() => setMobileNavOpen(true)}
             />
-          </Tooltip>
-        ) : (
-          <Button
-            type="text"
-            className="newapi-sidebar-trigger mobile-only"
-            icon={<Menu size={18} />}
-            aria-label="打开功能导航"
-            onClick={() => setMobileNavOpen(true)}
-          />
-        )}
+          )}
 
-        <button
-          type="button"
-          className="newapi-brand"
-          aria-label="Kaggle Harvester"
-          onClick={() => navigate('/dashboard')}
-        >
-          <span className="newapi-brand-mark">
-            <img src={kaggleLogo} alt="Kaggle" />
-          </span>
-          <span>Harvester</span>
-        </button>
-
-        {competitionInfo && (
-          <Tooltip
-            title={
-              health?.active_competition?.competition === competitionInfo.id &&
-              health?.active_competition?.is_pinned
-                ? `全站主攻赛事：${competitionInfo.title}`
-                : `当前竞赛：${competitionInfo.title}`
-            }
+          <button
+            type="button"
+            className="newapi-brand"
+            aria-label="Kaggle Harvester"
+            onClick={() => navigate('/dashboard')}
           >
-            <button
-              type="button"
-              className="newapi-competition-pill"
-              aria-label={`切换竞赛，快捷键 ${shortcutLabel}`}
-              onClick={openCompetitionSwitcher}
-            >
-              <Trophy size={15} color="#1677ff" />
-              <span>
-                {health?.active_competition?.competition === competitionInfo.id &&
+            <span className="newapi-brand-mark">
+              <img src={kaggleLogo} alt="Kaggle" />
+            </span>
+            <span>Harvester</span>
+          </button>
+        </div>
+
+        <div className="newapi-header-center">
+          {competitionInfo && (
+            <Tooltip
+              title={
+                health?.active_competition?.competition === competitionInfo.id &&
                 health?.active_competition?.is_pinned
-                  ? `⭐ ${competitionInfo.title}`
-                  : competitionInfo.title}
-              </span>
-              <kbd>{shortcutLabel}</kbd>
-            </button>
-          </Tooltip>
-        )}
+                  ? `全站主攻赛事：${competitionInfo.title}`
+                  : `当前竞赛：${competitionInfo.title}`
+              }
+            >
+              <button
+                type="button"
+                className="newapi-competition-pill"
+                aria-label={`切换竞赛，快捷键 ${shortcutLabel}`}
+                onClick={openCompetitionSwitcher}
+              >
+                <span className="dot" />
+                <span className="name" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {health?.active_competition?.competition === competitionInfo.id &&
+                  health?.active_competition?.is_pinned ? (
+                    <>
+                      <Star size={12} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />
+                      <span>{competitionInfo.title} · 全站主攻</span>
+                    </>
+                  ) : (
+                    competitionInfo.title
+                  )}
+                </span>
+                <kbd className="kbd">{shortcutLabel}</kbd>
+              </button>
+            </Tooltip>
+          )}
+        </div>
 
         <div className="newapi-header-actions">
           <Tooltip title="运行概况与诊断">
@@ -395,7 +405,11 @@ const AppLayout: React.FC = () => {
             }
           >
             <div className="newapi-api-status">
-              <Badge status={!backendOnline ? 'error' : health?.ready ? 'success' : 'warning'} />
+              <span
+                className={`status-dot ${
+                  !backendOnline ? 'error' : health?.ready ? 'success' : 'warning'
+                }`}
+              />
               <span>{backendOnline ? '服务正常' : '连接失败'}</span>
             </div>
           </Tooltip>

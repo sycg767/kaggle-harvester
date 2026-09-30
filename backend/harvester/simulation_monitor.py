@@ -312,9 +312,22 @@ class SimulationMonitorManager:
         self, config: SimulationMonitorConfig
     ) -> SimulationMonitorSnapshot:
         with self._state_lock:
+            comp_changed = (self._config.competition != config.competition)
             self._config = config.model_copy(deep=True)
             self._status.enabled = bool(config.enabled)
             self._status.competition = config.competition
+            if comp_changed:
+                self._status.agents = []
+                self._status.thresholds = None
+                self._status.medal_thresholds = None
+                self._history_points = []
+                self._status.history = []
+                self._status.history_points = []
+                self._status.total_tracked_episodes = 0
+                self._status.new_episodes_this_run = 0
+                self._known_episode_counts.clear()
+                self._known_medal_tiers.clear()
+                self._status.last_checked_at = None
             self._status.next_run_at = (
                 (_utc_now() + timedelta(minutes=config.interval_minutes)).isoformat()
                 if config.enabled

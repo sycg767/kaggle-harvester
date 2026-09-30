@@ -21,38 +21,22 @@ export const KernelBatchBar: React.FC<KernelBatchBarProps> = ({
   if (!selectedCount) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 1000,
-        background: '#ffffff',
-        boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-        border: '1px solid #d9d9d9',
-        borderRadius: 24,
-        padding: '8px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexWrap: 'wrap',
-        gap: 12,
-        maxWidth: 'calc(100vw - 24px)',
-        width: 'max-content',
-        boxSizing: 'border-box',
-      }}
-    >
-      <Text strong>
-        已选择 <span style={{ color: '#1677ff' }}>{selectedCount}</span> 个 Kernel
-      </Text>
-      <Space>
-        <Button size="small" onClick={onClearSelection}>
+    <div className="kernel-batch-bar" role="toolbar" aria-label="批量操作栏">
+      <div className="kernel-batch-info">
+        已选择 <span className="kernel-batch-count-num">{selectedCount}</span> 个 Kernel
+      </div>
+      <Space size={8}>
+        <Button
+          size="small"
+          className="kernel-batch-btn-cancel"
+          onClick={onClearSelection}
+        >
           取消选择
         </Button>
         <Button
           size="small"
           type="primary"
+          className="kernel-batch-btn-archive"
           icon={<CloudDownloadOutlined />}
           onClick={() => onBatchArchive(selectedKernels)}
         >

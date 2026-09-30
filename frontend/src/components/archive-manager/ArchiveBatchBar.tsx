@@ -21,38 +21,24 @@ export const ArchiveBatchBar: React.FC<ArchiveBatchBarProps> = ({
   if (!selectedRowKeys.length) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 1000,
-        background: '#ffffff',
-        boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-        border: '1px solid #d9d9d9',
-        borderRadius: 24,
-        padding: '8px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexWrap: 'wrap',
-        gap: 12,
-        maxWidth: 'calc(100vw - 24px)',
-        width: 'max-content',
-        boxSizing: 'border-box',
-      }}
-    >
-      <Text strong>
-        已选择 <span style={{ color: '#1677ff' }}>{selectedRowKeys.length}</span> 个归档版本
-      </Text>
-      <Space>
-        <Button size="small" onClick={onClearSelection}>
+    <div className="archive-batch-bar" role="toolbar" aria-label="批量操作栏">
+      <div className="archive-batch-info">
+        <Text className="archive-batch-text">
+          已选择 <span className="archive-batch-count">{selectedRowKeys.length}</span> 个版本
+        </Text>
+      </div>
+      <Space size={8} className="archive-batch-actions">
+        <Button
+          size="middle"
+          className="archive-batch-btn archive-batch-btn-clear"
+          onClick={onClearSelection}
+        >
           取消选择
         </Button>
         <Button
-          size="small"
+          size="middle"
           danger
+          className="archive-batch-btn archive-batch-btn-delete"
           icon={<DeleteOutlined />}
           onClick={() => onDeleteBatch(selectedArchives)}
         >

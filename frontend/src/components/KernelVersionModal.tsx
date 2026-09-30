@@ -15,6 +15,7 @@ import {
   ExportOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
+import { GitBranch } from 'lucide-react';
 import type { ScoredKernel, VersionInfo } from '../api';
 import { kaggleKernelVersionUrl } from '../kaggleUrls';
 import DialogTitle from './DialogTitle';
@@ -27,6 +28,7 @@ interface KernelVersionModalProps {
   versionKernel: ScoredKernel | null;
   versions: VersionInfo[];
   versionsLoading: boolean;
+  refreshing?: boolean;
   versionsError: string;
   onCheckNewVersions: (kernel: ScoredKernel) => void;
   onArchiveVersion: (kernel: ScoredKernel, versionNumber: number) => void;
@@ -40,6 +42,7 @@ export const KernelVersionModal: React.FC<KernelVersionModalProps> = ({
   versionKernel,
   versions,
   versionsLoading,
+  refreshing = false,
   versionsError,
   onCheckNewVersions,
   onArchiveVersion,
@@ -48,25 +51,30 @@ export const KernelVersionModal: React.FC<KernelVersionModalProps> = ({
 }) => {
   return (
     <Modal
-      title={
-        <DialogTitle onClose={onClose}>
-          <Space>
-            <span>{versionKernel ? `${versionKernel.ref} 版本历史` : '版本历史'}</span>
-            {versionKernel && (
+      className="app-modal"
+      title={(
+        <DialogTitle
+          icon={<GitBranch size={17} color="#007aff" />}
+          title="Kernel 版本历史"
+          subtitle={versionKernel?.ref || '已记录全部版本提交与得分'}
+          extra={
+            versionKernel && (
               <Tooltip title="检查是否有新版本；已缓存版本不会重复取分">
                 <Button
                   size="small"
                   icon={<ReloadOutlined />}
-                  loading={versionsLoading}
+                  loading={refreshing}
+                  disabled={versionsLoading || refreshing}
                   onClick={() => onCheckNewVersions(versionKernel)}
                 >
                   检查新版本
                 </Button>
               </Tooltip>
-            )}
-          </Space>
-        </DialogTitle>
-      }
+            )
+          }
+          onClose={onClose}
+        />
+      )}
       open={open}
       closable={false}
       width={780}
@@ -74,12 +82,15 @@ export const KernelVersionModal: React.FC<KernelVersionModalProps> = ({
       onCancel={onClose}
     >
       {versionsLoading ? (
-        <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        <div style={{ textAlign: 'center', padding: '48px 0' }}>
+          <Spin size="large" tip="正在载入版本历史..." />
+        </div>
       ) : versionsError ? (
         <Alert type="error" showIcon message="版本读取失败" description={versionsError} />
       ) : (
         <Table<VersionInfo>
           dataSource={versions}
+          loading={refreshing}
           rowKey="version_number"
           size="small"
           pagination={{ pageSize: 8, hideOnSinglePage: true }}

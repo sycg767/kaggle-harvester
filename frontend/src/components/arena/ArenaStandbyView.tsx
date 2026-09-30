@@ -1,16 +1,12 @@
 import React from 'react';
-import { Button, Card, Col, Row, Space, Tag, Typography } from 'antd';
-import { Award, Calendar, LayoutDashboard, Swords, Users, Zap } from 'lucide-react';
+import { Button, Card, Col, Row, Tag } from 'antd';
+import { Award, Calendar, LayoutDashboard, Swords, Users, Zap, Clock, Trophy, Medal } from 'lucide-react';
 import type {
   CompetitionInfo,
   EnteredCompetition,
-  SimulationClawbotStatus,
 } from '../../types/api';
-import ClawbotSidebarCard from './ClawbotSidebarCard';
 import { calculateMedalRanks } from './medalRules';
 import SimulationMonitorControl from '../SimulationMonitorControl';
-
-const { Text } = Typography;
 
 interface ArenaStandbyViewProps {
   selectedCompetition: string;
@@ -18,11 +14,6 @@ interface ArenaStandbyViewProps {
   compInfo: CompetitionInfo | null;
   currentEnteredMeta?: EnteredCompetition;
   formatDate: (val?: string) => string;
-  clawbot?: SimulationClawbotStatus | null;
-  testingClawbot: boolean;
-  onTestClawbot: () => Promise<void>;
-  diskFreeGB: string | number;
-  healthReady?: boolean;
   onNavigateToKernels: () => void;
 }
 
@@ -32,120 +23,120 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
   compInfo,
   currentEnteredMeta,
   formatDate,
-  clawbot,
-  testingClawbot,
-  onTestClawbot,
-  diskFreeGB,
-  healthReady = false,
   onNavigateToKernels,
 }) => {
   const totalTeams = compInfo?.team_count ?? currentEnteredMeta?.team_count ?? 0;
   const { goldRank, silverRank, bronzeRank } = calculateMedalRanks(totalTeams);
 
   return (
-    <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-      <Col xs={24} lg={15}>
-        <Card
-          className="dashboard-glow-card"
-          style={{
-            borderRadius: 14,
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
-          }}
-          styles={{ body: { padding: '20px 22px' } }}
-        >
+    <div className="arena-standby-stack" style={{ width: '100%' }}>
+      <Card
+        className="arena-panel arena-standby-panel"
+        styles={{ body: { padding: '20px 22px' } }}
+      >
           {/* Competition Header Info */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-            <Space align="start" size={12}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#eff6ff', display: 'grid', placeItems: 'center', border: '1px solid #dbeafe', flexShrink: 0 }}>
-                <Swords size={20} color="#2563eb" />
+          <div className="arena-standby-header">
+            <div className="arena-standby-title-group">
+              <div className="arena-standby-icon-tile">
+                <Swords size={20} color="#007aff" />
               </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 800, fontSize: 17, color: '#0f172a' }}>
+              <div className="arena-standby-title-text">
+                <div className="arena-standby-name-row">
+                  <span className="arena-standby-name">
                     {currentTitle}
                   </span>
-                  <Tag color="blue" style={{ fontWeight: 600, margin: 0 }}>
+                  <Tag color="blue" className="arena-category-tag">
                     {compInfo?.category || currentEnteredMeta?.category || '竞赛'}
                   </Tag>
-                  <Tag color="orange" style={{ fontWeight: 600, margin: 0 }}>
-                    ⏳ 监控休眠中
+                  <Tag color="orange" className="arena-standby-status-tag">
+                    <Clock size={11} style={{ marginRight: 3 }} />
+                    <span>监控休眠中</span>
                   </Tag>
                 </div>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 3 }}>
+                <div className="arena-standby-comp-id">
                   比赛 ID：<code>{selectedCompetition}</code>
-                </Text>
+                </div>
               </div>
-            </Space>
+            </div>
           </div>
 
           {/* Competition Metadata Quick Cards */}
-          <Row gutter={[10, 10]} style={{ marginBottom: 14 }}>
+          <Row gutter={[10, 10]} className="arena-standby-meta-row">
             <Col xs={24} sm={8}>
-              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 14px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                  <Calendar size={13} color="#64748b" />
+              <div className="arena-meta-box">
+                <div className="arena-meta-box-label">
+                  <Calendar size={13} color="#8e8e93" />
                   <span>截止时间</span>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a' }}>
+                <div className="arena-meta-box-value">
                   {formatDate(compInfo?.deadline || currentEnteredMeta?.deadline)}
                 </div>
               </div>
             </Col>
 
             <Col xs={24} sm={8}>
-              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 14px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                  <Users size={13} color="#64748b" />
+              <div className="arena-meta-box">
+                <div className="arena-meta-box-label">
+                  <Users size={13} color="#8e8e93" />
                   <span>参赛队伍数</span>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a' }}>
+                <div className="arena-meta-box-value">
                   {totalTeams > 0 ? `${totalTeams.toLocaleString()} 支队伍` : '—'}
                 </div>
               </div>
             </Col>
 
             <Col xs={24} sm={8}>
-              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 14px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                  <Award size={13} color="#64748b" />
+              <div className="arena-meta-box">
+                <div className="arena-meta-box-label">
+                  <Award size={13} color="#8e8e93" />
                   <span>奖金池 / 荣誉</span>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a' }}>
+                <div className="arena-meta-box-value">
                   {compInfo?.reward || currentEnteredMeta?.reward || '—'}
                 </div>
               </div>
             </Col>
           </Row>
 
-          {/* Official Medal Cutoffs (Pure Data, No Fluff) */}
-          <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e2e8f0', marginBottom: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#475569', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-              <span style={{ fontWeight: 700, color: '#1e293b' }}>
-                🏆 官方奖牌线席位切分 {totalTeams > 0 ? `(共 ${totalTeams.toLocaleString()} 支队伍)` : ''}
+          {/* Official Medal Cutoffs */}
+          <div className="arena-standby-cutoffs">
+            <div className="arena-standby-cutoffs-header">
+              <Award size={14} color="#007aff" />
+              <span className="arena-standby-cutoffs-title">
+                官方奖牌线席位切分 {totalTeams > 0 ? `(共 ${totalTeams.toLocaleString()} 支队伍)` : ''}
               </span>
             </div>
             <Row gutter={[8, 8]}>
               <Col xs={8}>
-                <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 11, color: '#a16207', fontWeight: 600 }}>🥇 金牌区</div>
-                  <div style={{ fontSize: 14, color: '#ca8a04', fontWeight: 800, marginTop: 2 }}>
+                <div className="arena-standby-tier-box gold">
+                  <div className="arena-standby-tier-label">
+                    <Trophy size={11} color="#ca8a04" />
+                    <span>金牌区</span>
+                  </div>
+                  <div className="arena-standby-tier-val">
                     Top {goldRank > 0 ? goldRank : '—'}
                   </div>
                 </div>
               </Col>
               <Col xs={8}>
-                <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 600 }}>🥈 银牌区</div>
-                  <div style={{ fontSize: 14, color: '#0284c7', fontWeight: 800, marginTop: 2 }}>
+                <div className="arena-standby-tier-box silver">
+                  <div className="arena-standby-tier-label">
+                    <Medal size={11} color="#0284c7" />
+                    <span>银牌区</span>
+                  </div>
+                  <div className="arena-standby-tier-val">
                     Top {silverRank > 0 ? silverRank : '—'}
                   </div>
                 </div>
               </Col>
               <Col xs={8}>
-                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>🥉 铜牌区</div>
-                  <div style={{ fontSize: 14, color: '#d97706', fontWeight: 800, marginTop: 2 }}>
+                <div className="arena-standby-tier-box bronze">
+                  <div className="arena-standby-tier-label">
+                    <Award size={11} color="#d97706" />
+                    <span>铜牌区</span>
+                  </div>
+                  <div className="arena-standby-tier-val">
                     Top {bronzeRank > 0 ? bronzeRank : '—'}
                   </div>
                 </div>
@@ -153,33 +144,21 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
             </Row>
           </div>
 
-          {/* Action & Standby Control Strip (Clean & Direct) */}
-          <div
-            style={{
-              background: '#f8fafc',
-              borderRadius: 10,
-              padding: '12px 14px',
-              border: '1px solid #e2e8f0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: 10,
-            }}
-          >
-            <Space size={8}>
-              <Zap size={16} color="#d97706" />
+          {/* Action & Standby Control Strip */}
+          <div className="arena-standby-actions-strip">
+            <div className="arena-standby-action-hint">
+              <Zap size={16} color="#ff9500" />
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                <div className="arena-standby-action-title">
                   当前保持休眠（节约 API 额度）
                 </div>
-                <div style={{ fontSize: 11, color: '#64748b' }}>
+                <div className="arena-standby-action-desc">
                   提交后输入 Submission ID 即可开始追踪战力
                 </div>
               </div>
-            </Space>
+            </div>
 
-            <Space size={8} wrap>
+            <div className="arena-standby-buttons">
               <SimulationMonitorControl
                 currentCompetition={selectedCompetition}
                 buttonType="primary"
@@ -191,25 +170,12 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
               >
                 Kernel 广场
               </Button>
-            </Space>
+            </div>
           </div>
         </Card>
-      </Col>
-
-      {/* Right: WeChat ClawBot Hub in Standby */}
-      <Col xs={24} lg={9}>
-        <ClawbotSidebarCard
-          clawbot={clawbot}
-          testingClawbot={testingClawbot}
-          onTestClawbot={onTestClawbot}
-          isStandby={true}
-          selectedCompetition={selectedCompetition}
-          diskFreeGB={diskFreeGB}
-          healthReady={healthReady}
-        />
-      </Col>
-    </Row>
+    </div>
   );
 };
 
 export default ArenaStandbyView;
+

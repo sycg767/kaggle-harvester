@@ -7,10 +7,11 @@ import {
   Modal,
   Space,
   Tag,
+  Typography,
 } from 'antd';
+
+const { Text } = Typography;
 import {
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
@@ -224,11 +225,15 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       </Button>
 
       <Modal
-        className="newapi-dialog submission-monitor-modal"
+        className="app-modal submission-monitor-modal"
         title={(
-          <DialogTitle disabled={running} onClose={() => !running && setOpen(false)}>
-            <Space><Activity size={16} strokeWidth={1.9} />提交出分监控</Space>
-          </DialogTitle>
+          <DialogTitle
+            icon={<Activity size={17} color="#007aff" strokeWidth={2.2} />}
+            title="提交出分监控"
+            subtitle="后台自动轮询排队与评估状态，命中出分即时通知"
+            disabled={running}
+            onClose={() => !running && setOpen(false)}
+          />
         )}
         open={open}
         forceRender
@@ -274,28 +279,8 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
           />
         )}
 
-        <Alert
-          type="info"
-          showIcon
-          message="监控当前账号的竞赛提交 Public LB 出分"
-          description="首次启用会建立基线，不会把已有分数当作新出分。之后仅在「无分 → 有分」时通过通知中心发送一次。通道与事件开关请在「通知中心」配置。"
-          style={{ marginBottom: 16 }}
-        />
-
-        <div
-          className={`auto-archive-scheduler-status${status?.scheduler_alive ? ' is-online' : ' is-offline'}`}
-          role="status"
-          aria-live="polite"
-        >
-          <span className="auto-archive-scheduler-icon" aria-hidden="true">
-            {status?.scheduler_alive ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />}
-          </span>
-          <div className="auto-archive-scheduler-copy">
-            <span className="auto-archive-scheduler-title">本地调度器</span>
-            <span className="auto-archive-scheduler-detail">
-              {status?.scheduler_alive ? '在线' : '未运行'}
-            </span>
-          </div>
+        <div className="dialog-section-heading" style={{ marginBottom: 10 }}>
+          <Text strong style={{ fontSize: 13.5 }}>监控配置</Text>
         </div>
 
         <SubmissionConfigForm
@@ -308,28 +293,49 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
           currentCompetition={currentCompetition}
         />
 
-        <div className="auto-archive-summary-grid" role="group" aria-label="提交出分监控运行状态">
-          <SummaryItem label="任务状态">
-            {!status?.scheduler_alive
-              ? <Tag color="error">调度器离线</Tag>
-              : status?.running
-                ? <Tag color="processing">正在检查</Tag>
+        <div className="dialog-section-heading" style={{ marginTop: 20, marginBottom: 8 }}>
+          <Text strong style={{ fontSize: 13.5 }}>状态摘要</Text>
+        </div>
+
+        <div className="dialog-summary-grid" role="group" aria-label="提交出分监控运行状态">
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">任务状态</span>
+            <span className="dialog-summary-value">
+              {!status?.scheduler_alive
+                ? <span className="dialog-status-pill is-error">调度器离线</span>
+                : status?.running
+                ? <span className="dialog-status-pill is-running">正在检查</span>
                 : enabled
-                  ? <Tag color="success">等待下次检查</Tag>
-                  : <Tag>已关闭</Tag>}
-          </SummaryItem>
-          <SummaryItem label="监控竞赛" tabular>
-            {snapshot?.config.competitions?.length
-              ? `${snapshot.config.competitions.length} 个`
-              : '—'}
-          </SummaryItem>
-          <SummaryItem label="最近检查" tabular>{formatDate(status?.last_checked_at)}</SummaryItem>
-          <SummaryItem label="下次检查" tabular>{formatDate(status?.next_run_at)}</SummaryItem>
-          <SummaryItem label="本轮提交" tabular>{status?.checked_count ?? 0}</SummaryItem>
-          <SummaryItem label="待出分 / 已出分 / 失败" tabular>
-            {status ? `${status.pending_count} / ${status.scored_count} / ${status.failed_count}` : '0 / 0 / 0'}
-          </SummaryItem>
-          <SummaryItem label="新出分" tabular>{status?.newly_scored_count ?? 0}</SummaryItem>
+                  ? <span className="dialog-status-pill is-success">等待下次检查</span>
+                  : <span className="dialog-status-pill is-default">已关闭</span>}
+            </span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">监控竞赛</span>
+            <span className="dialog-summary-value">
+              {snapshot?.config.competitions?.length
+                ? `${snapshot.config.competitions.length} 个`
+                : '—'}
+            </span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">最近检查</span>
+            <span className="dialog-summary-value">{formatDate(status?.last_checked_at)}</span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">下次检查</span>
+            <span className="dialog-summary-value">{formatDate(status?.next_run_at)}</span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">待出分 / 已出分 / 失败</span>
+            <span className="dialog-summary-value">
+              {status ? `${status.pending_count} / ${status.scored_count} / ${status.failed_count}` : '0 / 0 / 0'}
+            </span>
+          </div>
+          <div className="dialog-summary-cell">
+            <span className="dialog-summary-label">新出分</span>
+            <span className="dialog-summary-value">{status?.newly_scored_count ?? 0}</span>
+          </div>
         </div>
 
         {status?.last_error && (
@@ -343,6 +349,10 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
         )}
 
         <SubmissionEventsList events={recentEvents} />
+
+        <div className="dialog-section-heading" style={{ marginTop: 20, marginBottom: 8 }}>
+          <Text strong style={{ fontSize: 13.5 }}>运行记录</Text>
+        </div>
 
         <SubmissionRunLogsList
           logs={snapshot?.logs || []}

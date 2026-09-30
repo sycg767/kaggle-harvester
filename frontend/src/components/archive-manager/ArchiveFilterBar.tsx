@@ -1,12 +1,9 @@
 import React from 'react';
 import {
-  Button,
-  Card,
   Col,
   Input,
   Row,
   Select,
-  Space,
   Typography,
 } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
@@ -41,21 +38,25 @@ export const ArchiveFilterBar: React.FC<ArchiveFilterBarProps> = ({
     (a) => a.public_score !== undefined && a.public_score !== null,
   ).length;
 
+  const isAllActive = !scoredOnly && competitionFilter === 'all';
+
   return (
-    <Card size="small" className="data-toolbar">
-      <Row gutter={[12, 12]} align="middle">
-        <Col xs={24} md={12} lg={10}>
+    <div className="archive-toolbar" role="search" aria-label="归档筛选工具栏">
+      <Row gutter={[10, 10]} align="middle" className="archive-toolbar-row-main">
+        <Col xs={24} md={14} lg={15}>
           <Input
+            className="archive-search-input"
             aria-label="搜索本地归档"
             allowClear
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
-            prefix={<SearchOutlined />}
-            placeholder="筛选标题、作者、ref 或路径"
+            prefix={<SearchOutlined className="archive-search-icon" />}
+            placeholder="搜索 Kernel、作者、ref 或本地路径"
           />
         </Col>
-        <Col xs={24} md={7} lg={6}>
+        <Col xs={24} md={10} lg={9}>
           <Select
+            className="archive-competition-select"
             aria-label="按竞赛筛选归档"
             value={competitionFilter}
             onChange={setCompetitionFilter}
@@ -66,48 +67,54 @@ export const ArchiveFilterBar: React.FC<ArchiveFilterBarProps> = ({
             ]}
           />
         </Col>
-        <Col xs={24} md={5} lg={8} style={{ textAlign: 'right' }}>
-          <Text type="secondary">当前显示 {displayCount} 条</Text>
-        </Col>
       </Row>
-      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <Space wrap size={6}>
-          <Button
-            size="small"
-            type={!scoredOnly && competitionFilter === 'all' ? 'primary' : 'default'}
+
+      <div className="archive-toolbar-pills-row">
+        <div className="archive-pills-left">
+          <button
+            type="button"
+            className={`archive-filter-chip ${isAllActive ? 'is-active' : ''}`}
             onClick={() => {
               setScoredOnly(false);
               setCompetitionFilter('all');
             }}
-            style={{ borderRadius: 12, fontSize: 11 }}
           >
-            全部 ({archives.length})
-          </Button>
-          <Button
-            size="small"
-            type={scoredOnly ? 'primary' : 'default'}
+            全部 <span className="archive-chip-count">{archives.length}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`archive-filter-chip ${scoredOnly ? 'is-active' : ''}`}
             onClick={() => setScoredOnly((curr) => !curr)}
-            style={{ borderRadius: 12, fontSize: 11 }}
           >
-            🔥 仅看有分 ({scoredCount})
-          </Button>
-          {competitions.slice(0, 4).map((comp) => (
-            <Button
-              key={comp}
-              size="small"
-              type={competitionFilter === comp ? 'primary' : 'default'}
-              onClick={() => setCompetitionFilter(comp === competitionFilter ? 'all' : comp)}
-              style={{ borderRadius: 12, fontSize: 11 }}
-            >
-              🏆 {comp}
-            </Button>
-          ))}
-        </Space>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          匹配 {displayCount}/{archives.length} 条
-        </Text>
+            仅看有分 <span className="archive-chip-count">{scoredCount}</span>
+          </button>
+
+          <div className="archive-quick-competitions">
+            {competitions.slice(0, 4).map((comp) => {
+              const isActive = competitionFilter === comp;
+              return (
+                <button
+                  key={comp}
+                  type="button"
+                  className={`archive-filter-chip archive-comp-chip ${isActive ? 'is-active' : ''}`}
+                  onClick={() => setCompetitionFilter(isActive ? 'all' : comp)}
+                  title={comp}
+                >
+                  <span className="archive-comp-chip-text">{comp}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="archive-pills-right">
+          <Text className="archive-match-count">
+            匹配 <span className="archive-count-highlight">{displayCount}</span> / {archives.length} 条
+          </Text>
+        </div>
       </div>
-    </Card>
+    </div>
   );
 };
 

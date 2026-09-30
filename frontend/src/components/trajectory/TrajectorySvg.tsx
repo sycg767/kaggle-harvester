@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   formatNumber,
-  formatTime,
   buildPath,
   VIEWBOX_WIDTH,
   VIEWBOX_HEIGHT,
@@ -19,12 +18,14 @@ interface TrajectorySvgProps {
     yMax: number;
     xTicks: number[];
     yTicks: number[];
+    goldCutoff?: number;
     silverCutoff?: number;
     bronzeCutoff?: number;
   };
+  title?: string;
 }
 
-export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
+export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) => {
   const plotWidth = VIEWBOX_WIDTH - PLOT.left - PLOT.right;
   const plotHeight = VIEWBOX_HEIGHT - PLOT.top - PLOT.bottom;
 
@@ -92,7 +93,11 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
   };
 
   const renderLegend = () => {
-    const width = 136;
+    const maxTextLen = Math.max(
+      ...chart.series.map((s) => `${s.label} · ${s.games} games`.length),
+      14,
+    );
+    const width = Math.max(140, Math.round(maxTextLen * 7.2) + 38);
     const rowHeight = 20;
     const height = 10 + chart.series.length * rowHeight;
     const x = VIEWBOX_WIDTH - PLOT.right - width - 8;
@@ -106,7 +111,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
           height={height}
           rx="5"
           fill="#ffffff"
-          fillOpacity="0.9"
+          fillOpacity="0.92"
           stroke="#e2e8f0"
           strokeWidth="1"
         />
@@ -124,14 +129,10 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
                 strokeWidth="2.5"
                 strokeLinecap="round"
               />
-              <text x={x + 28} y={rowY} fontSize="11" fontWeight="700" fill="#334155">
-                {series.label}
-              </text>
-              <text x={x + 52} y={rowY} fontSize="11" fill="#94a3b8">
-                ·
-              </text>
-              <text x={x + 60} y={rowY} fontSize="10.5" fontWeight="500" fill="#64748b">
-                {gamesText}
+              <text x={x + 28} y={rowY} fontSize="11">
+                <tspan fontWeight="700" fill="#334155">{series.label}</tspan>
+                <tspan fill="#94a3b8"> · </tspan>
+                <tspan fontSize="10.5" fontWeight="500" fill="#64748b">{gamesText}</tspan>
               </text>
             </g>
           );
@@ -145,7 +146,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
       <svg
         viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
         role="img"
-        aria-label="Pokémon TCG AI Battle — Final Submission Rating Progression"
+        aria-label={title || 'Rating Progression'}
         style={{ display: 'block', width: '100%', minWidth: 560, height: 'auto' }}
       >
         {/* 图表主标题（居中展示） */}
@@ -158,7 +159,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
           fill="#0f172a"
           letterSpacing="-0.2"
         >
-          Pokémon TCG AI Battle — Final Submission Rating Progression
+          {title || 'Rating Progression'}
         </text>
 
         {/* 图表主绘图区域边框 */}
@@ -199,6 +200,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
         })}
 
         {/* 参考虚线 */}
+        {renderCutoffLine(chart.goldCutoff, '#eab308')}
         {renderCutoffLine(chart.silverCutoff, '#94a3b8')}
         {renderCutoffLine(chart.bronzeCutoff, '#d97706')}
 
@@ -213,24 +215,11 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart }) => {
               strokeLinejoin="round"
               strokeLinecap="round"
             />
-            {series.points.length <= 60 &&
-              series.points.slice(0, -1).map((point, index) => (
-                <circle
-                  key={`${series.id}-${point.episodeId}-${index}`}
-                  cx={xScale(point.x)}
-                  cy={yScale(point.y)}
-                  r={1.8}
-                  fill={series.color}
-                >
-                  <title>
-                    {`${series.label} · 第 ${point.x} 局 · ${point.y.toFixed(1)} 分 · ${point.result} · ${formatTime(point.timestamp)}`}
-                  </title>
-                </circle>
-              ))}
           </g>
         ))}
 
         {/* 参考线徽章 */}
+        {renderCutoffBadge(chart.goldCutoff, 'Gold', '#a16207')}
         {renderCutoffBadge(chart.silverCutoff, 'Silver', '#64748b')}
         {renderCutoffBadge(chart.bronzeCutoff, 'Bronze', '#d97706')}
 

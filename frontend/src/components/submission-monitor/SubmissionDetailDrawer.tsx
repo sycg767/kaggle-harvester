@@ -150,15 +150,14 @@ export const SubmissionDetailDrawer: React.FC<SubmissionDetailDrawerProps> = ({
 
   return (
     <Drawer
-      className="newapi-detail-drawer"
+      className="app-drawer newapi-detail-drawer"
       title={(
-        <DialogTitle onClose={onClose}>
-          <Space size={8} wrap>
-            <HistoryOutlined />
-            <span>检查详情</span>
-            <Text type="secondary">{formatDate(selectedLog?.finished_at)}</Text>
-          </Space>
-        </DialogTitle>
+        <DialogTitle
+          icon={<HistoryOutlined style={{ color: '#007aff' }} />}
+          title="提交检查详情"
+          subtitle={formatDate(selectedLog?.finished_at)}
+          onClose={onClose}
+        />
       )}
       closable={false}
       extra={selectedLog ? renderRunOutcome(selectedLog) : null}
@@ -173,17 +172,31 @@ export const SubmissionDetailDrawer: React.FC<SubmissionDetailDrawerProps> = ({
         <Alert type="error" showIcon message="运行明细读取失败" description={error} />
       ) : runDetail && selectedLog ? (
         <>
-          <div className="auto-archive-summary-grid" role="group" aria-label="本次检查汇总">
-            <SummaryItem label="触发方式">
-              {selectedLog.trigger === 'scheduled' ? '定时检查' : '手动检查'}
-            </SummaryItem>
-            <SummaryItem label="完成时间" tabular>{formatDate(selectedLog.finished_at)}</SummaryItem>
-            <SummaryItem label="耗时" tabular>{formatDuration(selectedLog.duration_seconds)}</SummaryItem>
-            <SummaryItem label="检查条数" tabular>{selectedLog.checked_count}</SummaryItem>
-            <SummaryItem label="待出分 / 已出分 / 失败" tabular>
-              {selectedLog.pending_count} / {selectedLog.scored_count} / {selectedLog.failed_count}
-            </SummaryItem>
-            <SummaryItem label="新出分" tabular>{selectedLog.newly_scored_count}</SummaryItem>
+          <div className="dialog-summary-grid" role="group" aria-label="本次检查汇总">
+            <div className="dialog-summary-cell">
+              <span className="dialog-summary-label">触发方式</span>
+              <span className="dialog-summary-value">{selectedLog.trigger === 'scheduled' ? '定时检查' : '手动检查'}</span>
+            </div>
+            <div className="dialog-summary-cell">
+              <span className="dialog-summary-label">完成时间</span>
+              <span className="dialog-summary-value">{formatDate(selectedLog.finished_at)}</span>
+            </div>
+            <div className="dialog-summary-cell">
+              <span className="dialog-summary-label">耗时</span>
+              <span className="dialog-summary-value">{formatDuration(selectedLog.duration_seconds)}</span>
+            </div>
+            <div className="dialog-summary-cell">
+              <span className="dialog-summary-label">检查条数</span>
+              <span className="dialog-summary-value">{selectedLog.checked_count}</span>
+            </div>
+            <div className="dialog-summary-cell">
+              <span className="dialog-summary-label">待出分 / 已出分 / 失败</span>
+              <span className="dialog-summary-value">{selectedLog.pending_count} / {selectedLog.scored_count} / {selectedLog.failed_count}</span>
+            </div>
+            <div className="dialog-summary-cell">
+              <span className="dialog-summary-label">新出分</span>
+              <span className="dialog-summary-value">{selectedLog.newly_scored_count}</span>
+            </div>
           </div>
 
           {selectedLog.error && (

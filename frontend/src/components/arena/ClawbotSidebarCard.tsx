@@ -28,43 +28,34 @@ export const ClawbotSidebarCard: React.FC<ClawbotSidebarCardProps> = ({
 }) => {
   return (
     <Card
-      className="dashboard-glow-card"
-      style={{
-        height: '100%',
-        borderRadius: 14,
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-      }}
+      className="arena-panel arena-clawbot-card"
       styles={{ body: { padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%' } }}
     >
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <Space align="center" size={8}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: '#dcfce7', display: 'grid', placeItems: 'center' }}>
-              <Bot size={18} color="#16a34a" />
+      <div className="arena-clawbot-body">
+        <div className="arena-clawbot-header">
+          <div className="arena-clawbot-title-group">
+            <div className="arena-clawbot-icon-tile">
+              <Bot size={18} color="#34c759" />
             </div>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a' }}>
+              <div className="arena-clawbot-title">
                 微信 ClawBot 智能管家
               </div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <div className="arena-clawbot-desc">
                 官方长连接 · 实时问答与战报推送
-              </Text>
+              </div>
             </div>
-          </Space>
+          </div>
 
-          <Space size={6}>
+          <div className="arena-clawbot-actions">
             <Button
               size="small"
               icon={<RefreshCw size={12} className={testingClawbot ? 'animate-spin' : ''} />}
               loading={testingClawbot}
               onClick={() => void onTestClawbot()}
-              style={{ fontSize: 12 }}
+              className="arena-clawbot-test-btn"
             >
-              探测连通性
+              探测
             </Button>
             <Tooltip
               title={
@@ -77,65 +68,65 @@ export const ClawbotSidebarCard: React.FC<ClawbotSidebarCardProps> = ({
             >
               <Tag
                 color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
-                style={{ margin: 0, fontWeight: 700 }}
+                className="arena-clawbot-status-tag"
               >
-                {clawbot?.is_online ? '在线' : clawbot?.configured ? '离线 (未启动)' : '未就绪'}
+                {clawbot?.is_online ? '在线' : clawbot?.configured ? '离线' : '未就绪'}
               </Tag>
             </Tooltip>
-          </Space>
+          </div>
         </div>
 
         {/* Model & Config Details */}
-        <div style={{ background: '#f8fafc', borderRadius: 8, padding: '12px 14px', marginBottom: 14, border: '1px solid #f1f5f9' }}>
+        <div className="arena-clawbot-details">
           {isStandby && selectedCompetition && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-              <span style={{ color: '#64748b' }}>关注赛事:</span>
-              <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedCompetition}</span>
+            <div className="arena-clawbot-row">
+              <span className="arena-clawbot-label">关注赛事:</span>
+              <span className="arena-clawbot-value bold">{selectedCompetition}</span>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-            <span style={{ color: '#64748b' }}>大模型引擎:</span>
-            <span style={{ fontWeight: 700, color: '#0f172a' }}>{clawbot?.model || 'deepseek-v4-flash-0731'}</span>
+          <div className="arena-clawbot-row">
+            <span className="arena-clawbot-label">大模型引擎:</span>
+            <span className="arena-clawbot-value bold">{clawbot?.model || 'deepseek-v4-flash-0731'}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-            <span style={{ color: '#64748b' }}>服务商:</span>
-            <span style={{ color: '#334155' }}>{clawbot?.provider || 'TokenRhythm Studio'}</span>
+          <div className="arena-clawbot-row">
+            <span className="arena-clawbot-label">服务商:</span>
+            <span className="arena-clawbot-value">{clawbot?.provider || 'TokenRhythm Studio'}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
-            <span style={{ color: '#64748b' }}>网关探测:</span>
-            <span style={{ color: clawbot?.is_online ? '#16a34a' : '#d97706', fontWeight: 600 }}>
+          <div className="arena-clawbot-row">
+            <span className="arena-clawbot-label">网关探测:</span>
+            <span className={`arena-clawbot-value ${clawbot?.is_online ? 'online' : 'offline'}`}>
               {clawbot?.is_online ? '活跃 (端口 18789)' : '未连接 (端口 18789)'}
             </span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-            <span style={{ color: '#64748b' }}>对战巡检状态:</span>
-            <span style={{ color: isStandby ? '#0284c7' : isFinished ? '#64748b' : '#16a34a', fontWeight: 600 }}>
-              {isStandby ? '休眠待命中' : isFinished ? '比赛已封榜 · 自动巡检休眠' : '每 10 分钟自动检查对局'}
+          <div className="arena-clawbot-row">
+            <span className="arena-clawbot-label">对战巡检状态:</span>
+            <span className={`arena-clawbot-value ${isStandby ? 'standby' : isFinished ? 'finished' : 'online'}`}>
+              {isStandby ? '休眠待命中' : isFinished ? '已封榜 · 自动巡检休眠' : '每 10 分钟自动检查'}
             </span>
           </div>
         </div>
 
         {/* WeChat Commands Quick List */}
-        <div style={{ fontSize: 12, color: '#475569', marginBottom: 14 }}>
-          <Space size={6} style={{ marginBottom: 8 }}>
-            <Smartphone size={14} color="#0284c7" />
-            <span style={{ fontWeight: 600, color: '#0f172a' }}>微信快捷指令</span>
-          </Space>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            <Tag color="blue">战况</Tag>
-            <Tag color="gold">分数</Tag>
-            <Tag color="purple">排名</Tag>
-            <Tag color="cyan">刷新</Tag>
+        <div className="arena-clawbot-commands-section">
+          <div className="arena-clawbot-commands-header">
+            <Smartphone size={13} color="#007aff" />
+            <span>微信快捷指令</span>
+          </div>
+          <div className="arena-clawbot-chips">
+            <span className="arena-command-chip">战况</span>
+            <span className="arena-command-chip">分数</span>
+            <span className="arena-command-chip">排名</span>
+            <span className="arena-command-chip">刷新</span>
           </div>
         </div>
       </div>
 
-      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          磁盘空间: <span style={{ fontWeight: 600, color: '#0f172a' }}>{diskFreeGB} GB</span> 可用
-        </Text>
-        <Tag color={healthReady ? 'green' : 'orange'}>
-          {healthReady ? 'CLI 凭据已就绪' : '检查凭据'}
+      <div className="arena-clawbot-footer">
+        <span className="arena-clawbot-disk">
+          磁盘空间: <strong>{diskFreeGB} GB</strong> 可用
+        </span>
+        <Tag color={healthReady ? 'green' : 'orange'} className="arena-clawbot-cli-tag">
+          {healthReady ? 'CLI 就绪' : '检查凭据'}
         </Tag>
       </div>
     </Card>
@@ -143,3 +134,4 @@ export const ClawbotSidebarCard: React.FC<ClawbotSidebarCardProps> = ({
 };
 
 export default ClawbotSidebarCard;
+

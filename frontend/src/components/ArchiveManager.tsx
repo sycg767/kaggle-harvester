@@ -7,12 +7,9 @@ import {
   Card,
   Empty,
   Modal,
-} from 'antd';
-import {
   Table,
 } from 'antd';
 import {
-  DeleteOutlined,
   ExportOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -140,24 +137,6 @@ const ArchiveManager: React.FC = () => {
     }
   };
 
-  const openFolder = async (archive: ArchiveEntry) => {
-    try {
-      await api.openArchiveFolder(archive.id);
-      message.success('已请求在文件资源管理器中打开目录');
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '无法打开归档目录。');
-    }
-  };
-
-  const openVsCode = async (archive: ArchiveEntry) => {
-    try {
-      await api.openArchiveInCode(archive.id);
-      message.success('已请求在 VS Code 中打开归档文件');
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '无法在 VS Code 中打开，请确认已安装 VS Code。');
-    }
-  };
-
   const deleteArchives = (targets: ArchiveEntry[]) => {
     if (!targets.length) return;
     Modal.confirm({
@@ -189,9 +168,7 @@ const ArchiveManager: React.FC = () => {
   const columns = useMemo(
     () =>
       createArchiveTableColumns({
-        onOpenVsCode: (rec) => void openVsCode(rec),
         onShowDetail: (rec) => void showDetail(rec),
-        onOpenFolder: (rec) => void openFolder(rec),
         onDownloadSource: (rec) => void downloadSource(rec),
         onDeleteArchives: (records) => deleteArchives(records),
       }),
@@ -199,33 +176,35 @@ const ArchiveManager: React.FC = () => {
   );
 
   return (
-    <div className="page-shell">
-      <header className="page-header">
-        <div className="page-title-wrap">
-          <h1 className="page-title">本地归档</h1>
-          <span className="page-subtitle">{archives.length} 个版本 · {formatBytes(totalSize)}</span>
+    <div className="page-shell archive-page">
+      <header className="archive-page-header">
+        <div className="archive-title-wrap">
+          <h1 className="archive-title">本地归档</h1>
+          <span className="archive-subtitle">{archives.length} 个版本 · {formatBytes(totalSize)}</span>
         </div>
-        <div className="page-actions">
+        <div className="archive-header-actions">
           <Button
+            className="archive-header-btn"
             icon={<ExportOutlined />}
             aria-label="导出清单"
             disabled={!displayArchives.length}
             onClick={() => exportArchiveListCsv(displayArchives)}
           >
-            导出清单
+            <span className="archive-btn-text">导出清单</span>
           </Button>
           <Button
+            className="archive-header-btn"
             icon={<ReloadOutlined />}
             aria-label="刷新归档"
             loading={loading}
             onClick={() => void loadArchives()}
           >
-            刷新
+            <span className="archive-btn-text">刷新</span>
           </Button>
         </div>
       </header>
 
-      <div className="page-content">
+      <div className="page-content archive-page-content">
         <ArchiveMetricsCards
           totalArchives={archives.length}
           uniqueKernels={uniqueKernels}
@@ -262,8 +241,9 @@ const ArchiveManager: React.FC = () => {
           onDeleteBatch={(targets) => deleteArchives(targets)}
         />
 
-        <Card className="data-panel desktop-data-table" styles={{ body: { padding: 0 } }}>
+        <Card className="data-panel desktop-data-table archive-table-card" styles={{ body: { padding: 0 } }}>
           <Table<ArchiveEntry>
+            className="archive-table"
             columns={columns}
             dataSource={displayArchives}
             rowKey="id"
@@ -278,7 +258,7 @@ const ArchiveManager: React.FC = () => {
             locale={{
               emptyText: (
                 <Empty description="暂无本地归档">
-                  <Button type="primary" onClick={() => navigate('/kernels')}>前往发现页</Button>
+                  <Button type="primary" onClick={() => navigate('/kernels')}>前往 Kernel 广场</Button>
                 </Empty>
               ),
             }}
@@ -297,8 +277,6 @@ const ArchiveManager: React.FC = () => {
           setMobilePage={setMobilePage}
           onNavigateToKernels={() => navigate('/kernels')}
           onShowDetail={(rec) => void showDetail(rec)}
-          onOpenVsCode={(rec) => void openVsCode(rec)}
-          onOpenFolder={(rec) => void openFolder(rec)}
           onDownloadSource={(rec) => void downloadSource(rec)}
           onDeleteArchives={(recs) => deleteArchives(recs)}
         />
@@ -312,8 +290,6 @@ const ArchiveManager: React.FC = () => {
         files={detailFiles}
         loading={detailLoading}
         error={detailError}
-        onOpenVsCode={(rec) => void openVsCode(rec)}
-        onOpenFolder={(rec) => void openFolder(rec)}
         onDownloadSource={(rec) => void downloadSource(rec)}
       />
     </div>

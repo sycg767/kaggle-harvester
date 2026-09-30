@@ -1,6 +1,6 @@
 import React from 'react';
 import { Row, Col, Tag } from 'antd';
-import { Trophy } from 'lucide-react';
+import { Trophy, Medal, Award } from 'lucide-react';
 import type { SimulationAgentStats, SimulationMedalThresholds } from '../../types/api';
 import { getAgentMeta as defaultGetAgentMeta, type AgentMetaItem } from './agentMeta';
 
@@ -21,19 +21,11 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
     val !== undefined && val !== null ? val.toFixed(1) : '—';
 
   return (
-    <Row gutter={[14, 14]} style={{ marginBottom: 16 }}>
+    <Row gutter={[12, 12]} className="arena-agents-row">
       {agents.length === 0 ? (
         <Col span={24}>
-          <div
-            style={{
-              padding: '24px 16px',
-              background: '#f8fafc',
-              borderRadius: 10,
-              textAlign: 'center',
-              color: '#94a3b8',
-            }}
-          >
-            当前比赛暂无监控的 Agent 提交记录，点击右上角「模拟对战监控」可添加追踪选手
+          <div className="arena-empty-state">
+            当前比赛暂无监控的 Agent 提交记录，点击右上角「天梯对战监控」可添加追踪选手
           </div>
         </Col>
       ) : (
@@ -58,10 +50,10 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
               : '';
           const resColor =
             ep?.result === 'win'
-              ? '#16a34a'
+              ? '#34c759'
               : ep?.result === 'loss'
-              ? '#e11d48'
-              : '#64748b';
+              ? '#ff3b30'
+              : '#8e8e93';
           const delta =
             ep?.score_delta !== undefined
               ? ep.score_delta >= 0
@@ -73,182 +65,144 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
           return (
             <Col xs={24} sm={colSpan} key={agent.submission_id || index}>
               <div
+                className="arena-agent-card"
                 style={{
-                  background: isAboveBronze
-                    ? meta.bg
-                    : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                  border: isAboveBronze
-                    ? `1px solid ${meta.borderColor}`
-                    : '1px solid #e2e8f0',
-                  borderRadius: 10,
-                  padding: '14px 16px',
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
+                  borderLeft: `4px solid ${meta.accent}`,
                 }}
               >
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: 6,
-                    }}
-                  >
-                    <Tag color={meta.tagColor} style={{ fontWeight: 700, margin: 0 }}>
-                      {meta.name} {agent.submission_id ? `(#${agent.submission_id})` : ''}
-                    </Tag>
-                    {agent.medal_tier === 'gold' ? (
-                      <Tag color="gold" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>
-                        🥇 金牌区
-                      </Tag>
-                    ) : agent.medal_tier === 'silver' ? (
-                      <Tag color="cyan" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>
-                        🥈 银牌区
-                      </Tag>
-                    ) : isAboveBronze ? (
-                      <Tag color="orange" icon={<Trophy size={11} style={{ marginRight: 2 }} />}>
-                        🥉 铜牌线内
-                      </Tag>
-                    ) : gap !== undefined && gap !== null ? (
-                      <Tag color="default">距铜牌 {gap.toFixed(1)}分</Tag>
-                    ) : (
-                      <Tag color="default">未入围</Tag>
+                {/* Header row: Agent Name/ID + Medal Status */}
+                <div className="arena-agent-card-header">
+                  <div className="arena-agent-pill" style={{ color: meta.accent, background: meta.bg, borderColor: meta.borderColor }}>
+                    <span className="arena-agent-dot" style={{ background: meta.accent }} />
+                    <span className="arena-agent-name">{meta.name}</span>
+                    {agent.submission_id && (
+                      <span className="arena-agent-subid">#{agent.submission_id}</span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <span
-                      style={{
-                        fontSize: 26,
-                        fontWeight: 900,
-                        color: isAboveBronze ? '#166534' : '#334155',
-                      }}
-                    >
-                      {formatScore(scoreVal)}
-                    </span>
-                    <span style={{ fontSize: 12, color: isAboveBronze ? '#15803d' : '#64748b' }}>
-                      分 ({agent.rank ? `第 ${agent.rank} 名` : '未上榜'})
-                    </span>
+
+                  {agent.medal_tier === 'gold' ? (
+                    <Tag color="gold" className="arena-tier-tag">
+                      <Trophy size={12} color="#ca8a04" />
+                      <span>金牌区</span>
+                    </Tag>
+                  ) : agent.medal_tier === 'silver' ? (
+                    <Tag color="cyan" className="arena-tier-tag">
+                      <Medal size={12} color="#0284c7" />
+                      <span>银牌区</span>
+                    </Tag>
+                  ) : isAboveBronze ? (
+                    <Tag color="orange" className="arena-tier-tag">
+                      <Award size={12} color="#d97706" />
+                      <span>铜牌线内</span>
+                    </Tag>
+                  ) : gap !== undefined && gap !== null ? (
+                    <Tag color="default" className="arena-tier-tag">
+                      距铜牌 {Math.abs(gap).toFixed(1)}分
+                    </Tag>
+                  ) : (
+                    <Tag color="default" className="arena-tier-tag">未入围</Tag>
+                  )}
+                </div>
+
+                {/* Main Score & Rank row */}
+                <div className="arena-agent-score-row">
+                  <div className="arena-agent-score-value">
+                    {formatScore(scoreVal)}
+                  </div>
+                  <div className="arena-agent-rank-badge">
+                    {agent.rank ? `第 ${agent.rank} 名` : '未上榜'}
                   </div>
                 </div>
 
-                <div style={{ marginTop: 8 }}>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: isAboveBronze ? '#166534' : '#475569',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      marginBottom: 4,
-                      flexWrap: 'wrap',
-                      gap: 4,
-                    }}
-                  >
-                    <span>
-                      胜率: {agent.win_rate !== undefined ? agent.win_rate.toFixed(1) : '—'}% (
-                      {agent.wins ?? 0}胜/{agent.losses ?? 0}负)
+                {/* Sub metrics strip */}
+                <div className="arena-agent-metrics-row">
+                  <div className="arena-agent-metric-item">
+                    <span className="arena-metric-label">胜率:</span>
+                    <span className="arena-metric-val">
+                      {agent.win_rate !== undefined ? agent.win_rate.toFixed(1) : '—'}%
                     </span>
-                    {(() => {
-                      const score = agent.score ?? agent.public_score ?? 0;
-                      const tier = agent.medal_tier || 'none';
-                      if (isFinished) {
-                        if (tier === 'gold')
+                    <span className="arena-metric-sub">
+                      ({agent.wins ?? 0}胜/{agent.losses ?? 0}负)
+                    </span>
+                  </div>
+
+                  {!isFinished && (
+                    <div className="arena-agent-metric-item">
+                      {(() => {
+                        const score = agent.score ?? agent.public_score ?? 0;
+                        const tier = agent.medal_tier || 'none';
+                        if (tier === 'gold') {
+                          const c =
+                            agent.tier_cushion_score ??
+                            (thresholds?.gold_cutoff_score
+                              ? score - thresholds.gold_cutoff_score
+                              : 0);
                           return (
-                            <span style={{ fontWeight: 700, color: '#ca8a04' }}>
-                              🥇 终榜锁定: 金牌
+                            <span className="arena-cushion gold">
+                              金牌安全垫: +{c.toFixed(1)}分
                             </span>
                           );
-                        if (tier === 'silver')
+                        }
+                        if (tier === 'silver') {
+                          const c =
+                            agent.tier_cushion_score ??
+                            (thresholds?.silver_cutoff_score
+                              ? score - thresholds.silver_cutoff_score
+                              : 0);
                           return (
-                            <span style={{ fontWeight: 700, color: '#0284c7' }}>
-                              🥈 终榜锁定: 银牌
+                            <span className="arena-cushion silver">
+                              银牌安全垫: +{c.toFixed(1)}分
                             </span>
                           );
-                        if (tier === 'bronze')
+                        }
+                        if (tier === 'bronze') {
+                          const c =
+                            agent.tier_cushion_score ??
+                            agent.bronze_gap_score ??
+                            (thresholds?.bronze_cutoff_score
+                              ? score - thresholds.bronze_cutoff_score
+                              : 0);
                           return (
-                            <span style={{ fontWeight: 700, color: '#16a34a' }}>
-                              🥉 终榜锁定: 铜牌
+                            <span className="arena-cushion bronze">
+                              铜牌安全垫: +{c.toFixed(1)}分
                             </span>
                           );
-                      }
-                      if (tier === 'gold') {
-                        const c =
-                          agent.tier_cushion_score ??
-                          (thresholds?.gold_cutoff_score
-                            ? score - thresholds.gold_cutoff_score
-                            : 0);
-                        return (
-                          <span style={{ fontWeight: 700, color: '#ca8a04' }}>
-                            金牌安全垫: +{c.toFixed(1)}分
-                          </span>
-                        );
-                      }
-                      if (tier === 'silver') {
-                        const c =
-                          agent.tier_cushion_score ??
-                          (thresholds?.silver_cutoff_score
-                            ? score - thresholds.silver_cutoff_score
-                            : 0);
-                        return (
-                          <span style={{ fontWeight: 700, color: '#0284c7' }}>
-                            银牌安全垫: +{c.toFixed(1)}分
-                          </span>
-                        );
-                      }
-                      if (tier === 'bronze') {
-                        const c =
-                          agent.tier_cushion_score ??
+                        }
+                        const gapVal =
                           agent.bronze_gap_score ??
                           (thresholds?.bronze_cutoff_score
                             ? score - thresholds.bronze_cutoff_score
-                            : 0);
-                        return (
-                          <span style={{ fontWeight: 700, color: '#16a34a' }}>
-                            铜牌安全垫: +{c.toFixed(1)}分
-                          </span>
-                        );
-                      }
-                      const gapVal =
-                        agent.bronze_gap_score ??
-                        (thresholds?.bronze_cutoff_score
-                          ? score - thresholds.bronze_cutoff_score
-                          : null);
-                      if (gapVal !== null && gapVal !== undefined) {
-                        return gapVal >= 0 ? (
-                          <span style={{ fontWeight: 700, color: '#16a34a' }}>
-                            铜牌安全垫: +{gapVal.toFixed(1)}分
-                          </span>
-                        ) : (
-                          <span style={{ fontWeight: 700, color: '#e11d48' }}>
-                            距铜牌: {gapVal.toFixed(1)}分
-                          </span>
-                        );
-                      }
-                      return <span style={{ color: '#94a3b8' }}>安全垫: —</span>;
-                    })()}
-                  </div>
-                  <div
-                    style={{
-                      borderTop: isAboveBronze
-                        ? '1px solid rgba(22, 101, 52, 0.1)'
-                        : '1px solid #e2e8f0',
-                      paddingTop: 4,
-                    }}
-                  >
-                    {ep ? (
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>
-                        {isFinished ? '封榜收官战: ' : '最新: '}vs{' '}
-                        {opp.length > 12 ? `${opp.slice(0, 12)}..` : opp}{' '}
-                        <span style={{ color: resColor }}>
-                          {res} {delta}
-                        </span>
+                            : null);
+                        if (gapVal !== null && gapVal !== undefined) {
+                          return gapVal >= 0 ? (
+                            <span className="arena-cushion bronze">
+                              铜牌安全垫: +{gapVal.toFixed(1)}分
+                            </span>
+                          ) : (
+                            <span className="arena-cushion danger">
+                              距铜牌: {gapVal.toFixed(1)}分
+                            </span>
+                          );
+                        }
+                        return <span className="arena-metric-sub">安全垫: —</span>;
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Recent episode strip */}
+                <div className="arena-agent-recent-row">
+                  {ep ? (
+                    <span className="arena-recent-match">
+                      <span className="arena-recent-prefix">{isFinished ? '收官战:' : '最新:'}</span>
+                      <span className="arena-recent-opp">vs {opp.length > 14 ? `${opp.slice(0, 14)}..` : opp}</span>
+                      <span className="arena-recent-res" style={{ color: resColor }}>
+                        {res} {delta}
                       </span>
-                    ) : (
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>暂无近期对局记录</span>
-                    )}
-                  </div>
+                    </span>
+                  ) : (
+                    <span className="arena-metric-sub">暂无近期对局记录</span>
+                  )}
                 </div>
               </div>
             </Col>
@@ -260,3 +214,4 @@ export const AgentStatsGrid: React.FC<AgentStatsGridProps> = ({
 };
 
 export default AgentStatsGrid;
+

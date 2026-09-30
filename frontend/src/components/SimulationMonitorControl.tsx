@@ -319,14 +319,14 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         width={1120}
         footer={null}
         title={(
-          <DialogTitle onClose={() => setOpen(false)}>
-            <Space size={8} align="center">
-              <Swords size={16} color="#d97706" strokeWidth={2.2} />
-              <span style={{ fontWeight: 600, fontSize: 16 }}>{targetCompTitle} — 智能体对战与天梯监控</span>
-            </Space>
-          </DialogTitle>
+          <DialogTitle
+            icon={<Swords size={17} color="#d97706" strokeWidth={2.2} />}
+            title={`${targetCompTitle} — 智能体对战控制中心`}
+            subtitle="后台实时调度追踪 Agent 天梯胜率与积分变动"
+            onClose={() => setOpen(false)}
+          />
         )}
-        className="simulation-monitor-modal"
+        className="app-modal simulation-monitor-modal"
       >
         <Spin spinning={loading && !snapshot}>
           <div style={{ paddingTop: 4 }}>

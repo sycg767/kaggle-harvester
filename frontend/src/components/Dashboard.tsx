@@ -230,8 +230,10 @@ export const Dashboard: React.FC = () => {
 
   const isSimulation = Boolean(
     competitionInfo?.is_simulation ||
+    competitionInfo?.tags?.some((t) => t.toLowerCase().includes('simulation')) ||
     currentCompetition === 'pokemon-tcg-ai-battle' ||
-    currentCompetition === 'kaggriculture'
+    currentCompetition === 'kaggriculture' ||
+    currentCompetition.toLowerCase().includes('simulation')
   );
 
   const compTitle = competitionInfo?.title || currentCompetition;
@@ -265,9 +267,9 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div
+      className="dashboard-container"
       style={{
-        padding: '16px 20px 48px 20px',
-        maxWidth: 1440,
+        maxWidth: 1380,
         margin: '0 auto',
         width: '100%',
         overflowX: 'hidden',
