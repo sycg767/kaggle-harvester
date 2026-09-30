@@ -42,7 +42,7 @@ export const ClawbotSidebarCard: React.FC<ClawbotSidebarCardProps> = ({
                 微信 ClawBot 智能管家
               </div>
               <div className="arena-clawbot-desc">
-                官方长连接 · 实时问答与战报推送
+                网关、微信插件与战报接口诊断
               </div>
             </div>
           </div>
@@ -59,18 +59,14 @@ export const ClawbotSidebarCard: React.FC<ClawbotSidebarCardProps> = ({
             </Button>
             <Tooltip
               title={
-                clawbot?.is_online
-                  ? 'OpenClaw 网关正在运行并保持微信长连接'
-                  : clawbot?.configured
-                  ? '已配置模型与插件，但本地/服务器 18789 端口未检测到 OpenClaw 网关运行'
-                  : '未检测到 OpenClaw 配置文件或 OPENCLAW_LLM_API_KEY 环境变量'
+                '微信插件运行状态来自宿主机快照，不代表消息已送达'
               }
             >
               <Tag
-                color={clawbot?.is_online ? 'success' : clawbot?.configured ? 'warning' : 'default'}
+                color={clawbot?.wechat_running === true ? 'success' : clawbot?.wechat_running === false ? 'warning' : 'default'}
                 className="arena-clawbot-status-tag"
               >
-                {clawbot?.is_online ? '在线' : clawbot?.configured ? '离线' : '未就绪'}
+                {clawbot?.wechat_running === true ? '插件运行中' : clawbot?.wechat_running === false ? '插件未运行' : '微信未验证'}
               </Tag>
             </Tooltip>
           </div>
@@ -86,16 +82,16 @@ export const ClawbotSidebarCard: React.FC<ClawbotSidebarCardProps> = ({
           )}
           <div className="arena-clawbot-row">
             <span className="arena-clawbot-label">大模型引擎:</span>
-            <span className="arena-clawbot-value bold">{clawbot?.model || 'deepseek-v4-flash-0731'}</span>
+            <span className="arena-clawbot-value bold">{clawbot?.model || '未记录'}</span>
           </div>
           <div className="arena-clawbot-row">
             <span className="arena-clawbot-label">服务商:</span>
-            <span className="arena-clawbot-value">{clawbot?.provider || 'TokenRhythm Studio'}</span>
+            <span className="arena-clawbot-value">{clawbot?.provider || '未记录'}</span>
           </div>
           <div className="arena-clawbot-row">
-            <span className="arena-clawbot-label">网关探测:</span>
+            <span className="arena-clawbot-label">宿主机网关:</span>
             <span className={`arena-clawbot-value ${clawbot?.is_online ? 'online' : 'offline'}`}>
-              {clawbot?.is_online ? '活跃 (端口 18789)' : '未连接 (端口 18789)'}
+              {clawbot?.gateway_ok === true ? '运行中' : clawbot?.gateway_ok === false ? '未运行' : '未验证'}
             </span>
           </div>
           <div className="arena-clawbot-row">

@@ -1,342 +1,271 @@
 import os
 import sys
 import json
+import re
+import argparse
 import urllib.request
+import urllib.error
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-
-# 确保 backend 目录加入 sys.path，支持离线回退导入
-current_file = Path(__file__).resolve()
-backend_dir = current_file.parent.parent
+backend_dir = Path(__file__).resolve().parent.parent
 repo_dir = backend_dir.parent
-for d in [backend_dir, repo_dir, Path("/opt/kaggle-harvester/backend"), Path("/home/openclaw/kaggle-harvester/backend")]:
-    if d.exists() and str(d) not in sys.path:
-        sys.path.insert(0, str(d))
+
 
 def load_config_value(name):
-    value = os.getenv(name, "").strip()
+    value = os.getenv(name, '').strip()
     if value:
         return value
-    search_paths = [
-        Path("/home/openclaw/.openclaw/kaggle-harvester.env"),
-        Path("/home/openclaw/.openclaw/runtime.env"),
-        Path(".env.deploy"),
-        Path(".env"),
-        backend_dir / ".env",
-        repo_dir / ".env.deploy",
-        Path("/root/kaggle-harvester/.env.deploy"),
-        Path("/opt/kaggle-harvester/.env.deploy"),
-        Path("/home/openclaw/kaggle-harvester/.env.deploy"),
-    ]
-    for p in search_paths:
+    for path in [Path.home() / '.openclaw' / 'kaggle-harvester.env',
+                 Path.home() / '.openclaw' / 'runtime.env', repo_dir / '.env.deploy',
+                 backend_dir / '.env', repo_dir / '.env']:
         try:
-            with open(p, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if line.startswith(name + "="):
-                        return line.split("=", 1)[1].strip().strip("'\"")
+            with path.open(encoding='utf-8', errors='ignore') as stream:
+                for line in stream:
+                    if line.startswith(name + '='):
+                        return line.split('=', 1)[1].strip().strip('\'"')
         except (IOError, OSError):
-            continue
-    return ""
+            pass
+    return ''
 
-CONFIGURED_API_URL = load_config_value("HARVESTER_API_URL")
-HARVESTER_API_KEY = load_config_value("HARVESTER_API_KEY")
+
+def _headers():
+    headers = {'User-Agent': 'KaggleHarvesterWechatBot/2.0'}
+    key = load_config_value('HARVESTER_API_KEY')
+    if key:
+        headers['X-Harvester-Key'] = key
+    return headers
+
+
+def _monitor_url(url):
+    url = url.rstrip('/')
+    if url.endswith('/simulation-monitor'):
+        return url
+    return url + ('/simulation-monitor' if url.endswith('/api') else '/api/simulation-monitor')
+
 
 def _resolve_api_url():
-    if CONFIGURED_API_URL:
-        return CONFIGURED_API_URL
-    app_port = load_config_value("APP_PORT")
-    if app_port:
-        return f"http://127.0.0.1:{app_port}/api/simulation-monitor"
-    # 默认候选端口列表 (按常用优先级)
-    candidates = [
-        "http://127.0.0.1:8080/api/simulation-monitor",
-        "http://127.0.0.1:8000/api/simulation-monitor",
-        "http://127.0.0.1:80/api/simulation-monitor",
-    ]
+    configured = load_config_value('HARVESTER_API_URL')
+    if configured:
+        return _monitor_url(configured)
+    port = load_config_value('APP_PORT')
+    if port:
+        return 'http://127.0.0.1:{}/api/simulation-monitor'.format(port)
+    candidates = ['http://127.0.0.1:{}/api/simulation-monitor'.format(p) for p in (8080, 8000, 80)]
     for url in candidates:
         try:
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=0.8) as resp:
-                if resp.status == 200:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=_headers()), timeout=0.8) as response:
+                if response.status == 200:
                     return url
         except Exception:
-            continue
+            pass
     return candidates[0]
 
-HARVESTER_API_URL = _resolve_api_url()
 
-def format_beijing_time(raw_time):
-    if not raw_time:
-        return ""
+def _fetch_snapshot(url=None, refresh=False):
+    url = url or _resolve_api_url()
     try:
-        clean = str(raw_time).strip()
-        tz_offset = 0
-        if "+08:00" in clean or "+0800" in clean:
-            tz_offset = 8
-        elif "Z" in clean or "+00:00" in clean or "+0000" in clean:
-            tz_offset = 0
+        if refresh:
+            request = urllib.request.Request(url + '/run', data=b'', headers=_headers(), method='POST')
+            with urllib.request.urlopen(request, timeout=90) as response:
+                refreshed = json.loads(response.read().decode('utf-8'))
+            error = (refreshed.get('status') or {}).get('last_error')
+            if error:
+                raise RuntimeError('本次同步未完成，请在网站查看检查日志；旧快照仍保留')
+        request = urllib.request.Request(url, headers=_headers())
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+        if not isinstance(data, dict) or not isinstance(data.get('status'), dict):
+            raise RuntimeError('战报接口返回格式不正确')
+        return data
+    except urllib.error.HTTPError as exc:
+        if exc.code == 409:
+            detail = '已有检查正在执行，请稍后查询'
+        elif exc.code in (401, 403):
+            detail = '访问验证失败，请检查助手的访问配置'
         else:
-            # 无时区字符串没有足够信息进行换算，保持上游给出的钟表时间。
-            tz_offset = 8
-        clean = clean.replace("Z", "").replace("+08:00", "").replace("+0800", "").replace("+00:00", "").replace("+0000", "")
-        if "T" in clean:
-            date_part, time_part = clean.split("T", 1)
-            time_hms = time_part.split(".")[0]
-            dt_base = datetime.strptime(f"{date_part} {time_hms}", "%Y-%m-%d %H:%M:%S")
-            dt_bj = dt_base + timedelta(hours=(8 - tz_offset))
-            return dt_bj.strftime("%H:%M")
-        return ""
-    except Exception:
-        return ""
+            detail = '后端返回 HTTP {}'.format(exc.code)
+        raise RuntimeError(('刷新失败：' if refresh else '战报获取失败：') + detail)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise RuntimeError('刷新请求超时或连接失败，可能仍在执行；请稍后查询，勿连续刷新' if refresh else '战报获取失败：无法访问战报服务，请检查后端状态')
 
-def get_status_text(history_only=False):
-    # 1. 优先尝试从运行中的 FastAPI 接口获取实时快照
-    api_error = None
+
+def _parse_time(raw):
+    if not raw:
+        return None
+    match = re.match(r'^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$', str(raw).strip())
+    if not match:
+        return None
     try:
-        headers = {}
-        if HARVESTER_API_KEY:
-            headers["X-Harvester-Key"] = HARVESTER_API_KEY
-        req = urllib.request.Request(HARVESTER_API_URL, headers=headers)
-        with urllib.request.urlopen(req, timeout=5.0) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode('utf-8'))
-                return format_message(data, history_only=history_only)
-    except Exception as exc:
-        api_error = exc
+        dt = datetime.strptime(match[1] + ' ' + match[2], '%Y-%m-%d %H:%M:%S')
+        offset = match[3]
+        minutes = 480
+        if offset == 'Z':
+            minutes = 0
+        elif offset:
+            digits = offset[1:].replace(':', '')
+            minutes = (int(digits[:2]) * 60 + int(digits[2:])) * (1 if offset[0] == '+' else -1)
+        return dt.replace(tzinfo=timezone(timedelta(minutes=minutes)))
+    except ValueError:
+        return None
 
-    # 2. 若 HTTP 请求未通，直接调用 Python 原生模块解析
-    try:
-        from harvester.kaggle_client import KaggleClient
-        from harvester.simulation_monitor import SimulationMonitorManager
-        k = KaggleClient()
-        data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
-        mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
-        snap = mgr.snapshot()
-        return format_message(snap.model_dump(), history_only=history_only)
-    except Exception as fallback_error:
-        api_detail = str(api_error)[:160] if api_error is not None else "未知错误"
-        fallback_detail = str(fallback_error)[:160]
-        raise RuntimeError(
-            "战报获取失败；API 请求失败: {0}；本地回退失败: {1}".format(
-                api_detail,
-                fallback_detail,
-            )
-        )
 
-def format_message(data, history_only=False):
-    status = data.get("status", {})
-    config = data.get("config", {})
-    comp_slug = config.get("competition") or status.get("competition") or "Simulation Arena"
-    comp_title = "Pokemon TCG AI" if comp_slug == "pokemon-tcg-ai-battle" else (comp_slug.replace("-", " ").title())
-    agents = status.get("agents", [])
-    thresholds = status.get("thresholds") or status.get("medal_thresholds") or {}
-    
-    total_teams = thresholds.get("total_teams")
-    gold_score = thresholds.get("gold_cutoff_score")
-    silver_score = thresholds.get("silver_cutoff_score")
-    bronze_score = thresholds.get("bronze_cutoff_score")
+def format_beijing_time(raw_time, include_date=False):
+    dt = _parse_time(raw_time)
+    return dt.astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M' if include_date else '%H:%M') if dt else ''
 
-    try:
-        now_bj = datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
-    except Exception:
-        try:
-            now_bj = (datetime.utcnow() + timedelta(hours=8)).strftime("%H:%M")
-        except Exception:
-            now_bj = datetime.now().strftime("%H:%M")
 
-    if history_only:
-        lines = [f"📋 最近对局流水时间一览 ({comp_title} · 北京时间 {now_bj})", ""]
-        for idx, a in enumerate(agents):
-            sub_id = a.get("submission_id")
-            label = a.get("alias") or f"Agent #{idx + 1}"
-            eps = a.get("recent_episodes", [])[:15]
-            lines.append(f"【{label}】最近 {len(eps)} 场对局 (最新在上):")
-            for ep in eps:
-                opp = ep.get("opponent_team_name") or "对手"
-                delta = ep.get("score_delta")
-                res = "胜" if ep.get("result") == "win" else ("负" if ep.get("result") == "loss" else "平")
-                delta_str = f" {delta:+.1f}分" if delta is not None else ""
-                ep_time_raw = ep.get("end_time") or ep.get("create_time")
-                ep_time_bj = format_beijing_time(ep_time_raw) or "--:--"
-                lines.append(f"• {ep_time_bj} {res} {opp}{delta_str}")
-            lines.append("")
-        return "\n".join(lines)
+def sanitize_plain_text(text):
+    """Only remove display markup; retain scores, underscores and meaningful punctuation."""
+    text = str(text).replace('\r\n', '\n')
+    text = re.sub(r'^\s*```[^\n]*\n?', '', text, flags=re.M)
+    text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', r'\1（\2）', text)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1（\2）', text)
+    text = re.sub(r'^\s{0,3}#{1,6}\s+', '', text, flags=re.M)
+    text = re.sub(r'^\s*>\s?', '', text, flags=re.M)
+    text = re.sub(r'^\s*[*+-]\s+', '· ', text, flags=re.M)
+    text = text.replace('**', '').replace('~~', '').replace('`', '')
+    text = re.sub(r'(?<!\w)__([^\n]+?)__(?!\w)', r'\1', text)
+    text = re.sub(r'(?<!\w)\*([^*\n]+)\*(?!\w)', r'\1', text)
+    return text.strip()
 
-    lines = [f"📊 {comp_title} 实时战报 ({now_bj} 北京时间)", ""]
 
-    for idx, a in enumerate(agents):
-        sub_id = a.get("submission_id")
-        label = a.get("alias") or f"Agent #{idx + 1}"
-        score = a.get("score") or a.get("public_score") or 0.0
-        rank = a.get("rank") or "—"
-        tier = a.get("medal_tier", "none")
-        tier_icon = "🥇" if tier == "gold" else ("🥈" if tier == "silver" else ("🥉" if tier == "bronze" else "⚪"))
-        tier_cushion = a.get("tier_cushion_score")
-        next_gap = a.get("next_tier_gap_score")
-        next_tier = a.get("next_tier_name")
-        next_tier_label = "金牌线" if next_tier == "gold" else ("银牌线" if next_tier == "silver" else ("铜牌线" if next_tier == "bronze" else ""))
+def _name(value):
+    return ' '.join(sanitize_plain_text(value).split())[:90]
 
-        cushion_parts = []
-        if tier == "gold" and tier_cushion is not None:
-            cushion_parts.append(f"高于金牌线 +{tier_cushion:.1f}分")
-        elif tier == "silver" and tier_cushion is not None:
-            cushion_parts.append(f"高于银牌线 +{tier_cushion:.1f}分")
-            if next_gap is not None and next_tier_label:
-                cushion_parts.append(f"距{next_tier_label}还差 {next_gap:.1f}分")
-        elif tier == "bronze" and tier_cushion is not None:
-            cushion_parts.append(f"高于铜牌线 +{tier_cushion:.1f}分")
-            if next_gap is not None and next_tier_label:
-                cushion_parts.append(f"距{next_tier_label}还差 {next_gap:.1f}分")
-        else:
-            gap = a.get("bronze_gap_score")
-            if gap is not None and gap >= 0:
-                cushion_parts.append(f"高于铜牌线 +{gap:.1f}分")
-            elif next_gap is not None:
-                cushion_parts.append(f"距铜牌线还差 {next_gap:.1f}分")
-            elif gap is not None:
-                cushion_parts.append(f"距铜牌线还差 {abs(gap):.1f}分")
 
-        gap_str = " · ".join(cushion_parts) if cushion_parts else ""
-        
-        wins = a.get("wins", 0)
-        losses = a.get("losses", 0)
-        win_rate = a.get("win_rate", 0.0)
-        
-        eps = a.get("recent_episodes", [])
+def _number(value, suffix=''):
+    return '{:.1f}{}'.format(value, suffix) if isinstance(value, (int, float)) and not isinstance(value, bool) else '未知'
 
-        lines.append(f"【Agent {label}】(Sub #{sub_id})")
-        lines.append(f"• 积分: {score:.1f} 分 | 第 {rank} 名 | {tier_icon} {tier_label}")
-        if gap_str:
-            lines.append(f"• 安全垫: {gap_str}")
-        lines.append(f"• 战绩: {win_rate:.1f}% ({wins}胜 / {losses}负)")
-        
-        if eps:
-            lines.append("• 近期对局 (北京时间):")
-            for ep in eps[:5]:
-                opp = ep.get("opponent_team_name") or "对手"
-                opp_score = ep.get("opponent_score")
-                opp_score_str = f"({opp_score:.0f}分)" if opp_score else ""
-                delta = ep.get("score_delta")
-                res = "胜" if ep.get("result") == "win" else ("负" if ep.get("result") == "loss" else "平")
-                delta_str = f"{delta:+.1f}分" if delta is not None else ""
-                ep_time_raw = ep.get("end_time") or ep.get("create_time")
-                ep_time_bj = format_beijing_time(ep_time_raw) or "--:--"
-                lines.append(f"  - [{ep_time_bj}] {res} vs {opp} {opp_score_str} {delta_str}".rstrip())
 
-        lines.append("")
+def _score(agent):
+    return agent.get('score') if agent.get('score') is not None else agent.get('public_score')
 
-    if any(s is not None for s in (gold_score, silver_score, bronze_score)):
-        lines.append(f"【奖牌线】" + (f"(总参赛 {total_teams} 队)" if total_teams else ""))
-        parts = []
-        if gold_score is not None:
-            parts.append(f"金牌: {gold_score:.1f} 分")
-        if silver_score is not None:
-            parts.append(f"银牌: {silver_score:.1f} 分")
-        if bronze_score is not None:
-            parts.append(f"铜牌: {bronze_score:.1f} 分")
-        lines.append("• " + " | ".join(parts))
-    
-    return "\n".join(lines)
+
+def _episode_line(episode):
+    result = {'win': '胜', 'loss': '负', 'tie': '平'}.get(episode.get('result'), '结果未知')
+    delta = episode.get('score_delta')
+    delta_text = ' {:+.1f}分'.format(delta) if isinstance(delta, (int, float)) else ''
+    stamp = format_beijing_time(episode.get('end_time') or episode.get('create_time'), True) or '时间未知'
+    return '{} {} {}{}'.format(stamp, result, _name(episode.get('opponent_team_name') or '对手未知'), delta_text)
+
+
+def format_message(data, history_only=False, limit=5, now=None):
+    status, config = data.get('status') or {}, data.get('config') or {}
+    agents = status.get('agents') or []
+    competition = config.get('competition') or status.get('competition') or '赛事未配置'
+    title = 'Pokemon TCG AI' if competition == 'pokemon-tcg-ai-battle' else _name(competition)
+    ranked = [agent for agent in agents if isinstance(agent.get('rank'), int) and agent['rank'] > 0]
+    if ranked:
+        best = min(ranked, key=lambda agent: agent['rank'])
+        headline = '快照最佳排名：第 {} 名，{} 分'.format(best['rank'], _number(_score(best)))
+    else:
+        headline = '已记录 {} 个 Agent，排名待确认'.format(len(agents)) if agents else '暂无战报，请先配置 Agent 并执行检查'
+    lines = [title + (' · 对局流水' if history_only else ' · 战报'), headline]
+    checked = status.get('last_checked_at')
+    lines.append('最近检查：{}（北京时间）'.format(format_beijing_time(checked, True) or '尚无记录'))
+    alerts = []
+    if not config.get('enabled', status.get('enabled', False)):
+        alerts.append('自动监控已停用')
+    if status.get('running'):
+        alerts.append('正在检查，以下为已保存快照')
+    if status.get('last_error'):
+        alerts.append('最近同步失败，以下可能为旧快照；请查看网站检查日志')
+    dt = _parse_time(checked)
+    now = now or datetime.now(timezone.utc)
+    interval = config.get('interval_minutes') or 10
+    sample_dates = [_parse_time(agent.get('last_updated')) for agent in agents]
+    dates = [stamp for stamp in sample_dates if stamp is not None] or ([dt] if dt else [])
+    if dates and (now - min(dates)).total_seconds() > max(30, interval * 2) * 60:
+        alerts.append('快照已过期，请刷新后再判断')
+    if alerts:
+        lines.insert(1, '先看：' + '；'.join(alerts))
+    for index, agent in enumerate(agents):
+        label = _name(agent.get('alias') or 'Agent {}'.format(index + 1))
+        episodes = agent.get('recent_episodes') or []
+        lines.append('')
+        if history_only:
+            selected = episodes[:max(1, min(15, int(limit)))]
+            lines.append('【{}】最近 {} 场'.format(label, len(selected)))
+            lines.extend(_episode_line(ep) for ep in selected)
+            if not selected:
+                lines.append('暂无对局记录')
+            continue
+        rank = agent.get('rank')
+        rank_text = '第 {} 名'.format(rank) if isinstance(rank, int) and rank > 0 else '排名未知'
+        tier = {'gold': '金牌区', 'silver': '银牌区', 'bronze': '铜牌区', 'none': '未达奖牌线'}.get(agent.get('medal_tier'), '奖牌线未知')
+        lines.append('【{}】{} 分 · {} · {}'.format(label, _number(_score(agent)), rank_text, tier))
+        wins, losses, ties = (agent.get(key) for key in ('wins', 'losses', 'ties'))
+        record = '{}胜 / {}负 / {}平'.format(*('未知' if value is None else value for value in (wins, losses, ties)))
+        sampled = sum(value for value in (wins, losses, ties) if isinstance(value, int))
+        rate = _number(agent.get('win_rate'), '%') if sampled else '暂无有效对局'
+        updated = format_beijing_time(agent.get('last_updated'), True)
+        cushion = agent.get('tier_cushion_score')
+        gap = agent.get('bronze_gap_score')
+        safety = ''
+        if isinstance(cushion, (int, float)):
+            safety = '安全垫 {:+.1f}分 · '.format(cushion)
+        elif isinstance(gap, (int, float)):
+            safety = '距铜牌线 {:+.1f}分 · '.format(gap)
+        lines.append('{}胜率 {}（{}）'.format(safety, rate, record))
+        lines.append('最近：' + (_episode_line(episodes[0]) if episodes else '暂无对局记录'))
+    if not history_only and agents:
+        lines.extend(['', '发送“流水”看最近对局，“刷新”重新检查，“走势图”看趋势。'])
+    return sanitize_plain_text('\n'.join(lines))
+
+
+def get_status_text(history_only=False, refresh=False, limit=5):
+    data = _fetch_snapshot(refresh=refresh)
+    return ('已完成一次检查。\n' if refresh else '') + format_message(data, history_only=history_only, limit=limit)
 
 
 def get_chart_image(output_path=None):
-    """生成评分轨迹图并返回保存的图片文件绝对路径。"""
     import tempfile
-
-    if not output_path:
-        output_path = Path(tempfile.gettempdir()) / "simulation_trajectory.png"
-    else:
-        output_path = Path(output_path)
-
-    # 1. 优先尝试直接从运行中的 FastAPI 接口下载已渲染好的 chart.png (毫秒级响应)
-    candidate_urls = []
-    base_url = HARVESTER_API_URL.rstrip("/")
-    if base_url.endswith("/simulation-monitor"):
-        candidate_urls.append(base_url + "/chart.png")
-    else:
-        candidate_urls.append(base_url + "/api/simulation-monitor/chart.png")
-
-    app_port = load_config_value("APP_PORT") or "8000"
-    candidate_urls.extend([
-        f"http://127.0.0.1:{app_port}/api/simulation-monitor/chart.png",
-        "http://127.0.0.1:8000/api/simulation-monitor/chart.png",
-        "http://127.0.0.1:8080/api/simulation-monitor/chart.png",
-        "http://127.0.0.1:80/api/simulation-monitor/chart.png",
-    ])
-
-    seen_urls = set()
-    deduped_urls = []
-    for u in candidate_urls:
-        if u not in seen_urls:
-            seen_urls.add(u)
-            deduped_urls.append(u)
-
-    for url in deduped_urls:
+    path = Path(output_path) if output_path else Path(tempfile.gettempdir()) / 'simulation_trajectory.png'
+    base_url = _resolve_api_url()
+    try:
+        request = urllib.request.Request(base_url + '/chart.png', headers=_headers())
+        with urllib.request.urlopen(request, timeout=30) as response:
+            content = response.read()
+        if not content.startswith(b'\x89PNG\r\n\x1a\n'):
+            raise ValueError('not PNG')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return str(path.resolve())
+    except Exception:
+        # Never instantiate a manager against a guessed data directory: that can create an empty state.
+        data = _fetch_snapshot(base_url)
         try:
-            headers = {"User-Agent": "KaggleHarvesterWechatBot/1.0"}
-            if HARVESTER_API_KEY:
-                headers["X-Harvester-Key"] = HARVESTER_API_KEY
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=4.0) as response:
-                if response.status == 200:
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    output_path.write_bytes(response.read())
-                    return str(output_path.resolve())
+            if str(backend_dir) not in sys.path:
+                sys.path.insert(0, str(backend_dir))
+            from harvester.chart_renderer import render_trajectory_chart
+            path.parent.mkdir(parents=True, exist_ok=True)
+            render_trajectory_chart(data, output_path=path)
+            return str(path.resolve())
         except Exception:
-            continue
+            raise RuntimeError('走势图生成失败：后端图表服务不可用，宿主机绘图依赖或 Python 版本不兼容；请检查后端日志')
 
-    # 2. 回退本地 Python 渲染 (若宿主机环境安装了 matplotlib)
+
+if __name__ == '__main__':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    parser = argparse.ArgumentParser(description='查询保存的对战快照，或主动刷新一次')
+    parser.add_argument('--refresh', action='store_true')
+    parser.add_argument('--history-only', '--only-history', action='store_true')
+    parser.add_argument('--limit', type=int, choices=range(1, 16), default=5)
+    parser.add_argument('--chart', '--image', '-c', '--pic', action='store_true')
+    parser.add_argument('--with-chart', '--with-image', action='store_true')
+    parser.add_argument('mode', nargs='?', choices=['chart', 'image', 'pic', '图', '走势', '轨迹', '曲线'])
+    args = parser.parse_args()
     try:
-        from harvester.chart_renderer import render_trajectory_chart
-        snap_data = None
-        for u in [HARVESTER_API_URL, f"http://127.0.0.1:{app_port}/api/simulation-monitor", "http://127.0.0.1:8000/api/simulation-monitor"]:
-            try:
-                headers = {}
-                if HARVESTER_API_KEY:
-                    headers["X-Harvester-Key"] = HARVESTER_API_KEY
-                req = urllib.request.Request(u, headers=headers)
-                with urllib.request.urlopen(req, timeout=3.0) as resp:
-                    if resp.status == 200:
-                        snap_data = json.loads(resp.read().decode("utf-8"))
-                        break
-            except Exception:
-                continue
-
-        if not snap_data:
-            from harvester.kaggle_client import KaggleClient
-            from harvester.simulation_monitor import SimulationMonitorManager
-            k = KaggleClient()
-            data_dir = repo_dir / "backend" / "data" if (repo_dir / "backend" / "data").exists() else Path("data")
-            mgr = SimulationMonitorManager(k, harvest_root=data_dir, default_competition="pokemon-tcg-ai-battle")
-            snap_data = mgr.snapshot().model_dump()
-
-        render_trajectory_chart(snap_data, output_path=output_path)
-        return str(output_path.resolve())
-    except ImportError as ie:
-        raise RuntimeError(
-            f"走势图获取失败：后端 API 请求未能连接，且宿主机 Python 环境未安装绘图库 ({ie})。请检查 Docker 后端服务状态。"
-        )
-
-
-if __name__ == "__main__":
-    args = sys.argv[1:]
-    is_chart_only = any(arg in args for arg in ["--chart", "--image", "-c", "--pic", "chart", "image", "pic", "图", "走势", "轨迹", "曲线"])
-    is_with_chart = any(arg in args for arg in ["--with-chart", "--with-image"])
-    is_history_only = any(arg in args for arg in ["--history-only", "--only-history"])
-
-    try:
-        if is_chart_only:
-            chart_path = get_chart_image()
-            print(f"MEDIA:{chart_path}")
-        elif is_with_chart:
-            text = get_status_text(history_only=is_history_only)
-            chart_path = get_chart_image()
-            print(f"{text}\n\nMEDIA:{chart_path}")
+        if args.chart or args.mode:
+            if args.refresh:
+                _fetch_snapshot(refresh=True)
+            print('MEDIA:' + get_chart_image())
         else:
-            print(get_status_text(history_only=is_history_only))
+            print(get_status_text(args.history_only, args.refresh, args.limit))
+            if args.with_chart:
+                print('\nMEDIA:' + get_chart_image())
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)

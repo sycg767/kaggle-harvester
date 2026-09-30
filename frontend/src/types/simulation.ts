@@ -119,6 +119,14 @@ export interface SimulationMonitorConfig {
 export interface SimulationClawbotStatus {
   enabled: boolean;
   is_online?: boolean;
+  gateway_ok?: boolean | null;
+  gateway_reachable?: boolean | null;
+  wechat_configured?: boolean | null;
+  wechat_running?: boolean | null;
+  business_api_ok?: boolean | null;
+  delivery_configured?: boolean | null;
+  checked_at?: string | null;
+  status_source?: 'host_snapshot' | 'stale' | 'unknown';
   configured: boolean;
   provider?: string;
   model?: string;
@@ -146,6 +154,7 @@ export interface SimulationClawbotTestResult {
   model?: string;
   provider?: string;
   candidates: SimulationClawbotTestCandidate[];
+  status?: SimulationClawbotStatus;
 }
 
 export interface SimulationMonitorStatus {

@@ -63,60 +63,8 @@ def valid_email(value: str) -> bool:
 
 
 def send_wechat(event: dict[str, Any]) -> None:
-    title = str(event.get("title") or "Kaggle Harvester")
-    text = str(event.get("text") or "")
-    message_text = f"{title}\n\n{text}".strip()
-
-    gateway_url = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789").rstrip("/")
-    endpoints = [
-        f"{gateway_url}/api/notify",
-        f"{gateway_url}/api/message",
-        f"{gateway_url}/api/v1/message",
-        f"{gateway_url}/api/send",
-    ]
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer kaggle-harvester-claw-token",
-        "X-OpenClaw-Token": "kaggle-harvester-claw-token",
-    }
-    apikey = os.getenv("OPENCLAW_LLM_API_KEY")
-    if apikey:
-        headers["X-API-Key"] = apikey
-
-    payload = {
-        "content": message_text,
-        "text": message_text,
-        "message": message_text,
-        "target": "last_active_user",
-        "channel": "openclaw-weixin",
-    }
-
-    sent = False
-    for endpoint in endpoints:
-        try:
-            with httpx.Client(timeout=3.0) as client:
-                res = client.post(
-                    endpoint,
-                    json=payload,
-                    headers=headers,
-                )
-                if res.status_code in [200, 201, 204]:
-                    sent = True
-                    break
-        except Exception:
-            continue
-
-    if not sent:
-        try:
-            parsed = urllib.parse.urlparse(gateway_url)
-            host = parsed.hostname or "127.0.0.1"
-            port = parsed.port or 18789
-            with socket.create_connection((host, port), timeout=0.5):
-                return
-        except Exception:
-            pass
-        if event.get("event") == "notification_test":
-            raise RuntimeError(f"未能连通 OpenClaw 网关 ({gateway_url})，端口 18789 未响应或未启动")
+    from .wechat_transport import send
+    send(event)
 
 
 def send_webhook(event: dict[str, Any], url: str, webhook_format: str) -> None:

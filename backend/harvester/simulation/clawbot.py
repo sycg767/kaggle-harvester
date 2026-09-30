@@ -4,6 +4,8 @@ import json
 import os
 import socket
 import time
+import threading
+from datetime import datetime, timezone
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -18,15 +20,22 @@ from ..models import (
 class ClawbotService:
     """WeChat ClawBot gateway diagnostic and probing helper."""
 
-    _clawbot_status_cache: tuple[float, SimulationClawbotStatus] | None = None
 
     @staticmethod
     def probe_gateway(host: str, port: int, timeout: float = 0.05) -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=timeout):
-                return True
-        except (socket.timeout, ConnectionRefusedError, OSError):
-            return False
+        # socket timeout excludes DNS resolution. Bound the whole manual probe;
+        # daemon workers cannot prevent process shutdown if the resolver hangs.
+        result = [False]
+        def connect():
+            try:
+                with socket.create_connection((host, port), timeout=timeout):
+                    result[0] = True
+            except (socket.timeout, ConnectionRefusedError, OSError):
+                pass
+        worker = threading.Thread(target=connect, daemon=True)
+        worker.start()
+        worker.join(timeout)
+        return result[0] if not worker.is_alive() else False
 
     @staticmethod
     def get_docker_host_ip() -> str | None:
@@ -43,12 +52,6 @@ class ClawbotService:
 
     @classmethod
     def get_status(cls, force: bool = False) -> SimulationClawbotStatus:
-        now = time.time()
-        if not force and cls._clawbot_status_cache is not None:
-            cached_time, cached_status = cls._clawbot_status_cache
-            if now - cached_time < 30.0:
-                return cached_status
-
         # 1. 尝试定位 openclaw.json 配置文件
         possible_paths: list[Path] = []
         custom_cfg = os.getenv("OPENCLAW_CONFIG_PATH")
@@ -73,6 +76,9 @@ class ClawbotService:
                 try:
                     with open(p, "r", encoding="utf-8") as f:
                         cfg_data = json.load(f)
+                    if not isinstance(cfg_data, dict):
+                        cfg_data = None
+                        continue
                     break
                 except Exception:
                     pass
@@ -82,80 +88,103 @@ class ClawbotService:
         base_url = os.getenv("OPENCLAW_LLM_BASE_URL")
         model_name = os.getenv("OPENCLAW_LLM_MODEL")
         updated_at = None
-        gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
+        try:
+            gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
+        except ValueError:
+            gateway_port = 18789
         gateway_url = os.getenv("OPENCLAW_GATEWAY_URL")
         configured = bool(os.getenv("OPENCLAW_LLM_API_KEY") or cfg_data)
 
+        def mapping(value):
+            return value if isinstance(value, dict) else {}
+
         if cfg_data:
-            providers = cfg_data.get("models", {}).get("providers", {})
+            providers = mapping(mapping(cfg_data.get("models")).get("providers"))
             if providers:
                 provider_name = next(iter(providers.keys()))
                 if not base_url:
-                    base_url = providers.get(provider_name, {}).get("baseUrl")
-            primary_model = cfg_data.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
-            if primary_model and not model_name:
+                    base_url = mapping(providers.get(provider_name)).get("baseUrl")
+            primary_model = mapping(mapping(mapping(cfg_data.get("agents")).get("defaults")).get("model")).get("primary")
+            if isinstance(primary_model, str) and not model_name:
                 model_name = primary_model.split("/")[-1]
-            updated_at = cfg_data.get("meta", {}).get("lastTouchedAt")
-            gw = cfg_data.get("gateway", {})
+            updated_at = mapping(cfg_data.get("meta")).get("lastTouchedAt")
+            gw = mapping(cfg_data.get("gateway"))
             if "port" in gw and not os.getenv("OPENCLAW_GATEWAY_PORT"):
                 try:
                     gateway_port = int(gw["port"])
                 except (ValueError, TypeError):
                     pass
 
+        base_url = base_url if isinstance(base_url, str) else None
+        updated_at = updated_at if isinstance(updated_at, str) else None
         if not provider_name:
             if base_url and "tokenrhythm" in base_url.lower():
                 provider_name = "TokenRhythm Studio"
             elif base_url:
                 provider_name = "Custom Provider"
 
-        if not model_name and configured:
-            model_name = "deepseek-v4-flash-0731"
-
-        # 3. 真实在线探测
-        is_online = False
-        active_gateway = None
-
-        if gateway_url:
-            try:
-                parsed = urllib.parse.urlparse(gateway_url)
-                host = parsed.hostname or "127.0.0.1"
-                port = parsed.port or gateway_port
-                if cls.probe_gateway(host, port):
-                    is_online = True
-                    active_gateway = gateway_url
-            except Exception:
-                pass
-
-        if not is_online:
-            candidate_hosts = ["127.0.0.1", "localhost", "host.docker.internal", "172.17.0.1"]
-            docker_host = cls.get_docker_host_ip()
-            if docker_host and docker_host not in candidate_hosts:
-                candidate_hosts.append(docker_host)
-
-            for host in candidate_hosts:
-                if cls.probe_gateway(host, gateway_port):
-                    is_online = True
-                    active_gateway = f"http://{host}:{gateway_port}"
-                    break
+        snapshot, source, snapshot_error = cls.read_host_snapshot()
+        fresh = source == "host_snapshot"
+        def observed(key):
+            value = snapshot.get(key)
+            return value if fresh and type(value) is bool else None
+        gateway_ok = observed("gateway_ok")
+        snapshot_model = snapshot.get("model")
+        if fresh and isinstance(snapshot_model, str) and snapshot_model.strip():
+            model_name = snapshot_model[:200]
 
         res = SimulationClawbotStatus(
-            enabled=is_online,
-            is_online=is_online,
+            enabled=gateway_ok is True,
+            is_online=gateway_ok is True,
+            gateway_ok=gateway_ok,
+            wechat_configured=observed("wechat_configured"),
+            wechat_running=observed("wechat_running"),
+            business_api_ok=observed("business_api_ok"),
+            delivery_configured=observed("delivery_configured"),
+            checked_at=snapshot.get("checked_at") if isinstance(snapshot.get("checked_at"), str) else None,
+            status_source=source,
+            error=snapshot_error or (str(snapshot["error"])[:300] if snapshot.get("error") else None),
             configured=configured,
             provider=provider_name,
             model=model_name,
             base_url=base_url,
-            gateway_url=active_gateway or (gateway_url or f"http://127.0.0.1:{gateway_port}"),
+            gateway_url=gateway_url or f"http://127.0.0.1:{gateway_port}",
             updated_at=updated_at,
         )
-        cls._clawbot_status_cache = (now, res)
         return res
+
+    @staticmethod
+    def read_host_snapshot():
+        root = Path(os.getenv("HARVEST_ROOT", "harvested_kernels")).resolve()
+        path = root / "_cache" / "clawbot_health.json"
+        try:
+            if not path.resolve().is_relative_to(root):
+                return {}, "unknown", "宿主机状态文件路径无效"
+            with path.open("rb") as handle:
+                raw = handle.read(16385)
+            if len(raw) > 16384:
+                raise ValueError("snapshot too large")
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                raise ValueError("invalid snapshot")
+            checked = datetime.fromisoformat(data["checked_at"].replace("Z", "+00:00"))
+            if checked.tzinfo is None:
+                raise ValueError("missing timezone")
+            age = (datetime.now(timezone.utc) - checked).total_seconds()
+            if not 0 <= age <= 90:
+                return data, "stale", "宿主机状态已过期，微信状态未验证"
+            return data, "host_snapshot", None
+        except FileNotFoundError:
+            return {}, "unknown", "尚无宿主机状态快照，微信状态未验证"
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            return {}, "unknown", "宿主机状态快照不可读，微信状态未验证"
 
     @classmethod
     def test_gateway(cls) -> SimulationClawbotTestResult:
-        status = cls.get_status()
-        gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
+        try:
+            gateway_port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789"))
+        except ValueError:
+            gateway_port = 18789
         gateway_url = os.getenv("OPENCLAW_GATEWAY_URL")
 
         targets: list[tuple[str, str, int]] = []
@@ -210,12 +239,14 @@ class ClawbotService:
 
         success = bool(first_success_url)
         message = (
-            f"成功连接至 OpenClaw 网关 ({first_success_url})，微信长连接已就绪！"
+            f"网关 TCP 可达 ({first_success_url})；此结果不验证微信插件或消息投递。"
             if success
-            else "未能连接至任何候选 OpenClaw 网关 (端口 18789)。请确认 OpenClaw 网关是否已在宿主机或容器中运行 (openclaw gateway run)。"
+            else "应用到网关 TCP 不可达；网关仅监听宿主机本地时属于正常隔离，请以上方宿主机和微信插件状态为准。"
         )
 
+        status = cls.get_status(force=True).model_copy(update={"gateway_reachable": success})
         return SimulationClawbotTestResult(
+            status=status,
             success=success,
             message=message,
             active_url=first_success_url,

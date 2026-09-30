@@ -1,218 +1,59 @@
-# 云服务器部署教程（含微信 ClawBot）
+# 微信助手部署与诊断
 
-本文面向“从私有 Git 仓库拉取代码，在 Ubuntu 云服务器上用 Docker Compose 构建并运行”
-的部署方式，并补充新增加的 OpenClaw 微信 ClawBot 配置。
+当前生产项目为 `/root/kaggle-harvester`，OpenClaw 用户为 `openclaw`。
+此文替代旧的“复制凭据到容器、猜测 HTTP 消息端点”方式。
 
-基础的两容器部署（`backend` + `frontend`）请先参考 [DEPLOY.md](./DEPLOY.md)。
-本文只补充新功能在云端需要额外做的四件事：
+## 更新
 
-1. 在 `.env.deploy` 中填写 `OPENCLAW_LLM_*` 变量；
-2. 运行 `scripts/setup_openclaw.py` 生成 OpenClaw 配置；
-3. 给 OpenClaw 运行环境注入 `HARVESTER_API_URL` 和 `HARVESTER_API_KEY`；
-4. 可选地把宿主机 `~/.openclaw` 挂载进 `backend` 容器，让网页显示 ClawBot 状态。
-
-## 一、架构
-
-```text
-手机微信
-   │ 发消息：战况 / 分数 / 刷新
-   ▼
-OpenClaw（微信 ClawBot 进程，宿主机制）
-   │ 调用 skill：python backend/harvester/wechat_bot.py
-   ▼
-HARVESTER_API_URL（HTTPS 域名或服务器内网地址）
-   ▼
-Caddy / Cloudflare Tunnel
-   ▼
-frontend(Nginx) ── /api ──► backend(FastAPI) ──► Kaggle / 本地缓存
-```
-
-关键点：`wechat_bot.py` 默认访问 `http://127.0.0.1:8000`，这只适合本地开发。
-容器部署下 `backend` 没有把 `8000` 映射到宿主机，因此必须显式设置
-`HARVESTER_API_URL`，建议使用公网 HTTPS 域名下的
-`https://你的域名/api/simulation-monitor`。
-
-## 二、拉取代码并准备环境文件
-
-在服务器执行：
+日常只运行 `update-kaggle-harvester`。第一次从旧版脚本升级时，需要先从 Git 更新脚本入口，避免旧脚本继续执行清理会话逻辑：
 
 ```bash
-cd /opt/kaggle-harvester
+cd /root/kaggle-harvester
 git pull --ff-only
-cp .env.deploy.example .env.deploy
-chmod 600 .env.deploy
-nano .env.deploy
+install -m 755 scripts/update-kaggle-harvester.sh /usr/local/sbin/update-kaggle-harvester
+update-kaggle-harvester
 ```
 
-除原有 `KAGGLE_API_TOKEN`、`HARVESTER_API_KEY`、`HARVESTER_ALLOWED_ORIGINS` 外，
-新功能需要填写：
+脚本尊重 `KAGGLE_HARVESTER_REPO_DIR`、`OPENCLAW_USER`、`OPENCLAW_REPO_DIR`、`COMPOSE_ENV_FILE`、`NODE_BIN` 与 `OPENCLAW_JS`。
+目标用户和已登录微信账号必须已存在；脚本不重新扫码、不清除记忆或会话。
+OpenClaw 的模型配置按显式环境变量合并，缺少密钥时保留既有配置。修改前保留 `.pre-managed.bak`。
+网关配置实际变化时才重启。Python 战报脚本更新不需要清空聊天上下文。
 
-```dotenv
-OPENCLAW_LLM_BASE_URL=https://tokenrhythm.studio/v1
-OPENCLAW_LLM_API_KEY=你的大模型API密钥
-OPENCLAW_LLM_MODEL=deepseek-v4-flash-0731
-```
+## 两个宿主机服务
 
-- 这些变量只被 `scripts/setup_openclaw.py` 读取，不会进入容器，因此不需要出现在
-  `docker-compose.yml` 中。
-- 它们会被写入 OpenClaw 用户目录下的 `~/.openclaw/openclaw.json`，属于敏感信息，
-  请保持 `.env.deploy` 权限为 `600`。
+- `kaggle-harvester-openclaw.service`：以专用用户运行网关。保留 loopback 监听，不开放 18789 到公网。
+- `kaggle-harvester-wechat-bridge.service`：宿主机状态与发送桥接。没有 HTTP 监听端口；通过现有持久化目录交换请求和回执。
 
-## 三、构建并启动容器
+状态快照每约 30 秒写入 `harvested_kernels/_cache/clawbot_health.json`，不包含凭据或微信用户标识，超过 90 秒显示未验证。
+网页分别显示宿主机网关、微信插件、业务 API 和收件配置。容器 TCP 测试失败不代表微信离线。
+
+主动推送仅支持当前唯一已登录、已建立上下文的二维码绑定用户，不猜测“最后活跃用户”。
+桥接使用已安装腾讯微信插件 2.4.6 的 iLink `sendmessage` 协议，凭据仅在宿主机读取；
+只有 HTTP 成功且平台 `ret=0` 才记录平台受理回执，这不代表用户已经阅读。
+平台错误、超时或结果不明不再记为成功。发送中断的请求不会盲目重发，以避免重复消息。
+若上下文失效，先在微信给机器人发消息；有多个账号时需先明确目标，不自动选择。
+
+请求和回执位于 `_cache/wechat_outbox/`，事件标识保持幂等。
+健康 CLI、桥接本身均不发测试消息。已有自动通知按用户原来开启的事件规则执行。
+
+## 微信排版与指令
+
+`openclaw/harvester-format` 插件只对 `openclaw-weixin` 的发送内容做纯文本处理，去掉 Markdown 加粗、反引号、围栏和表格标记。
+脚本战报要求原样转发，避免模型重新组织出错误格式；需要分析时才进行简短解释，不能编造下一场开赛时间。
+
+- 战况、分数、排名：调用 `python3 backend/harvester/wechat_bot.py`，重点在前，每个 Agent 显示关键指标和最近一局。
+- 刷新：加 `--refresh`，真实调用后台检查；失败明确报告，不改自动监控开关。
+- 流水：加 `--history-only`，默认每 Agent 5 场，可用 `--limit 15` 增加。
+- 走势图：加 `--chart`，保留 `MEDIA:` 图片返回方式。
+
+战报使用实际采集时间，保留停用、失败和过期提示，不把旧快照称作实时数据。
+
+## 验证
 
 ```bash
-cd /opt/kaggle-harvester
-docker compose --env-file .env.deploy up -d --build
-docker compose --env-file .env.deploy ps
-docker compose --env-file .env.deploy logs --tail=100 backend
+systemctl status kaggle-harvester-openclaw kaggle-harvester-wechat-bridge
+journalctl -u kaggle-harvester-wechat-bridge -n 30
 ```
 
-确认两个容器均为 `running`，然后检查健康接口：
-
-```bash
-curl -I http://127.0.0.1:8080
-curl http://127.0.0.1:8080/api/health
-```
-
-## 四、配置 OpenClaw 微信 ClawBot
-
-1. 在服务器上安装并启动 OpenClaw，安装方式以 OpenClaw 官方文档为准
-   （CLI、systemd 或容器均可）。微信插件绑定也按官方指引完成，通常需要手机微信扫码。
-2. 在仓库根目录运行一键配置脚本：
-
-```bash
-cd /opt/kaggle-harvester
-python3 scripts/setup_openclaw.py
-```
-
-脚本会自动：
-
-- 读取 `.env.deploy` 中的 `OPENCLAW_LLM_*`；
-- 写入 `~/.openclaw/openclaw.json`（模型服务商、默认模型、微信插件开关、本地网关）；
-- 初始化 `~/.openclaw/workspace/` 和技能文件
-  `~/.openclaw/skills/kaggle-harvester/SKILL.md`；
-- 技能文件会调用 `backend/harvester/wechat_bot.py` 生成实时战报。
-
-3. 重启 OpenClaw 进程，使新配置生效，并按提示完成微信账号绑定。
-
-## 五、打通微信机器人与后端 API
-
-`wechat_bot.py` 通过 HTTP 请求后端。必须在 OpenClaw 运行环境中注入以下两个变量：
-
-```dotenv
-HARVESTER_API_URL=https://你的域名/api/simulation-monitor
-HARVESTER_API_KEY=与 .env.deploy 中相同的高强度密钥
-```
-
-- 使用 systemd 时，在 service 文件 `[Service]` 中添加：
-
-```ini
-Environment=HARVESTER_API_URL=https://你的域名/api/simulation-monitor
-Environment=HARVESTER_API_KEY=你的API密钥
-```
-
-- 使用容器运行 OpenClaw 时，通过 `-e HARVESTER_API_URL=... -e HARVESTER_API_KEY=...`
-  传入，或写入其容器编排的环境变量。
-- 使用本仓库的 `scripts/update-kaggle-harvester.sh` 时，脚本会从 `.env.deploy`
-  提取这两个变量，写入权限为 `600` 的 OpenClaw 专用环境文件，并在网关启动时加载。
-- `wechat_bot.py` 只使用 Python 标准库，不需要安装 `httpx`。API 与本地回退均失败时，
-  命令会以非零状态退出，避免模型把失败结果误当成真实战报。
-
-## 六、让网页显示 ClawBot 状态（可选但推荐）
-
-后端在快照中读取 `Path.home()/.openclaw/openclaw.json` 来报告 ClawBot 状态。
-容器内 `HOME=/root`，而配置生成在宿主机用户目录，因此默认会显示“未检测到本地配置”。
-
-在 `docker-compose.yml` 的 `backend.volumes` 中追加一行（或使用 override 文件），
-然后重新构建：
-
-```yaml
-services:
-  backend:
-    volumes:
-      - ~/.openclaw:/root/.openclaw:ro
-```
-
-```bash
-docker compose --env-file .env.deploy up -d --build
-```
-
-只读挂载不会让容器修改 OpenClaw 配置，也能让页面显示“微信 ClawBot 已就绪”。
-
-## 七、验证
-
-1. 打开网页，进入“Pokemon TCG 对战监控”，确认仿真监控调度器在线；
-2. 配置目标 `submission_id` 并手动运行一次，确认能读到积分、排名和奖牌线；
-3. 页面 ClawBot 徽章为“已就绪”，弹窗中的模型和服务商信息正确；
-4. 手机微信向机器人发送“战况”，应收到包含双 Agent 积分、排名、胜率和最新一局对战的战报；
-5. 微信发送“刷新”，观察后端日志确认触发了一次 `POST /api/simulation-monitor/run`。
-
-## 八、日常更新
-
-首次在服务器建立动态软链接（永久动态生效，仓库更新后命令自动更新）：
-
-```bash
-cd /opt/kaggle-harvester || cd ~/kaggle-harvester
-sudo ln -sf "$(pwd)/scripts/update-kaggle-harvester.sh" /usr/local/sbin/update-kaggle-harvester
-sudo chmod +x "$(pwd)/scripts/update-kaggle-harvester.sh"
-```
-
-以后本地完成 `commit` 和 `push` 后，服务器只需无脑执行：
-
-```bash
-sudo /usr/local/sbin/update-kaggle-harvester
-```
-
-脚本会依次执行 `git pull --ff-only`、Docker Compose 构建与启动、同步 `wechat_bot.py`、更新 OpenClaw 提示词并热重启 OpenClaw 进程。
-
-如果服务器仓库不在 `~/kaggle-harvester`，可以在安装前指定：
-
-```bash
-sudo install -o root -g root -m 750 \
-  scripts/update-kaggle-harvester.sh \
-  /usr/local/sbin/update-kaggle-harvester
-
-sudo KAGGLE_HARVESTER_REPO_DIR=/opt/kaggle-harvester \
-  /usr/local/sbin/update-kaggle-harvester
-```
-
-脚本默认假设 OpenClaw 用户为 `openclaw`，辅助仓库目录为
-`/home/openclaw/kaggle-harvester`。如果实际路径不同，可以在执行时覆盖：
-
-```bash
-sudo OPENCLAW_REPO_DIR=/实际路径 \
-  /usr/local/sbin/update-kaggle-harvester
-```
-
-不建议再手动拆开执行更新命令；如需排查问题，可以分别运行：
-
-```bash
-cd /opt/kaggle-harvester
-git pull --ff-only
-docker compose --env-file .env.deploy up -d --build
-```
-
-不要再次运行 `scripts/setup_openclaw.py`，它会覆盖已经运行中的 OpenClaw 配置。
-
-OpenClaw 侧修改配置后同样需要重启其进程。不要执行 `docker compose down -v`，
-避免删除 `harvested_kernels` 卷数据。
-
-## 九、常见问题
-
-- 微信收到“战报获取失败”且提示连接错误：检查 `HARVESTER_API_URL` 是否可公网访问、
-  `HARVESTER_API_KEY` 是否与 `.env.deploy` 一致、`httpx` 是否已安装。
-- 页面 ClawBot 显示“未检测到本地配置”：确认 `~/.openclaw/openclaw.json` 存在，
-  并已按第六节挂载进 `backend` 容器。
-- 页面显示“已配置但未开启插件”：运行 `setup_openclaw.py` 后重启 OpenClaw，
-  确认 `openclaw-weixin` 插件处于启用状态。
-- 微信能收到战报但数据为空：先在网页中启用仿真监控并手动运行一次，
-  确认目标 `submission_id` 和奖牌线已正常读取。
-- 防火墙：不需要开放 OpenClaw 网关端口 `18789`、后端 `8000` 和未经反向代理保护的
-  `8080`；公网入口只保留 `80/443`（Caddy/Cloudflare）。
-
-## 十、安全提示
-
-- 私有仓库中不应包含 `.env.deploy`、Token、API Key、SMTP 密码和日志文件。
-- `HARVESTER_API_KEY` 应使用高强度随机值，仅通过环境变量注入。
-- 生产环境必须使用 HTTPS 和至少一层额外访问控制（如 Cloudflare Access）。
-- 定期备份 `harvested_kernels/`，回滚时不要覆盖运行数据。
+不要公开粘贴完整网关日志、账号配置或运行环境文件。
+源码与部署修改仍遵循先本地测试、Git 推送，再服务器一键更新；不直接覆盖生产仓库。

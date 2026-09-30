@@ -134,6 +134,14 @@ class SimulationClawbotStatus(BaseModel):
 
     enabled: bool = False
     is_online: bool = False
+    gateway_ok: Optional[bool] = None
+    gateway_reachable: Optional[bool] = None
+    wechat_configured: Optional[bool] = None
+    wechat_running: Optional[bool] = None
+    business_api_ok: Optional[bool] = None
+    delivery_configured: Optional[bool] = None
+    checked_at: Optional[str] = None
+    status_source: str = "unknown"
     configured: bool = False
     provider: Optional[str] = None
     model: Optional[str] = None
@@ -161,6 +169,7 @@ class SimulationClawbotTestResult(BaseModel):
     model: Optional[str] = None
     provider: Optional[str] = None
     candidates: list[SimulationClawbotTestCandidate] = Field(default_factory=list)
+    status: Optional[SimulationClawbotStatus] = None
 
 
 class SimulationMonitorStatus(BaseModel):

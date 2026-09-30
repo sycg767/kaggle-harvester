@@ -82,9 +82,9 @@ export const SimControlBar: React.FC<SimControlBarProps> = ({
         <Tooltip title="点击查看微信 ClawBot 智能体状态与指令指南">
           <Tag
             color={
-              status?.clawbot?.is_online
+              status?.clawbot?.wechat_running === true
                 ? 'success'
-                : status?.clawbot?.configured
+                : status?.clawbot?.wechat_running === false
                 ? 'warning'
                 : 'default'
             }
@@ -102,11 +102,11 @@ export const SimControlBar: React.FC<SimControlBarProps> = ({
           >
             <MessageCircle size={13} />
             微信 ClawBot:{' '}
-            {status?.clawbot?.is_online
-              ? `在线 (${status?.clawbot?.model || 'DeepSeek'})`
-              : status?.clawbot?.configured
-              ? '离线 (未启动)'
-              : '未连接'}
+            {status?.clawbot?.wechat_running === true
+              ? '插件运行中'
+              : status?.clawbot?.wechat_running === false
+              ? '插件未运行'
+              : '未验证'}
           </Tag>
         </Tooltip>
 

@@ -358,6 +358,7 @@ export const api = {
   testNotifications(payload?: NotificationConfigUpdate): Promise<NotificationTestResult> {
     return request('/notifications/test', {
       method: 'POST',
+      timeoutMs: 90_000,
       body: JSON.stringify(payload || {}),
     });
   },

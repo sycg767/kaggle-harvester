@@ -1,174 +1,180 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-
-# 服务器上的仓库目录，可通过环境变量覆盖。
 REPO_DIR="${KAGGLE_HARVESTER_REPO_DIR:-$HOME/kaggle-harvester}"
 OPENCLAW_USER="${OPENCLAW_USER:-openclaw}"
-OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-/home/${OPENCLAW_USER}/kaggle-harvester}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env.deploy}"
-OPENCLAW_RUNTIME_ENV="/home/${OPENCLAW_USER}/.openclaw/kaggle-harvester.env"
-OPENCLAW_LAUNCHER="/home/${OPENCLAW_USER}/.openclaw/start-kaggle-gateway.sh"
-TARGET_SCRIPT="/home/${OPENCLAW_USER}/kaggle-harvester/backend/harvester/wechat_bot.py"
-
-log() {
-  printf '[%s] %s\n' "$(date '+%F %T')" "$*"
-}
-
-fail() {
-  printf '更新失败：%s\n' "$*" >&2
-  exit 1
-}
-
+log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
+fail() { printf '更新失败：%s\n' "$*" >&2; exit 1; }
 read_dotenv_value() {
-  local name="$1"
-  local file="$2"
   local value
-  value="$(sed -n "s/^${name}=//p" "$file" | head -n 1)"
+  value="$(sed -n "s/^${1}=//p" "$2" | head -n 1)"
   value="${value%$'\r'}"
-  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
-    value="${value:1:${#value}-2}"
-  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+  if [[ "$value" == \"*\" && "$value" == *\" || "$value" == \'*\' && "$value" == *\' ]]; then
     value="${value:1:${#value}-2}"
   fi
   printf '%s' "$value"
 }
-
 [[ "$(id -u)" -eq 0 ]] || fail '请使用 root 执行此脚本。'
-[[ -d "$REPO_DIR/.git" ]] || fail "仓库目录不存在或不是 Git 仓库：$REPO_DIR"
-[[ -f "$REPO_DIR/$COMPOSE_ENV_FILE" ]] || fail "环境文件不存在：$REPO_DIR/$COMPOSE_ENV_FILE"
-command -v git >/dev/null 2>&1 || fail '未找到 git。'
-command -v docker >/dev/null 2>&1 || fail '未找到 docker。'
+[[ -d "$REPO_DIR/.git" ]] || fail "不是 Git 仓库：$REPO_DIR"
+for tool in git docker python3 systemctl runuser; do command -v "$tool" >/dev/null || fail "未找到 $tool"; done
 id "$OPENCLAW_USER" >/dev/null 2>&1 || fail "用户不存在：$OPENCLAW_USER"
-
+OPENCLAW_HOME="$(getent passwd "$OPENCLAW_USER" | cut -d: -f6)"
+OPENCLAW_GROUP="$(id -gn "$OPENCLAW_USER")"
+OPENCLAW_REPO_DIR="${OPENCLAW_REPO_DIR:-$OPENCLAW_HOME/kaggle-harvester}"
+OPENCLAW_DIR="$OPENCLAW_HOME/.openclaw"
+OPENCLAW_RUNTIME_ENV="$OPENCLAW_DIR/kaggle-harvester.env"
+OPENCLAW_LAUNCHER="$OPENCLAW_DIR/start-kaggle-gateway.sh"
+SERVICE="kaggle-harvester-openclaw.service"
 cd "$REPO_DIR"
-
+[[ "$COMPOSE_ENV_FILE" = /* ]] || COMPOSE_ENV_FILE="$REPO_DIR/$COMPOSE_ENV_FILE"
+[[ -f "$COMPOSE_ENV_FILE" ]] || fail "环境文件不存在：$COMPOSE_ENV_FILE"
+[[ -z "$(git status --porcelain)" ]] || fail '仓库存在未提交改动，请先核对来源并备份；未覆盖任何文件。'
 log '拉取最新代码'
-git checkout -f scripts/update-kaggle-harvester.sh 2>/dev/null || true
-git pull origin main
-
-if [[ -f "$REPO_DIR/scripts/update-kaggle-harvester.sh" && -d "/usr/local/sbin" ]]; then
-  cp -f "$REPO_DIR/scripts/update-kaggle-harvester.sh" "/usr/local/sbin/update-kaggle-harvester" 2>/dev/null || true
-  chmod 755 "/usr/local/sbin/update-kaggle-harvester" 2>/dev/null || true
+git pull --ff-only origin main
+# Execute the newly fetched script so migration fixes take effect in this very deployment.
+if [[ "${HARVESTER_UPDATED_SCRIPT:-0}" != 1 ]]; then
+  install -m 755 "$REPO_DIR/scripts/update-kaggle-harvester.sh" /usr/local/sbin/update-kaggle-harvester
+  export HARVESTER_UPDATED_SCRIPT=1 KAGGLE_HARVESTER_REPO_DIR="$REPO_DIR" OPENCLAW_USER OPENCLAW_REPO_DIR COMPOSE_ENV_FILE
+  exec bash /usr/local/sbin/update-kaggle-harvester
 fi
-
-log '构建并启动 Docker Compose 服务'
-docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build
-
-log '等待服务状态稳定'
-for _ in {1..30}; do
-  running_services="$(docker compose --env-file "$COMPOSE_ENV_FILE" ps --status running --services)"
-  if grep -qE '(^|[[:space:]])(backend|frontend)($|[[:space:]])' <<< "$running_services"; then
-    break
+log '合并 OpenClaw 配置（保留登录、记忆和会话）'
+setup_result="$(OPENCLAW_USER="$OPENCLAW_USER" OPENCLAW_REPO_DIR="$OPENCLAW_REPO_DIR" COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" python3 scripts/setup_openclaw.py)"
+changed=0
+[[ "$setup_result" != *OPENCLAW_CHANGED=1* ]] || changed=1
+# Update only managed files, with backups before the first replacement.
+install_changed() {
+  local src="$1" dst="$2" mode="$3" owner="$4" group="$5"
+  if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then return; fi
+  if [[ -e "$dst" && ! -e "$dst.pre-managed.bak" ]]; then
+    cp -p "$dst" "$dst.pre-managed.bak"
+    chmod 600 "$dst.pre-managed.bak"
   fi
-  sleep 2
-done
-
-running_services="$(docker compose --env-file "$COMPOSE_ENV_FILE" ps --status running --services)"
-
-if ! grep -qE '(^|[[:space:]])backend($|[[:space:]])' <<< "$running_services"; then
-  docker compose --env-file "$COMPOSE_ENV_FILE" ps >&2
-  fail 'backend 容器没有进入 running 状态。'
-fi
-
-if ! grep -qE '(^|[[:space:]])frontend($|[[:space:]])' <<< "$running_services"; then
-  docker compose --env-file "$COMPOSE_ENV_FILE" ps >&2
-  fail 'frontend 容器没有进入 running 状态。'
-fi
-
-log '同步 OpenClaw 使用的微信辅助脚本与配置'
-TARGET_SCRIPT="$OPENCLAW_REPO_DIR/backend/harvester/wechat_bot.py"
-install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 755 "$OPENCLAW_REPO_DIR/backend/harvester"
-cp -r "$REPO_DIR/backend/harvester/"* "$OPENCLAW_REPO_DIR/backend/harvester/"
-chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_REPO_DIR/backend/harvester"
-
-if [[ -f "$REPO_DIR/scripts/setup_openclaw.py" ]]; then
-  python3 "$REPO_DIR/scripts/setup_openclaw.py"
-fi
-
-# 只向 OpenClaw 暴露战报脚本所需的两个变量，不复制完整部署密钥文件。
-HARVESTER_API_KEY_VALUE="${HARVESTER_API_KEY:-$(read_dotenv_value HARVESTER_API_KEY "$REPO_DIR/$COMPOSE_ENV_FILE")}"
-HARVESTER_API_URL_VALUE="${HARVESTER_API_URL:-$(read_dotenv_value HARVESTER_API_URL "$REPO_DIR/$COMPOSE_ENV_FILE")}"
-if [[ -z "$HARVESTER_API_URL_VALUE" ]]; then
-  APP_PORT_VALUE="${APP_PORT:-$(read_dotenv_value APP_PORT "$REPO_DIR/$COMPOSE_ENV_FILE")}"
-  APP_PORT_VALUE="${APP_PORT_VALUE:-8080}"
-  HARVESTER_API_URL_VALUE="http://127.0.0.1:${APP_PORT_VALUE}/api/simulation-monitor"
-fi
+  install -o "$owner" -g "$group" -m "$mode" "$src" "$dst"
+  changed=1
+}
+log '同步微信辅助脚本'
+while IFS= read -r -d '' source; do
+  relative="${source#"$REPO_DIR/backend/harvester/"}"
+  destination="$OPENCLAW_REPO_DIR/backend/harvester/$relative"
+  install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_GROUP" -m 755 "$(dirname "$destination")"
+  # Script contents are loaded per request; do not restart the gateway for a Python edit.
+  before="$changed"
+  install_changed "$source" "$destination" 644 "$OPENCLAW_USER" "$OPENCLAW_GROUP"
+  changed="$before"
+done < <(find "$REPO_DIR/backend/harvester" -type f -name '*.py' -print0)
+HARVESTER_API_KEY_VALUE="${HARVESTER_API_KEY:-$(read_dotenv_value HARVESTER_API_KEY "$COMPOSE_ENV_FILE")}"
+HARVESTER_API_URL_VALUE="${HARVESTER_API_URL:-$(read_dotenv_value HARVESTER_API_URL "$COMPOSE_ENV_FILE")}"
+APP_PORT_VALUE="${APP_PORT:-$(read_dotenv_value APP_PORT "$COMPOSE_ENV_FILE")}"
+HARVESTER_API_URL_VALUE="${HARVESTER_API_URL_VALUE:-http://127.0.0.1:${APP_PORT_VALUE:-8080}/api/simulation-monitor}"
 [[ -n "$HARVESTER_API_KEY_VALUE" ]] || fail 'HARVESTER_API_KEY 未配置。'
-
-RUNTIME_ENV_TMP="$(mktemp /tmp/kaggle-harvester-env.XXXXXX)"
+TEMP_DIR="$(mktemp -d /tmp/harvester-openclaw.XXXXXX)"
+trap 'rm -f "$TEMP_DIR/env" "$TEMP_DIR/launcher" "$TEMP_DIR/service" "$TEMP_DIR/bridge"; rmdir "$TEMP_DIR"' EXIT
 {
   printf 'HARVESTER_API_URL=%q\n' "$HARVESTER_API_URL_VALUE"
   printf 'HARVESTER_API_KEY=%q\n' "$HARVESTER_API_KEY_VALUE"
-} > "$RUNTIME_ENV_TMP"
-install -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 600 \
-  "$RUNTIME_ENV_TMP" "$OPENCLAW_RUNTIME_ENV"
-rm -f "$RUNTIME_ENV_TMP"
-
-NODE_BIN="$(command -v node || echo '/usr/local/lib/nodejs/node-v24.19.0-linux-x64/bin/node')"
-OPENCLAW_JS="/usr/local/lib/nodejs/node-v24.19.0-linux-x64/lib/node_modules/openclaw/dist/index.js"
-
-# 自动修复并对齐 OpenClaw 配置；使用绝对路径避免登录 shell 缺少 /usr/local/bin。
-if [[ -f "$OPENCLAW_JS" ]]; then
-  su - "$OPENCLAW_USER" -c "env TZ=Asia/Shanghai '$NODE_BIN' '$OPENCLAW_JS' doctor --fix" 2>/dev/null || true
-elif command -v openclaw >/dev/null 2>&1; then
-  su - "$OPENCLAW_USER" -c "env TZ=Asia/Shanghai '$(command -v openclaw)' doctor --fix" 2>/dev/null || true
-fi
-
-log '重启 OpenClaw 进程以热加载最新配置与提示词'
-pkill -u "$OPENCLAW_USER" -f openclaw || true
-for _ in {1..10}; do
-  if ! pgrep -u "$OPENCLAW_USER" -f "openclaw.*dist/index.js" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
+} > "$TEMP_DIR/env"
+install_changed "$TEMP_DIR/env" "$OPENCLAW_RUNTIME_ENV" 600 "$OPENCLAW_USER" "$OPENCLAW_GROUP"
+NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
+[[ -n "$NODE_BIN" ]] || NODE_BIN=/usr/local/lib/nodejs/node-v24.19.0-linux-x64/bin/node
+OPENCLAW_BIN="$(command -v openclaw || true)"
+OPENCLAW_JS="${OPENCLAW_JS:-/usr/local/lib/nodejs/node-v24.19.0-linux-x64/lib/node_modules/openclaw/dist/index.js}"
+if [[ -x "$NODE_BIN" && -f "$OPENCLAW_JS" ]]; then
+  CLI=("$NODE_BIN" "$OPENCLAW_JS")
+else fail '未找到 OpenClaw Node CLI；请配置 NODE_BIN 与 OPENCLAW_JS。'; fi
+{
+  printf '#!/usr/bin/env bash\nset -Eeuo pipefail\nset -a\n'
+  printf '. %q\n' "$OPENCLAW_RUNTIME_ENV"
+  printf 'set +a\nexec env TZ=Asia/Shanghai '
+  printf '%q ' "${CLI[@]}"
+  printf 'gateway\n'
+} > "$TEMP_DIR/launcher"
+install_changed "$TEMP_DIR/launcher" "$OPENCLAW_LAUNCHER" 700 "$OPENCLAW_USER" "$OPENCLAW_GROUP"
+cat > "$TEMP_DIR/service" <<UNIT
+[Unit]
+Description=Kaggle Harvester OpenClaw gateway
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=$OPENCLAW_USER
+Group=$OPENCLAW_GROUP
+WorkingDirectory=$OPENCLAW_HOME
+Environment=HOME=$OPENCLAW_HOME
+Environment=TZ=Asia/Shanghai
+Environment=PATH=$(dirname "${CLI[0]}"):/usr/local/bin:/usr/bin:/bin
+ExecStart=$OPENCLAW_LAUNCHER
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+[Install]
+WantedBy=multi-user.target
+UNIT
+first_migration=0
+[[ -f "$OPENCLAW_DIR/.harvester-systemd-migrated" ]] || first_migration=1
+install_changed "$TEMP_DIR/service" "/etc/systemd/system/$SERVICE" 644 root root
+[[ "$changed" == 0 ]] || touch "$OPENCLAW_DIR/.harvester-gateway-restart-required"
+log '构建并启动 Docker Compose 服务'
+docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build
+for _ in {1..30}; do
+  running="$(docker compose --env-file "$COMPOSE_ENV_FILE" ps --status running --services)"
+  if grep -qx backend <<< "$running" && grep -qx frontend <<< "$running"; then break; fi
+  sleep 2
 done
-
-# OpenClaw 的真实会话位于 agents/main/sessions。停机后移入备份，避免模型继续
-# 执行旧会话中自行创建的临时脚本；使用移动而非删除，便于需要时审计恢复。
-OPENCLAW_SESSION_DIR="/home/${OPENCLAW_USER}/.openclaw/agents/main/sessions"
-OPENCLAW_SESSION_BACKUP="/home/${OPENCLAW_USER}/.openclaw/session-backups/$(date '+%Y%m%d-%H%M%S')"
-if [[ -d "$OPENCLAW_SESSION_DIR" ]] && \
-   find "$OPENCLAW_SESSION_DIR" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
-  install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 700 "$OPENCLAW_SESSION_BACKUP"
-  find "$OPENCLAW_SESSION_DIR" -mindepth 1 -maxdepth 1 \
-    -exec mv -t "$OPENCLAW_SESSION_BACKUP" -- {} +
+grep -qx backend <<< "$running" && grep -qx frontend <<< "$running" || fail '应用容器没有全部进入 running 状态。'
+if [[ "$first_migration" == 1 ]]; then
+  log '将旧的手动网关进程迁移到 systemd（保留会话）'
+  systemctl stop "$SERVICE" 2>/dev/null || true
+  # Match only this user's gateway, not unrelated OpenClaw commands or root's process.
+  old_pids="$(pgrep -u "$OPENCLAW_USER" -f '(^openclaw-gateway$|openclaw.*[ /]gateway([ ]|$))' || true)"
+  if [[ -n "$old_pids" ]]; then
+    kill $old_pids
+    for _ in {1..30}; do
+      alive=0
+      for pid in $old_pids; do kill -0 "$pid" 2>/dev/null && alive=1; done
+      [[ "$alive" == 1 ]] || break
+      sleep 1
+    done
+    [[ "$alive" == 0 ]] || fail '旧网关未退出；为避免双实例，未启动新网关。'
+  fi
 fi
-
-if [[ -f /tmp/recent.py ]]; then
-  install -d -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 700 "$OPENCLAW_SESSION_BACKUP"
-  mv /tmp/recent.py "$OPENCLAW_SESSION_BACKUP/generated-recent.py"
-  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_SESSION_BACKUP/generated-recent.py"
-fi
-
-if [[ -f "$OPENCLAW_JS" ]]; then
-  LAUNCHER_TMP="$(mktemp /tmp/kaggle-harvester-launcher.XXXXXX)"
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf 'set -a\n'
-    printf '. %q\n' "$OPENCLAW_RUNTIME_ENV"
-    printf 'set +a\n'
-    printf 'exec env TZ=Asia/Shanghai %q %q gateway --port 18789\n' "$NODE_BIN" "$OPENCLAW_JS"
-  } > "$LAUNCHER_TMP"
-  install -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 700 \
-    "$LAUNCHER_TMP" "$OPENCLAW_LAUNCHER"
-  rm -f "$LAUNCHER_TMP"
-  su - "$OPENCLAW_USER" -c "nohup '$OPENCLAW_LAUNCHER' > ~/.openclaw/gateway.log 2>&1 &"
-elif command -v openclaw >/dev/null 2>&1; then
-  OPENCLAW_BIN="$(command -v openclaw)"
-  LAUNCHER_TMP="$(mktemp /tmp/kaggle-harvester-launcher.XXXXXX)"
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf 'set -a\n'
-    printf '. %q\n' "$OPENCLAW_RUNTIME_ENV"
-    printf 'set +a\n'
-    printf 'exec env TZ=Asia/Shanghai %q gateway --port 18789\n' "$OPENCLAW_BIN"
-  } > "$LAUNCHER_TMP"
-  install -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" -m 700 \
-    "$LAUNCHER_TMP" "$OPENCLAW_LAUNCHER"
-  rm -f "$LAUNCHER_TMP"
-  su - "$OPENCLAW_USER" -c "nohup '$OPENCLAW_LAUNCHER' > ~/.openclaw/gateway.log 2>&1 &"
-fi
-
-log '部署完成'
+systemctl daemon-reload
+systemctl enable "$SERVICE" >/dev/null
+if [[ -f "$OPENCLAW_DIR/.harvester-gateway-restart-required" || "$first_migration" == 1 ]]; then
+  log '配置变更，重启网关；保留登录、记忆和会话'
+  systemctl restart "$SERVICE"
+else systemctl start "$SERVICE"; fi
+healthy=0
+for _ in {1..12}; do
+  if runuser -u "$OPENCLAW_USER" -- env HOME="$OPENCLAW_HOME" TZ=Asia/Shanghai PATH="$(dirname "${CLI[0]}"):$PATH" "${CLI[@]}" health >/dev/null 2>&1; then healthy=1; break; fi
+  sleep 2
+done
+[[ "$healthy" == 1 ]] || fail 'OpenClaw CLI 健康检查未通过，请检查 systemd 日志。'
+touch "$OPENCLAW_DIR/.harvester-systemd-migrated"
+rm -f "$OPENCLAW_DIR/.harvester-gateway-restart-required"
+log '更新宿主机微信状态与投递桥接（不开放网关端口）'
+cat > "$TEMP_DIR/bridge" <<UNIT
+[Unit]
+Description=Kaggle Harvester WeChat status and delivery bridge
+After=network-online.target $SERVICE
+Wants=network-online.target
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$REPO_DIR
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 $REPO_DIR/scripts/wechat_bridge.py --repo $REPO_DIR --home $OPENCLAW_HOME --user $OPENCLAW_USER --node $NODE_BIN --cli $OPENCLAW_JS --env-file $COMPOSE_ENV_FILE --api-url $HARVESTER_API_URL_VALUE
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+[Install]
+WantedBy=multi-user.target
+UNIT
+install_changed "$TEMP_DIR/bridge" /etc/systemd/system/kaggle-harvester-wechat-bridge.service 644 root root
+systemctl daemon-reload
+systemctl stop kaggle-harvester-wechat-bridge.service 2>/dev/null || true
+python3 "$REPO_DIR/scripts/wechat_bridge.py" --repo "$REPO_DIR" --home "$OPENCLAW_HOME" --user "$OPENCLAW_USER" --node "$NODE_BIN" --cli "$OPENCLAW_JS" --env-file "$COMPOSE_ENV_FILE" --api-url "$HARVESTER_API_URL_VALUE" --health-only
+systemctl enable --now kaggle-harvester-wechat-bridge.service >/dev/null
+systemctl is-active --quiet kaggle-harvester-wechat-bridge.service || fail '微信桥接服务未启动'
+log '部署完成：应用运行，OpenClaw 健康检查通过'
 docker compose --env-file "$COMPOSE_ENV_FILE" ps
-printf 'OpenClaw 辅助脚本：%s\n' "$TARGET_SCRIPT"

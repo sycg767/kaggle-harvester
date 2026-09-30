@@ -180,7 +180,9 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
     try {
       const res = await api.testClawbot();
       setClawbotTestResult(res);
-      if (res.success) {
+      if (res.status?.wechat_running === true) {
+        message.success('微信插件运行中，状态已更新。');
+      } else if (res.success) {
         message.success(res.message);
       } else {
         message.warning(res.message);
