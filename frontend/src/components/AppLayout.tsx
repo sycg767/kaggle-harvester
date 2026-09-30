@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   App as AntApp,
@@ -20,6 +20,7 @@ import {
   Star,
   Swords,
   Trophy,
+  WifiOff,
 } from 'lucide-react';
 import { api, apiAuth, type ArchiveStats, type CompetitionInfo, type EnteredCompetition, type HealthStatus } from '../api';
 import { dispatchCompetitionChanged, HARVESTER_EVENTS } from '../events';
@@ -43,6 +44,9 @@ const AppLayout: React.FC = () => {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const consecutiveFailuresRef = useRef(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -72,14 +76,19 @@ const AppLayout: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isManualRetry = false) => {
+    if (!hasLoadedOnce || isManualRetry) {
+      setLoading(true);
+    }
     setLoadingSlow(false);
     const slowTimer = window.setTimeout(() => setLoadingSlow(true), 4000);
     try {
-      const status = await api.health();
+      const status = await api.health({ timeoutMs: 15_000 });
       setHealth(status);
       setBackendOnline(true);
+      setIsReconnecting(false);
+      consecutiveFailuresRef.current = 0;
+      setHasLoadedOnce(true);
       setArchiveStats(status.archive);
       const activeCompetition =
         localStorage.getItem('harvester.competition') ||
@@ -92,14 +101,22 @@ const AppLayout: React.FC = () => {
         })
         .catch(() => null);
     } catch {
-      setBackendOnline(false);
-      setHealth(null);
+      consecutiveFailuresRef.current += 1;
+      if (!hasLoadedOnce) {
+        setBackendOnline(false);
+        setHealth(null);
+      } else {
+        setIsReconnecting(true);
+        if (consecutiveFailuresRef.current >= 3) {
+          setBackendOnline(false);
+        }
+      }
     } finally {
       window.clearTimeout(slowTimer);
       setLoading(false);
       setLoadingSlow(false);
     }
-  }, []);
+  }, [hasLoadedOnce]);
 
   useEffect(() => {
     void loadData();
@@ -147,18 +164,56 @@ const AppLayout: React.FC = () => {
   };
 
   useEffect(() => {
+    let retryTimeout: number | undefined;
+
+    const checkHealth = async () => {
+      try {
+        const status = await api.health({ timeoutMs: 15_000 });
+        setHealth(status);
+        setBackendOnline(true);
+        setIsReconnecting(false);
+        consecutiveFailuresRef.current = 0;
+        setArchiveStats(status.archive);
+      } catch {
+        consecutiveFailuresRef.current += 1;
+        if (hasLoadedOnce) {
+          setIsReconnecting(true);
+          if (consecutiveFailuresRef.current >= 3) {
+            setBackendOnline(false);
+          } else {
+            // 快速重试消抖：6 秒后重试，避免等待下一个 30 秒周期
+            retryTimeout = window.setTimeout(() => {
+              void checkHealth();
+            }, 6_000);
+          }
+        } else {
+          setBackendOnline(false);
+        }
+      }
+    };
+
     const timer = window.setInterval(() => {
-      void api
-        .health()
-        .then((status) => {
-          setHealth(status);
-          setBackendOnline(true);
-          setArchiveStats(status.archive);
-        })
-        .catch(() => setBackendOnline(false));
+      void checkHealth();
     }, 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
+
+    const handleOnline = () => {
+      void checkHealth();
+    };
+    const handleFocus = () => {
+      if (consecutiveFailuresRef.current > 0 || !backendOnline) {
+        void checkHealth();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.clearInterval(timer);
+      if (retryTimeout) window.clearTimeout(retryTimeout);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [hasLoadedOnce, backendOnline]);
 
   useEffect(() => {
     const handleCompetitionChanged = (event: Event) => {
@@ -398,7 +453,9 @@ const AppLayout: React.FC = () => {
           <Tooltip
             title={
               !backendOnline
-                ? '后端服务未连接'
+                ? '与后端服务的连接出现中断，正在后台自动重试连接...'
+                : isReconnecting
+                ? '检测到瞬时网络波动，正在后台尝试重新握手...'
                 : health?.ready
                 ? '后端、Kaggle CLI 与 UTF-8 门禁均正常'
                 : '后端已连接，但运行配置不完整'
@@ -407,10 +464,12 @@ const AppLayout: React.FC = () => {
             <div className="newapi-api-status">
               <span
                 className={`status-dot ${
-                  !backendOnline ? 'error' : health?.ready ? 'success' : 'warning'
+                  !backendOnline ? 'error' : isReconnecting ? 'warning' : health?.ready ? 'success' : 'warning'
                 }`}
               />
-              <span>{backendOnline ? '服务正常' : '连接失败'}</span>
+              <span>
+                {!backendOnline ? '连接中断' : isReconnecting ? '网络波动' : health?.ready ? '服务正常' : '部分降级'}
+              </span>
             </div>
           </Tooltip>
           <Tooltip title="刷新服务状态">
@@ -419,7 +478,7 @@ const AppLayout: React.FC = () => {
               className="newapi-icon-button"
               icon={<RefreshCw size={16} />}
               aria-label="刷新服务状态"
-              onClick={loadData}
+              onClick={() => void loadData(true)}
               loading={loading}
             />
           </Tooltip>
@@ -441,29 +500,65 @@ const AppLayout: React.FC = () => {
         </aside>
 
         <main className="newapi-content" id="main-content">
-          {!backendOnline && !loading ? (
+          {!backendOnline && !hasLoadedOnce && !loading ? (
             <div className="newapi-center-state">
               <Typography.Title level={4}>无法连接到后端服务</Typography.Title>
               <Typography.Paragraph type="secondary">
-                请确认本地 Python 后端服务已启动并正在监听接口。移动端访问请确保处于同一 Wi-Fi 局域网。
+                请确认 Python 后端服务已启动并正在监听接口。远端访问请检查服务器网络、防火墙或反向代理配置。
               </Typography.Paragraph>
-              <Button type="primary" icon={<RefreshCw size={16} />} onClick={loadData}>
+              <Button type="primary" icon={<RefreshCw size={16} />} onClick={() => void loadData(true)}>
                 重试连接
               </Button>
             </div>
           ) : (
-            <Suspense
-              fallback={
-                <div className="newapi-content-loading">
-                  <Spin size="large" />
-                  <Typography.Text type="secondary" style={{ fontSize: 13, marginTop: 8 }}>
-                    正在载入页面...
-                  </Typography.Text>
+            <>
+              {(!backendOnline || isReconnecting) && hasLoadedOnce && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    padding: '10px 16px',
+                    borderRadius: 12,
+                    background: !backendOnline ? 'rgba(255, 59, 48, 0.08)' : 'rgba(255, 149, 0, 0.09)',
+                    border: !backendOnline ? '1px solid rgba(255, 59, 48, 0.22)' : '1px solid rgba(255, 149, 0, 0.22)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    animation: 'fadeIn 0.2s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: !backendOnline ? '#c0392b' : '#b45309' }}>
+                    <WifiOff size={16} />
+                    <span>
+                      {!backendOnline
+                        ? '与后端服务的连接暂时中断，正在持续自动重连... 当前界面已保留最近数据快照。'
+                        : '网络连接出现短暂波动，正在重新与后端服务同步数据...'}
+                    </span>
+                  </div>
+                  <Button
+                    size="small"
+                    icon={<RefreshCw size={12} className={loading ? 'spin' : ''} />}
+                    loading={loading}
+                    onClick={() => void loadData(true)}
+                    style={{ height: 28, borderRadius: 8, fontSize: 12 }}
+                  >
+                    立即重试
+                  </Button>
                 </div>
-              }
-            >
-              <Outlet />
-            </Suspense>
+              )}
+              <Suspense
+                fallback={
+                  <div className="newapi-content-loading">
+                    <Spin size="large" />
+                    <Typography.Text type="secondary" style={{ fontSize: 13, marginTop: 8 }}>
+                      正在载入页面...
+                    </Typography.Text>
+                  </div>
+                }
+              >
+                <Outlet />
+              </Suspense>
+            </>
           )}
         </main>
       </div>

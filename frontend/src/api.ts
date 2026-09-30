@@ -411,7 +411,7 @@ export const api = {
   },
 
   health(options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HealthStatus> {
-    return request('/health', { timeoutMs: options?.timeoutMs ?? 10_000, signal: options?.signal });
+    return request('/health', { timeoutMs: options?.timeoutMs ?? 15_000, signal: options?.signal });
   },
 
   getActiveCompetition(options?: { signal?: AbortSignal }): Promise<ActiveCompetitionInfo> {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,8 @@ class Archiver:
         self._archive_index_path = self._harvest_root / "_archive_index.json"
         self._archive_index_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._stats_cache: dict | None = None
+        self._stats_cache_time: float = 0.0
         self._index = self._load_index()
 
     # ------------------------------------------------------------------
@@ -60,6 +63,7 @@ class Archiver:
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         temp_path.replace(self._archive_index_path)
+        self._stats_cache = None
 
     def _safe_archive_path(self, value: str | Path) -> Path:
         """确保归档文件操作不会越过配置的归档根目录。"""
@@ -416,11 +420,14 @@ class Archiver:
         return True
 
     def get_stats(self) -> dict:
-        """Get archive statistics."""
+        """Get archive statistics with 5-second cache to avoid redundant disk I/O."""
+        now = time.time()
+        if self._stats_cache is not None and (now - self._stats_cache_time) < 5.0:
+            return dict(self._stats_cache)
         entries = list(self._index.values())
         comp_count = len(set(e.competition for e in entries if e.competition))
         disk = shutil.disk_usage(self._harvest_root)
-        return {
+        stats = {
             "total_archives": len(entries),
             "unique_competitions": comp_count,
             "unique_kernels": len(set(e.ref for e in entries)),
@@ -432,3 +439,6 @@ class Archiver:
             "min_free_bytes": self._config.min_free_bytes,
             "low_disk_space": disk.free < self._config.min_free_bytes,
         }
+        self._stats_cache = stats
+        self._stats_cache_time = now
+        return dict(stats)
