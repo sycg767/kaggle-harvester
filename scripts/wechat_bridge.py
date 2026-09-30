@@ -95,12 +95,15 @@ def send_message(home, plugin, text, client_id):
             data = json.loads(response.read(65536))
         except ValueError:
             raise RuntimeError('微信回执格式未知')
-    if not isinstance(data, dict) or 'ret' not in data:
+    if not isinstance(data, dict):
         raise RuntimeError('微信未返回明确回执')
-    if data.get('ret') != 0:
+    # The installed Tencent SDK treats an omitted protobuf-default ret as zero.
+    # Still require the real HTTP JSON response; a socket connection is never a receipt.
+    if data.get('ret', 0) != 0 or data.get('errcode', 0) != 0:
         # Do not expose server text, recipients, tokens or message content in errors.
         raise ValueError('微信平台未确认发送成功（ret=%s）' % data.get('ret', 'missing'))
-    return {'status': 'accepted', 'message_id': client_id, 'accepted_at': now()}
+    return {'status': 'accepted', 'message_id': client_id, 'accepted_at': now(),
+            'ret_omitted': 'ret' not in data}
 
 
 def inspect_health(args, env):
@@ -172,8 +175,9 @@ def process_one(path, args, sanitize, sender=send_message):
         result = {'status': 'failed' if 400 <= exc.code < 500 else 'uncertain', 'error': '微信发送返回 HTTP %s' % exc.code}
     except ValueError as exc:
         result = {'status': 'failed', 'error': str(exc)[:200]}
-    except Exception:
-        result = {'status': 'uncertain', 'error': '微信发送未取得回执；结果未知，未自动重发'}
+    except Exception as exc:
+        result = {'status': 'uncertain', 'error': '微信发送未取得回执；结果未知，未自动重发',
+                  'error_type': type(exc).__name__}
     result['attempt'] = locals().get('attempt', 0)
     write_json(response, result)
 

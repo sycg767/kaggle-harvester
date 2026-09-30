@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import hashlib
+import io
 import os
 from pathlib import Path
 import sys
@@ -20,6 +21,24 @@ from harvester.simulation.clawbot import ClawbotService
 
 
 class BridgeTests(unittest.TestCase):
+    def test_platform_success_matches_sdk_default_zero_and_rejects_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = Path(tmp)
+            bridge.write_json(plugin / 'package.json', {'version': '2.4.6', 'ilink_appid': 'test-app'})
+            fake = ({'token': 'test-token', 'baseUrl': 'https://ilinkai.weixin.qq.com'}, 'test-owner', 'test-context')
+            with patch.object(bridge, 'recipient', return_value=fake), patch.object(bridge.request, 'build_opener') as opener:
+                for body in [b'{}', b'{"ret":0}']:
+                    opener.return_value.open.return_value = io.BytesIO(body)
+                    result = bridge.send_message(plugin, plugin, 'test', 'client-id')
+                    self.assertEqual(result['status'], 'accepted')
+                    outgoing = opener.return_value.open.call_args.args[0]
+                    self.assertEqual(json.loads(outgoing.data)['msg']['to_user_id'], 'test-owner')
+                for body in [b'{"ret":-14}', b'{"errcode":1}']:
+                    opener.return_value.open.return_value = io.BytesIO(body)
+                    with self.assertRaises(ValueError): bridge.send_message(plugin, plugin, 'test', 'client-id')
+                opener.return_value.open.return_value = io.BytesIO(b'not json')
+                with self.assertRaises(RuntimeError): bridge.send_message(plugin, plugin, 'test', 'client-id')
+
     def test_outbox_receipt_required_and_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'HARVEST_ROOT': tmp}):
             root = Path(tmp) / '_cache'
