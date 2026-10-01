@@ -21,7 +21,7 @@ import NotificationCenter from '../NotificationCenter';
 import SubmissionMonitorControl from '../SubmissionMonitorControl';
 import SimulationMonitorControl from '../SimulationMonitorControl';
 import AutoArchiveControl from '../AutoArchiveControl';
-import { formatRelativeTime, schedulerLabel } from './dashboardUtils';
+import { formatRelativeTime, schedulerLabel, simulationScore, simulationCushion } from './dashboardUtils';
 
 interface SchedulerCardsProps {
   currentCompetition: string;
@@ -36,7 +36,7 @@ interface SchedulerCardsProps {
   isSimulation: boolean;
   isSimCompMatch: boolean;
   isSimMonitoringActive: boolean;
-  activeAgent1?: SimulationAgentStats;
+  bestAgent?: SimulationAgentStats;
   runningSimulationCheck: boolean;
   onRunSimulationCheckNow: () => Promise<void>;
   competitionInfo: CompetitionInfo | null;
@@ -58,7 +58,7 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
   isSimulation,
   isSimCompMatch,
   isSimMonitoringActive,
-  activeAgent1,
+  bestAgent,
   runningSimulationCheck,
   onRunSimulationCheckNow,
   competitionInfo,
@@ -66,6 +66,8 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
   onTestNotifications,
   onNavigate,
 }) => {
+  const bestScore = simulationScore(bestAgent);
+  const cushion = simulationCushion(bestAgent);
   return (
     <section className="section" style={{ marginBottom: 24 }}>
       <div className="ios-section-head">
@@ -184,27 +186,23 @@ export const SchedulerCards: React.FC<SchedulerCardsProps> = ({
               </div>
 
               <div className="ios-metric">
-                <div className="ios-metric-label">天梯当前排位</div>
+                <div className="ios-metric-label" title={bestAgent?.last_updated ? `数据更新于 ${new Date(bestAgent.last_updated).toLocaleString()}` : '更新时间未记录'}>已监控 Agent 最高分</div>
                 <div className="ios-metric-value orange">
-                  {activeAgent1?.rank ? `#${activeAgent1.rank}` : (isSimCompMatch ? '暂无排名' : '待配置')}
+                  {bestScore !== undefined ? <>{bestScore.toFixed(1)} <span style={{ fontSize: 13 }}>分</span></> : (isSimCompMatch ? '暂无分数' : '待配置')}
                 </div>
               </div>
 
               <div className="ios-detail-line">
-                <span>主 Agent</span>
-                <strong>
-                  {activeAgent1?.win_rate != null
-                    ? `${activeAgent1.win_rate}% (${activeAgent1.wins ?? 0}胜)`
-                    : (isSimCompMatch ? '暂无实时数据' : '暂无本赛事监控数据')}
-                </strong>
+                <span>{bestAgent?.alias || (bestAgent ? `Agent #${bestAgent.submission_id}` : 'Agent')}</span>
+                <strong>{bestAgent?.rank != null && Number.isInteger(bestAgent.rank) && bestAgent.rank > 0 ? `第 ${bestAgent.rank} 名` : '排名未知'}</strong>
               </div>
               <div className="ios-detail-line">
-                <span>安全垫</span>
-                <strong style={{ color: '#23a944' }}>
-                  {activeAgent1?.bronze_gap_score != null
-                    ? `+${activeAgent1.bronze_gap_score.toFixed(1)} 分`
-                    : '等待同步'}
-                </strong>
+                <span>胜率</span>
+                <strong>{bestAgent?.win_rate != null && Number.isFinite(bestAgent.win_rate) ? `${bestAgent.win_rate}% (${bestAgent.wins ?? 0}胜)` : '暂无数据'}</strong>
+              </div>
+              <div className="ios-detail-line">
+                <span>{cushion.label}</span>
+                <strong style={{ color: cushion.text === '等待同步' ? undefined : cushion.negative ? '#d77d00' : '#23a944' }}>{cushion.text}</strong>
               </div>
 
               <div className="ios-card-footer">

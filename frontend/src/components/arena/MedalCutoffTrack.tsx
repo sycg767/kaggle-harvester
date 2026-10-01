@@ -28,9 +28,6 @@ export const MedalCutoffTrack: React.FC<MedalCutoffTrackProps> = ({
   const goldRank = thresholds?.gold_cutoff_rank ?? '未知';
   const silverRank = thresholds?.silver_cutoff_rank ?? '未知';
   const bronzeRank = thresholds?.bronze_cutoff_rank ?? '未知';
-  const goldDesc = '采集快照';
-  const silverDesc = '采集快照';
-  const bronzeDesc = '采集快照';
 
   const allScores: number[] = [
     bronzeCutoff,
@@ -60,25 +57,25 @@ export const MedalCutoffTrack: React.FC<MedalCutoffTrackProps> = ({
           </h3>
         </div>
         <div className="arena-cutoff-legends">
-          <Tooltip title={`${goldDesc} 队伍 (第 ${goldRank} 名及以上)`}>
+          <Tooltip title={`金牌线 (第 ${goldRank} 名及以上)`}>
             <span className="arena-cutoff-legend gold">
               <Trophy size={13} color="#ca8a04" />
               <span className="arena-cutoff-main-text">金牌线: {goldCutoff.toFixed(1)}分</span>
-              <span className="arena-cutoff-sub">({goldDesc} · 第{goldRank}名)</span>
+              <span className="arena-cutoff-sub">(第{goldRank}名)</span>
             </span>
           </Tooltip>
-          <Tooltip title={`${silverDesc} 队伍 (第 ${silverRank} 名及以上)`}>
+          <Tooltip title={`银牌线 (第 ${silverRank} 名及以上)`}>
             <span className="arena-cutoff-legend silver">
               <Medal size={13} color="#0284c7" />
               <span className="arena-cutoff-main-text">银牌线: {silverCutoff.toFixed(1)}分</span>
-              <span className="arena-cutoff-sub">({silverDesc} · 第{silverRank}名)</span>
+              <span className="arena-cutoff-sub">(第{silverRank}名)</span>
             </span>
           </Tooltip>
-          <Tooltip title={`${bronzeDesc} 队伍 (第 ${bronzeRank} 名及以上)`}>
+          <Tooltip title={`铜牌线 (第 ${bronzeRank} 名及以上)`}>
             <span className="arena-cutoff-legend bronze">
               <Award size={13} color="#d97706" />
               <span className="arena-cutoff-main-text">铜牌线: {bronzeCutoff.toFixed(1)}分</span>
-              <span className="arena-cutoff-sub">({bronzeDesc} · 第{bronzeRank}名)</span>
+              <span className="arena-cutoff-sub">(第{bronzeRank}名)</span>
             </span>
           </Tooltip>
         </div>

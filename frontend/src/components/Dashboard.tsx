@@ -23,7 +23,7 @@ import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import CompetitionHeroBanner from './dashboard/CompetitionHeroBanner';
 import SchedulerCards from './dashboard/SchedulerCards';
 import StorageStatusCards from './dashboard/StorageStatusCards';
-import { latestCompetitionSubmission } from './dashboard/dashboardUtils';
+import { bestCompetitionAgent, latestCompetitionSubmission } from './dashboard/dashboardUtils';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -272,7 +272,7 @@ export const Dashboard: React.FC = () => {
     simMonitorStatus.competition === currentCompetition
   );
   const isSimMonitoringActive = Boolean(simMonitorStatus?.enabled || simMonitorStatus?.running || simMonitorStatus?.next_run_at);
-  const activeAgent1 = isSimCompMatch ? simMonitorStatus?.agents?.[0] : undefined;
+  const bestAgent = bestCompetitionAgent(simMonitorStatus, currentCompetition);
   const latestSubmission = latestCompetitionSubmission(health?.submission_monitor?.recent_items, currentCompetition);
   const autoArchiveStatus = health?.auto_archive;
 
@@ -337,7 +337,7 @@ export const Dashboard: React.FC = () => {
             isSimulation={isSimulation}
             isSimCompMatch={isSimCompMatch}
             isSimMonitoringActive={isSimMonitoringActive}
-            activeAgent1={activeAgent1}
+            bestAgent={bestAgent}
             runningSimulationCheck={runningSimulationCheck}
             onRunSimulationCheckNow={handleRunSimulationCheckNow}
             competitionInfo={competitionInfo}

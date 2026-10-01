@@ -1,4 +1,39 @@
 import type { SubmissionMonitorItem } from '../../types/submissions.ts';
+import type { SimulationAgentStats, SimulationMonitorStatus } from '../../types/simulation.ts';
+
+export function simulationScore(agent?: SimulationAgentStats): number | undefined {
+  for (const value of [agent?.score, agent?.public_score]) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+export function bestCompetitionAgent(status: SimulationMonitorStatus | undefined, competition: string) {
+  if (!competition || status?.competition !== competition) return undefined;
+  let best: SimulationAgentStats | undefined;
+  const rank = (agent: SimulationAgentStats) => typeof agent.rank === 'number' && Number.isInteger(agent.rank) && agent.rank > 0 ? agent.rank : Infinity;
+  for (const agent of status.agents || []) {
+    const score = simulationScore(agent);
+    if (score === undefined) continue;
+    const bestScore = simulationScore(best);
+    if (!best || bestScore === undefined || score > bestScore || (score === bestScore && rank(agent) < rank(best))) best = agent;
+  }
+  return best;
+}
+
+export function simulationCushion(agent?: SimulationAgentStats) {
+  const labels = { gold: '金牌安全垫', silver: '银牌安全垫', bronze: '铜牌安全垫' };
+  const tier = agent?.medal_tier;
+  const cushion = agent?.tier_cushion_score;
+  if (tier && tier in labels && typeof cushion === 'number' && Number.isFinite(cushion)) {
+    return { label: labels[tier as keyof typeof labels], text: `${cushion >= 0 ? '+' : ''}${cushion.toFixed(1)} 分`, negative: cushion < 0 };
+  }
+  const gap = agent?.bronze_gap_score;
+  if (typeof gap === 'number' && Number.isFinite(gap)) {
+    return { label: gap < 0 ? '距铜牌线' : '铜牌余量', text: `${gap < 0 ? '' : '+'}${Math.abs(gap).toFixed(1)} 分`, negative: gap < 0 };
+  }
+  return { label: '奖牌差距', text: '等待同步', negative: false };
+}
 
 export const formatBytes = (value = 0) => {
   if (value < 1024) return `${value} B`;
