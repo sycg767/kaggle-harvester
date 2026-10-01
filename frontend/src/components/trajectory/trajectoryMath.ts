@@ -28,9 +28,16 @@ export const formatNumber = (value: number): string =>
 
 export const formatTime = (value?: string): string => {
   if (!value) return '';
-  const date = new Date(value);
+  // Kaggle timestamps without an offset are UTC, matching the battle history table.
+  let normalized = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(normalized) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+    normalized = `${normalized.replace(' ', 'T')}Z`;
+  }
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour12: false,
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',

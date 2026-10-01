@@ -13,9 +13,19 @@ export interface EndPointLayoutItem {
   textAnchor: 'start' | 'middle';
 }
 
-/**
- * 智能自适应空间感知避让算法（动态感知上下层级与相对位置，100% 杜绝重叠）
- */
+const scoreAtGame = (points: ChartSeries['points'], game: number): number | undefined => {
+  for (let index = 0; index < points.length; index += 1) {
+    const start = points[index];
+    if (start.x === game) return start.y;
+    const end = points[index + 1];
+    if (!end || game < Math.min(start.x, end.x) || game > Math.max(start.x, end.x)) continue;
+    const fraction = (game - start.x) / (end.x - start.x);
+    return start.y + fraction * (end.y - start.y);
+  }
+  return undefined;
+};
+
+/** Place score labels beside their endpoints and separate nearby labels. */
 export const computeEndPointLayouts = (
   series: ChartSeries[],
   xScale: (value: number) => number,
@@ -32,9 +42,15 @@ export const computeEndPointLayouts = (
     const ptY = yScale(s.latest!.y);
     const isTrailing = ptX < maxPlotX - 10;
 
-    // 评估与其他折线的相对垂直位置（是否处于上方）
+    // Different length series must be compared at this endpoint's game, not at their own endpoints.
     const otherSeries = validSeries.filter((other) => other.id !== s.id && other.latest);
-    const isHigherThanOthers = otherSeries.length === 0 || otherSeries.every((other) => s.latest!.y >= other.latest!.y);
+    const otherYs = otherSeries
+      .map((other) => scoreAtGame(other.points, s.latest!.x))
+      .filter((score): score is number => score !== undefined)
+      .map(yScale);
+    const spaceAbove = Math.min(Infinity, ...otherYs.filter((y) => y <= ptY).map((y) => ptY - y));
+    const spaceBelow = Math.min(Infinity, ...otherYs.filter((y) => y >= ptY).map((y) => y - ptY));
+    const placeAbove = spaceAbove >= spaceBelow;
 
     let textX = ptX + 8;
     let textY = ptY + 4.5;
@@ -43,8 +59,8 @@ export const computeEndPointLayouts = (
     if (isTrailing) {
       textX = ptX;
       textAnchor = 'middle';
-      // 若处于上方则向上避让（ptY - 8），若处于下方则向下避让（ptY + 16），永远向开阔外侧延伸
-      if (isHigherThanOthers) {
+      // Prefer the side with more clearance from the other curves at this game.
+      if (placeAbove) {
         textY = ptY - 8;
       } else {
         textY = ptY + 16;

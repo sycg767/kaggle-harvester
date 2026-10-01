@@ -10,6 +10,7 @@ import {
 } from './trajectoryMath';
 import { computeEndPointLayouts } from './trajectoryLayout';
 import { findTrajectoryHit, type TrajectoryHit } from './trajectoryHover';
+import { placeTrajectoryTooltip, TOOLTIP_WIDTH, TOOLTIP_HEIGHT, type TooltipBounds } from './trajectoryTooltip';
 
 interface TrajectorySvgProps {
   chart: {
@@ -28,7 +29,7 @@ interface TrajectorySvgProps {
 }
 
 export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) => {
-  const [hover, setHover] = useState<{ chart: TrajectorySvgProps['chart']; hit: TrajectoryHit } | null>(null);
+  const [hover, setHover] = useState<{ chart: TrajectorySvgProps['chart']; hit: TrajectoryHit; bounds: TooltipBounds } | null>(null);
   const plotWidth = VIEWBOX_WIDTH - PLOT.left - PLOT.right;
   const plotHeight = VIEWBOX_HEIGHT - PLOT.top - PLOT.bottom;
 
@@ -46,6 +47,10 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
   })), [chart]);
 
   const inspectPoint = (event: React.PointerEvent<SVGSVGElement>) => {
+    if ((event.target as Element).closest('[data-trajectory-decoration]')) {
+      setHover(null);
+      return;
+    }
     const matrix = event.currentTarget.getScreenCTM();
     if (!matrix) return;
     // Convert client coordinates after responsive scaling, browser zoom, and horizontal scrolling.
@@ -55,10 +60,20 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
     const hit = inPlot
       ? findTrajectoryHit(projectedSeries, cursor.x, cursor.y, 16 / Math.hypot(matrix.a, matrix.b))
       : null;
+    const viewport = event.currentTarget.parentElement!.getBoundingClientRect();
+    const visibleLeft = new DOMPoint(viewport.left, viewport.top).matrixTransform(matrix.inverse()).x;
+    const visibleRight = new DOMPoint(viewport.right, viewport.top).matrixTransform(matrix.inverse()).x;
+    const bounds = {
+      left: Math.max(PLOT.left, visibleLeft) + 4,
+      right: Math.min(VIEWBOX_WIDTH - PLOT.right, visibleRight) - 4,
+      top: PLOT.top + 4,
+      bottom: VIEWBOX_HEIGHT - PLOT.bottom - 4,
+    };
     setHover((previous) => {
       if (!hit) return null;
-      if (previous?.chart === chart && previous.hit.seriesId === hit.seriesId && previous.hit.pointIndex === hit.pointIndex) return previous;
-      return { chart, hit };
+      if (previous?.chart === chart && previous.hit.seriesId === hit.seriesId && previous.hit.pointIndex === hit.pointIndex
+        && previous.bounds.left === bounds.left && previous.bounds.right === bounds.right) return previous;
+      return { chart, hit, bounds };
     });
   };
 
@@ -66,13 +81,12 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
   const activeSeries = hover?.chart === chart ? chart.series.find((series) => series.id === hover.hit.seriesId) : undefined;
   const activePoint = activeSeries && hover ? activeSeries.points[hover.hit.pointIndex] : undefined;
   const renderPointTooltip = () => {
-    if (!activeSeries || !activePoint) return null;
+    if (!activeSeries || !activePoint || !hover) return null;
     const x = xScale(activePoint.x);
     const y = yScale(activePoint.y);
-    const width = 244;
-    const height = 124;
-    const left = Math.max(PLOT.left + 4, Math.min(x + 14, VIEWBOX_WIDTH - PLOT.right - width - 4));
-    const top = Math.max(PLOT.top + 4, Math.min(y - height - 12, VIEWBOX_HEIGHT - PLOT.bottom - height - 4));
+    const width = TOOLTIP_WIDTH;
+    const height = TOOLTIP_HEIGHT;
+    const { left, top } = placeTrajectoryTooltip(x, y, hover.bounds);
     const result = { win: '胜', loss: '负', tie: '平', unknown: '结果未知' }[activePoint.result] || '结果未知';
     const delta = activePoint.scoreDelta;
     const change = delta != null && Number.isFinite(delta)
@@ -125,7 +139,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
     const badgeY = y - badgeHeight / 2;
 
     return (
-      <g key={`cutoff-badge-${label}`}>
+      <g key={`cutoff-badge-${label}`} data-trajectory-decoration="cutoff">
         <rect
           x={badgeX}
           y={badgeY}
@@ -162,7 +176,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
     const x = VIEWBOX_WIDTH - PLOT.right - width - 8;
     const y = VIEWBOX_HEIGHT - PLOT.bottom - height - 8;
     return (
-      <g key="chart-legend">
+      <g key="chart-legend" data-trajectory-decoration="legend">
         <rect
           x={x}
           y={y}
@@ -201,7 +215,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
   };
 
   return (
-    <div style={{ width: '100%', overflowX: 'auto' }}>
+    <div style={{ width: '100%', overflowX: 'auto' }} onScroll={() => setHover(null)}>
       <svg
         viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
         role="img"
