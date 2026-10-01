@@ -45,6 +45,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({
             y: point.score,
             timestamp: point.timestamp,
             episodeId: point.episode_id,
+            scoreDelta: point.score_delta,
             result: point.result,
           }));
         return {

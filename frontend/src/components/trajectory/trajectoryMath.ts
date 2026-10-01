@@ -5,6 +5,7 @@ export interface ChartPoint {
   y: number;
   timestamp?: string;
   episodeId: number;
+  scoreDelta?: number;
   result: SimulationRatingPoint['result'];
 }
 

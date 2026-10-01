@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   formatNumber,
+  formatTime,
   buildPath,
   VIEWBOX_WIDTH,
   VIEWBOX_HEIGHT,
@@ -8,6 +9,7 @@ import {
   type ChartSeries,
 } from './trajectoryMath';
 import { computeEndPointLayouts } from './trajectoryLayout';
+import { findTrajectoryHit, type TrajectoryHit } from './trajectoryHover';
 
 interface TrajectorySvgProps {
   chart: {
@@ -26,6 +28,7 @@ interface TrajectorySvgProps {
 }
 
 export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) => {
+  const [hover, setHover] = useState<{ chart: TrajectorySvgProps['chart']; hit: TrajectoryHit } | null>(null);
   const plotWidth = VIEWBOX_WIDTH - PLOT.left - PLOT.right;
   const plotHeight = VIEWBOX_HEIGHT - PLOT.top - PLOT.bottom;
 
@@ -37,6 +40,62 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
   };
 
   const endPointLayouts = computeEndPointLayouts(chart.series, xScale, yScale);
+  const projectedSeries = useMemo(() => chart.series.map((series) => ({
+    id: series.id,
+    points: series.points.map((point) => ({ x: xScale(point.x), y: yScale(point.y) })),
+  })), [chart]);
+
+  const inspectPoint = (event: React.PointerEvent<SVGSVGElement>) => {
+    const matrix = event.currentTarget.getScreenCTM();
+    if (!matrix) return;
+    // Convert client coordinates after responsive scaling, browser zoom, and horizontal scrolling.
+    const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const inPlot = cursor.x >= PLOT.left && cursor.x <= VIEWBOX_WIDTH - PLOT.right
+      && cursor.y >= PLOT.top && cursor.y <= VIEWBOX_HEIGHT - PLOT.bottom;
+    const hit = inPlot
+      ? findTrajectoryHit(projectedSeries, cursor.x, cursor.y, 16 / Math.hypot(matrix.a, matrix.b))
+      : null;
+    setHover((previous) => {
+      if (!hit) return null;
+      if (previous?.chart === chart && previous.hit.seriesId === hit.seriesId && previous.hit.pointIndex === hit.pointIndex) return previous;
+      return { chart, hit };
+    });
+  };
+
+  // A refreshed snapshot must never display a point retained from the previous competition/data.
+  const activeSeries = hover?.chart === chart ? chart.series.find((series) => series.id === hover.hit.seriesId) : undefined;
+  const activePoint = activeSeries && hover ? activeSeries.points[hover.hit.pointIndex] : undefined;
+  const renderPointTooltip = () => {
+    if (!activeSeries || !activePoint) return null;
+    const x = xScale(activePoint.x);
+    const y = yScale(activePoint.y);
+    const width = 244;
+    const height = 124;
+    const left = Math.max(PLOT.left + 4, Math.min(x + 14, VIEWBOX_WIDTH - PLOT.right - width - 4));
+    const top = Math.max(PLOT.top + 4, Math.min(y - height - 12, VIEWBOX_HEIGHT - PLOT.bottom - height - 4));
+    const result = { win: '胜', loss: '负', tie: '平', unknown: '结果未知' }[activePoint.result] || '结果未知';
+    const delta = activePoint.scoreDelta;
+    const change = delta != null && Number.isFinite(delta)
+      ? `${delta > 0 ? '+' : ''}${formatNumber(delta)} 分`
+      : '未记录';
+    return (
+      <g pointerEvents="none">
+        <line x1={x} x2={x} y1={PLOT.top} y2={VIEWBOX_HEIGHT - PLOT.bottom} stroke={activeSeries.color} strokeOpacity="0.3" strokeDasharray="3 4" />
+        <circle cx={x} cy={y} r="4" fill={activeSeries.color} stroke="#ffffff" strokeWidth="2" />
+        <g role="tooltip" aria-label={`${activeSeries.label} 第 ${activePoint.x} 局，积分 ${activePoint.y}`}>
+          <rect x={left} y={top} width={width} height={height} rx="7" fill="#ffffff" stroke={activeSeries.color} strokeOpacity="0.65" />
+          <text x={left + 12} y={top + 22} fontSize="12" fontWeight="700" fill={activeSeries.color}>
+            <title>{activeSeries.label}</title>
+            {activeSeries.label.length > 18 ? `${activeSeries.label.slice(0, 17)}…` : activeSeries.label}
+          </text>
+          <text x={left + 12} y={top + 45} fontSize="11" fill="#334155">第 {formatNumber(activePoint.x)} 局 · 积分 {formatNumber(activePoint.y)}</text>
+          <text x={left + 12} y={top + 66} fontSize="11" fill="#334155">{result} · 单局变化 {change}</text>
+          <text x={left + 12} y={top + 87} fontSize="11" fill="#64748b">时间：{formatTime(activePoint.timestamp) || '未记录'}</text>
+          <text x={left + 12} y={top + 108} fontSize="11" fill="#64748b">对局 #{activePoint.episodeId}</text>
+        </g>
+      </g>
+    );
+  };
 
   const renderCutoffLine = (value: number | undefined, color: string) => {
     if (value === undefined || value < chart.yMin || value > chart.yMax) return null;
@@ -147,6 +206,10 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
         viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
         role="img"
         aria-label={title || 'Rating Progression'}
+        onPointerMove={inspectPoint}
+        onPointerDown={inspectPoint}
+        onPointerLeave={() => setHover(null)}
+        onPointerCancel={() => setHover(null)}
         style={{ display: 'block', width: '100%', minWidth: 560, height: 'auto' }}
       >
         {/* 图表主标题（居中展示） */}
@@ -215,6 +278,9 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
               strokeLinejoin="round"
               strokeLinecap="round"
             />
+            {series.points.length === 1 && (
+              <circle cx={xScale(series.points[0].x)} cy={yScale(series.points[0].y)} r="3" fill={series.color} />
+            )}
           </g>
         ))}
 
@@ -261,6 +327,7 @@ export const TrajectorySvg: React.FC<TrajectorySvgProps> = ({ chart, title }) =>
         >
           Skill Rating
         </text>
+        {renderPointTooltip()}
       </svg>
     </div>
   );
