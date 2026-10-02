@@ -12,14 +12,13 @@ from unittest.mock import patch
 
 import httpx
 from fastapi import FastAPI
-from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harvester.archive_jobs import ArchiveJobManager
-from harvester.archive_study import ArchiveStudyStore, StudyUpdate, preview_source, compare_sources
+from harvester.archive_source import preview_source, compare_sources
 from harvester.models import ArchiveRequest
 from routers.archive_jobs import router as jobs_router
-from routers.archive_study import router as study_router
+from routers.archive_source import router as source_router
 from routers.archives import router as archives_router
 
 
@@ -63,29 +62,11 @@ class ArchiveWorkflowTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as root:
             cache = Path(root)/'_cache'
             cache.mkdir()
-            for filename in ('archive_jobs.json', 'archive_studies.json'):
-                (cache/filename).write_text('{broken', encoding='utf8')
+            (cache/'archive_jobs.json').write_text('{broken', encoding='utf8')
             with self.assertLogs('harvester.archive_jobs', level='ERROR'):
                 manager = ArchiveJobManager(root, None, None)
-                study = ArchiveStudyStore(root)
             manager.create([ArchiveRequest(kernel_ref='a/b')])
-            with self.assertRaises(OSError):
-                study.put('a', StudyUpdate(notes='new'))
             self.assertEqual((cache/'archive_jobs.json').read_text(), '{broken')
-            self.assertEqual((cache/'archive_studies.json').read_text(), '{broken')
-            app = FastAPI()
-            app.include_router(study_router)
-            app.include_router(archives_router)
-            app.state.archive_studies = study
-            entry = SimpleNamespace(id='a', model_dump=lambda: {'id': 'a'})
-            app.state.archiver = SimpleNamespace(get_archive=lambda _: entry, list_archives=lambda **_: [entry])
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
-                self.assertEqual((await client.get('/api/archives/a/study')).status_code, 503)
-                self.assertEqual((await client.get('/api/archives/studies')).status_code, 503)
-                self.assertEqual((await client.put('/api/archives/a/study', json={})).status_code, 507)
-                listing = await client.get('/api/archives')
-                self.assertEqual(listing.status_code, 200)
-                self.assertIn('study_error', listing.json()[0])
 
     async def test_default_competition_frozen_and_limit_applied_before_copy(self):
         with tempfile.TemporaryDirectory() as root:
@@ -161,24 +142,30 @@ class ArchiveWorkflowTests(unittest.IsolatedAsyncioTestCase):
             recovered = ArchiveJobManager(root, None, None).get(job['id'])
             self.assertEqual([i['status'] for i in recovered['items']], ['pending', 'cancelled'])
 
-    async def test_api_limits_and_study_persistence(self):
+    async def test_api_limits_and_retired_study_routes_preserve_legacy_file(self):
         with tempfile.TemporaryDirectory() as root:
             app = FastAPI()
             app.include_router(jobs_router)
-            app.include_router(study_router)
+            app.include_router(source_router)
             app.state.archive_jobs = ArchiveJobManager(root, None, None)
-            app.state.archive_studies = ArchiveStudyStore(root)
-            app.state.archiver = SimpleNamespace(get_archive=lambda key: object() if key == 'known' else None)
+            app.include_router(archives_router)
+            legacy = Path(root)/'_cache'/'archive_studies.json'
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            original = b'{"known":{"status":"read","notes":"legacy note","tags":[]}}'
+            legacy.write_bytes(original)
+            entry = SimpleNamespace(id='known', model_dump=lambda: {'id': 'known'})
+            app.state.archiver = SimpleNamespace(get_archive=lambda key: entry if key == 'known' else None, list_archives=lambda **_: [entry])
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
                 self.assertEqual((await client.post('/api/archive-jobs', json={'items': []})).status_code, 422)
                 self.assertEqual((await client.post('/api/archive-jobs', json={'items': [{'kernel_ref':'a/b'}]*101})).status_code, 422)
                 self.assertEqual((await client.get('/api/archive-jobs/missing')).status_code, 404)
-                result = await client.put('/api/archives/known/study', json={'status':'verified','notes':'I reproduced it','tags':['test']})
-                self.assertEqual(result.status_code, 200)
-                self.assertEqual((await client.get('/api/archives/studies')).json()['known']['status'], 'verified')
-                self.assertEqual((await client.put('/api/archives/known/study', json={'notes':'a'*10001})).status_code, 422)
-                self.assertEqual((await client.get('/api/archives/missing/study')).status_code, 404)
-            self.assertEqual(ArchiveStudyStore(root).get('known')['notes'], 'I reproduced it')
+                self.assertEqual((await client.put('/api/archives/known/study', json={'notes':'new'})).status_code, 404)
+                self.assertEqual((await client.get('/api/archives/known/study')).status_code, 404)
+                self.assertEqual((await client.get('/api/archives/studies')).status_code, 404)
+                listing = await client.get('/api/archives')
+                self.assertEqual(listing.status_code, 200)
+                self.assertEqual(listing.json(), [{'id': 'known'}])
+            self.assertEqual(legacy.read_bytes(), original)
 
 
 class SourceTests(unittest.TestCase):

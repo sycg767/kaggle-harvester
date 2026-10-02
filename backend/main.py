@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from harvester.archiver import Archiver
 from harvester.archive_jobs import ArchiveJobManager
-from harvester.archive_study import ArchiveStudyStore
 from harvester.auto_archive import AutoArchiveManager
 from harvester.cache import (
     PersistentActiveCompetitionStore,
@@ -115,7 +114,6 @@ async def lifespan(app: FastAPI):
         ),
     )
     app.state.archiver = Archiver(app.state.kaggle_client, config=config)
-    app.state.archive_studies = ArchiveStudyStore(harvest_root)
     app.state.archive_jobs = ArchiveJobManager(harvest_root, app.state.archiver, app.state.kaggle_client)
     app.state.notifications = NotificationManager(harvest_root)
     app.state.auto_archive = AutoArchiveManager(

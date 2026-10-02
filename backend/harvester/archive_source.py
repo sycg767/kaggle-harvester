@@ -3,45 +3,10 @@ from __future__ import annotations
 import difflib
 import json
 from pathlib import Path
-from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
-from .archive_jobs import atomic_json, now, read_json_safely
 
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 MAX_PREVIEW_CHARS = 200000
-
-
-class StudyUpdate(BaseModel):
-    status: Literal['unread', 'read', 'planned', 'verified'] = 'unread'
-    notes: str = Field(default='', max_length=10000)
-    tags: list[Annotated[str, Field(max_length=100)]] = Field(default_factory=list, max_length=20)
-
-
-class ArchiveStudyStore:
-    def __init__(self, root):
-        self.path = Path(root) / '_cache' / 'archive_studies.json'
-        records = read_json_safely(self.path)
-        self.read_error = records is None
-        self.records = records or {}
-        try:
-            for value in self.records.values():
-                StudyUpdate(**value)
-        except (ValueError, TypeError):
-            self.read_error = True
-            self.records = {}
-
-    def get(self, archive_id):
-        return self.records.get(archive_id, {**StudyUpdate().model_dump(), 'updated_at': None})
-
-    def put(self, archive_id, study):
-        if self.read_error:
-            raise OSError('研究记录文件损坏或不可读，请恢复原文件后重启服务')
-        value = {**study.model_dump(), 'updated_at': now()}
-        updated = {**self.records, archive_id: value}
-        atomic_json(self.path, updated)
-        self.records = updated
-        return value
 
 
 def preview_source(archiver, archive_id):

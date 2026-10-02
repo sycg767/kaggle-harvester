@@ -81,10 +81,7 @@ async def list_archives(request: Request, competition: Optional[str] = Query(Non
         entries = await run_in_threadpool(
             archiver.list_archives, competition=competition
         )
-        studies = getattr(app.state, 'archive_studies', None)
-        return [{**e.model_dump(), **({'study': studies.get(e.id)} if studies else {}),
-                 **({'study_error': '研究记录文件损坏或不可读，请恢复原文件后重启服务。'}
-                    if studies and studies.read_error else {})} for e in entries]
+        return [entry.model_dump() for entry in entries]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

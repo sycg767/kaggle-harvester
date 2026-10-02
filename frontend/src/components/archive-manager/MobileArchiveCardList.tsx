@@ -16,7 +16,6 @@ import {
   EllipsisOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
-import { studyOptions, type ArchiveStudy } from '../../archiveStudyApi';
 import type { ArchiveEntry } from '../../api';
 import {
   kaggleAuthorUrl,
@@ -28,8 +27,6 @@ import { formatBytes, formatDateParts, formatScore } from './archiveUtils';
 const { Text } = Typography;
 
 interface MobileArchiveCardListProps {
-  studyErrors?: Record<string, string>;
-  studies?: Record<string, ArchiveStudy>;
   archives: ArchiveEntry[];
   allDisplayArchives: ArchiveEntry[];
   loading: boolean;
@@ -46,8 +43,6 @@ interface MobileArchiveCardListProps {
 
 export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
   archives,
-  studies = {},
-  studyErrors = {},
   allDisplayArchives,
   loading,
   selectedRowKeys,
@@ -122,7 +117,6 @@ export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
                     <Tag className="archive-version-pill">v{archive.version_number}</Tag>
                   </div>
 
-                  <Tag color={studyErrors[archive.id] ? 'error' : undefined}>{studyErrors[archive.id] ? '状态无法读取' : studyOptions.find(option => option.value === (studies[archive.id]?.status || 'unread'))?.label}</Tag>
                   {/* Tier 2: Score + Competition */}
                   <div className="archive-mobile-score-row">
                     <div className="archive-mobile-score-box">

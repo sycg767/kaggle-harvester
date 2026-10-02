@@ -38,7 +38,6 @@ http.createServer((request, response) => {
     return;
   }
   if (url.pathname === '/api/archive-jobs') { json(response, []); return; }
-  if (url.pathname === '/api/archives/studies') { json(response, {}); return; }
   if (url.pathname === '/api/health') {
     json(response, {
       status: 'ok', service: 'kaggle-harvester', version: 'test', ready: true,

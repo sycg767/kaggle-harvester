@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Alert,
   Button,
@@ -17,8 +17,7 @@ import {
   kaggleKernelUrl,
   kaggleOwnerFromRef,
 } from '../../kaggleUrls';
-import { ArchiveStudyPanel } from './ArchiveStudyPanel';
-import type { ArchiveStudy } from '../../archiveStudyApi';
+import { ArchiveSourcePanel } from './ArchiveSourcePanel';
 import CopyButton from '../CopyButton';
 import DialogTitle from '../DialogTitle';
 import {
@@ -38,7 +37,6 @@ const { Text } = Typography;
 
 interface ArchiveDetailModalProps {
   archives: ArchiveEntry[];
-  onStudySaved: (id: string, study: ArchiveStudy) => void;
   open: boolean;
   onClose: () => void;
   archive: ArchiveEntry | null;
@@ -52,7 +50,6 @@ interface ArchiveDetailModalProps {
 export const ArchiveDetailModal: React.FC<ArchiveDetailModalProps> = ({
   open,
   archives,
-  onStudySaved,
   onClose,
   archive,
   metadata: detailMetadata,
@@ -61,11 +58,6 @@ export const ArchiveDetailModal: React.FC<ArchiveDetailModalProps> = ({
   error,
   onDownloadSource,
 }) => {
-  const [dirty, setDirty] = useState(false);
-  const close = () => {
-    if (!dirty) { onClose(); return; }
-    Modal.confirm({ title: '研究记录尚未保存', content: '关闭后将丢弃未保存的修改。', okText: '丢弃并关闭', cancelText: '继续编辑', onOk: () => { setDirty(false); onClose(); } });
-  };
   const metadata = detailMetadata?.metadata;
   const inputs = detailMetadata?.input_sources;
   const gpuEnabled = normalizeBoolean(
@@ -86,14 +78,14 @@ export const ArchiveDetailModal: React.FC<ArchiveDetailModalProps> = ({
           icon={<Archive size={18} color="#007aff" />}
           title="归档详情"
           subtitle={archive ? `${archive.ref} · v${archive.version_number}` : undefined}
-          onClose={close}
+          onClose={onClose}
         />
       )}
       open={open}
       closable={false}
       destroyOnClose
       width={880}
-      onCancel={close}
+      onCancel={onClose}
       footer={
         <div className="archive-modal-footer">
           {archive && (
@@ -110,7 +102,7 @@ export const ArchiveDetailModal: React.FC<ArchiveDetailModalProps> = ({
           <Button
             type="primary"
             className="archive-modal-btn archive-modal-btn-close"
-            onClick={close}
+            onClick={onClose}
           >
             关闭
           </Button>
@@ -125,7 +117,7 @@ export const ArchiveDetailModal: React.FC<ArchiveDetailModalProps> = ({
         <Alert type="error" showIcon message="详情加载失败" description={error} />
       ) : archive ? (
         <div className="archive-detail-body">
-          <ArchiveStudyPanel key={archive.id} archive={archive} archives={archives} onSaved={onStudySaved} onDirtyChange={setDirty} />
+          <ArchiveSourcePanel key={archive.id} archive={archive} archives={archives} />
           <div className="archive-detail-grid" aria-label="归档基础信息">
             <DetailField label="Kernel">
               <div className="archive-detail-copy-wrap">

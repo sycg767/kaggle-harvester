@@ -291,7 +291,7 @@ const AppLayout: React.FC = () => {
     { key: 'kernels', label: '代码发现', icon: <LayoutDashboard size={17} /> },
     {
       key: 'archives',
-      label: '归档与研究',
+      label: '归档管理',
       icon: <Archive size={17} />,
       badge: archiveStats?.total_archives,
     },

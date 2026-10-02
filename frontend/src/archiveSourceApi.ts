@@ -1,23 +1,15 @@
 import { apiAuth, ApiError } from './api.ts';
 
-export type StudyStatus = 'unread' | 'read' | 'planned' | 'verified';
-export interface ArchiveStudy { status: StudyStatus; notes: string; tags: string[]; updated_at?: string }
 export interface SourcePreview { archive_id: string; filename: string; content: string; truncated: boolean }
 export interface SourceComparison { archive_id: string; other_id: string; diff: string; truncated: boolean }
-export const studyOptions = [
-  { value: 'unread', label: '未读' }, { value: 'read', label: '已读' },
-  { value: 'planned', label: '准备复现' }, { value: 'verified', label: '已复现（用户标记）' },
-];
-
-async function request<T>(path: string, body?: unknown): Promise<T> {
+async function request<T>(path: string): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25000);
   try {
     const key = apiAuth.getKey();
     const response = await fetch(`/api/archives${path}`, {
-      method: body === undefined ? 'GET' : 'PUT', signal: controller.signal,
-      headers: { ...(key ? { 'X-Harvester-Key': key } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      method: 'GET', signal: controller.signal,
+      headers: key ? { 'X-Harvester-Key': key } : {},
     });
     if (!response.ok) {
       if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('harvester:auth-required'));
@@ -34,10 +26,7 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
 }
 
 const idPath = (id: string) => `/${encodeURIComponent(id)}`;
-export const archiveStudyApi = {
-  list: () => request<Record<string, ArchiveStudy>>('/studies'),
-  get: (id: string) => request<ArchiveStudy>(`${idPath(id)}/study`),
-  save: (id: string, study: ArchiveStudy) => request<ArchiveStudy>(`${idPath(id)}/study`, { status: study.status, notes: study.notes, tags: study.tags }),
+export const archiveSourceApi = {
   preview: (id: string) => request<SourcePreview>(`${idPath(id)}/preview`),
   compare: (id: string, otherId: string) => request<SourceComparison>(`${idPath(id)}/compare?other_id=${encodeURIComponent(otherId)}`),
 };
