@@ -9,6 +9,7 @@ interface ArenaHeaderProps {
   competitionOptions: Array<{ value: string; label: string; tag?: string }>;
   hasSimData: boolean;
   isFinished: boolean;
+  isHistorical: boolean;
   refreshing: boolean;
   onRefresh: () => void;
 }
@@ -19,6 +20,7 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
   competitionOptions,
   hasSimData,
   isFinished,
+  isHistorical,
   refreshing,
   onRefresh,
 }) => {
@@ -31,10 +33,15 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
         <div className="arena-header-text-group">
           <div className="arena-header-title-row">
             <h1 className="arena-header-title">天梯对抗</h1>
-            {hasSimData && isFinished ? (
+            {isHistorical ? (
+              <Tag color="cyan" className="arena-status-tag">
+                <Clock size={12} />
+                <span>历史快照</span>
+              </Tag>
+            ) : isFinished ? (
               <Tag color="cyan" className="arena-status-tag">
                 <CheckCircle2 size={12} />
-                <span>已完赛</span>
+                <span>赛事已截止</span>
               </Tag>
             ) : hasSimData ? (
               <Tag color="gold" className="arena-status-tag">
@@ -56,8 +63,9 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
 
       <div className="arena-header-controls">
         <div className="arena-header-select-group">
-          <span className="arena-header-select-label">赛事:</span>
+          <span className="arena-header-select-label">查看赛事:</span>
           <Select
+            aria-label="查看赛事（仅天梯页）"
             value={selectedCompetition}
             onChange={onCompetitionChange}
             className="arena-header-select"

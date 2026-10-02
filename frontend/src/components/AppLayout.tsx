@@ -242,7 +242,6 @@ const AppLayout: React.FC = () => {
     if (!slug) return;
     const cleanSlug = slug.trim();
     localStorage.setItem('harvester.competition', cleanSlug);
-    localStorage.setItem('harvester.arenaCompetition', cleanSlug);
     dispatchCompetitionChanged(cleanSlug);
     void api.getCompetition(cleanSlug).then((comp) => {
       if (comp) {

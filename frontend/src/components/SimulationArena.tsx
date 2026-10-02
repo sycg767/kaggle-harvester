@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   App as AntApp,
   Spin,
@@ -8,13 +8,12 @@ import {
   api,
   type CompetitionInfo,
   type EnteredCompetition,
-  type SimulationMonitorSnapshot,
+  type SimulationArenaSnapshot,
 } from '../api';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
-import { HARVESTER_EVENTS, dispatchCompetitionChanged } from '../events';
 import { isCompetitionEnded, parseKaggleDeadline } from '../competitionOptions';
 import ScoreTrajectoryChart from './ScoreTrajectoryChart';
-import { selectSimulationData } from './arena/arenaData';
+import { readArenaCompetition, saveArenaCompetition, selectSimulationData } from './arena/arenaData';
 import {
   ArenaHeader,
   AgentStatsGrid,
@@ -30,71 +29,72 @@ export const SimulationArena: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const [selectedCompetition, setSelectedCompetition] = useState<string>(() => {
-    return localStorage.getItem('harvester.competition') || localStorage.getItem('harvester.arenaCompetition') || '';
+    return readArenaCompetition(localStorage);
   });
-  const [loadError, setLoadError] = useState(false);
-  const [simSnapshot, setSimSnapshot] = useState<SimulationMonitorSnapshot | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [simSnapshot, setSimSnapshot] = useState<SimulationArenaSnapshot | null>(null);
   const [enteredComps, setEnteredComps] = useState<EnteredCompetition[]>([]);
   const [compInfo, setCompInfo] = useState<CompetitionInfo | null>(null);
+  const requestVersion = useRef(0);
 
   const handleCompetitionChange = (comp: string) => {
+    if (comp === selectedCompetition) return;
+    requestVersion.current += 1;
+    setLoading(true);
+    setLoadError('');
     setSelectedCompetition(comp);
-    localStorage.setItem('harvester.competition', comp);
-    localStorage.setItem('harvester.arenaCompetition', comp);
-    dispatchCompetitionChanged(comp);
+    if (!saveArenaCompetition(localStorage, comp)) {
+      message.warning('已切换本页赛事，但浏览器未能保存选择；重新打开后可能需要再次选择。');
+    }
   };
 
   useEffect(() => {
-    const handleCompChange = (event: Event) => {
-      const customEvent = event as CustomEvent<string>;
-      const slug = customEvent.detail;
-      if (slug && slug !== selectedCompetition) {
-        setSelectedCompetition(slug);
-      }
-    };
-    window.addEventListener(HARVESTER_EVENTS.competitionChanged, handleCompChange);
-    return () => window.removeEventListener(HARVESTER_EVENTS.competitionChanged, handleCompChange);
-  }, [selectedCompetition]);
+    let active = true;
+    void getEnteredCompetitions().then((list) => { if (active) setEnteredComps(list); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   const loadArenaData = useCallback(async (quiet = false) => {
+    const version = ++requestVersion.current;
     if (!quiet) setLoading(true);
     else setRefreshing(true);
 
     try {
-      const [h, sim, enteredList] = await Promise.all([
-        api.health().catch(() => null),
-        api.getSimulationMonitor().catch(() => null),
-        getEnteredCompetitions().catch(() => []),
-      ]);
-
-      setLoadError(!sim);
-      if (sim) setSimSnapshot(sim);
-      if (enteredList && enteredList.length > 0) setEnteredComps(enteredList);
-
-      const targetComp =
-        selectedCompetition ||
-        sim?.config?.competition ||
-        h?.active_competition?.competition ||
-        h?.default_competition ||
-        '';
-      if (targetComp && !selectedCompetition) {
-        setSelectedCompetition(targetComp);
+      const sim = await api.getSimulationArena(selectedCompetition || undefined);
+      if (version !== requestVersion.current) return;
+      if (selectedCompetition && sim.competition !== selectedCompetition) {
+        throw new Error('返回数据的赛事与当前选择不一致');
       }
-
-    } catch (err: any) {
-      if (!quiet) message.error(`加载模拟对战数据失败: ${err.message}`);
+      setLoadError('');
+      setSimSnapshot(sim);
+      if (!selectedCompetition && sim.competition) {
+        setSelectedCompetition(sim.competition);
+      }
+    } catch (err: unknown) {
+      if (version === requestVersion.current) {
+        setLoadError(err instanceof Error ? err.message : '请求失败，请稍后重试');
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (version === requestVersion.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [selectedCompetition, message]);
+  }, [selectedCompetition]);
 
   useEffect(() => {
-    void loadArenaData();
-    const timer = setInterval(() => {
-      void loadArenaData(true);
-    }, 30000);
-    return () => clearInterval(timer);
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async (quiet = false) => {
+      await loadArenaData(quiet);
+      if (active) timer = setTimeout(() => void poll(true), 30000);
+    };
+    void poll();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      requestVersion.current += 1;
+    };
   }, [loadArenaData]);
 
   useEffect(() => {
@@ -127,8 +127,10 @@ export const SimulationArena: React.FC = () => {
     return false;
   }, []);
 
-  const simStatus = simSnapshot?.status;
-  const configuredSimComp = simSnapshot?.config?.competition || simStatus?.competition || '';
+  const currentSnapshot = simSnapshot?.competition === selectedCompetition ? simSnapshot : null;
+  const simStatus = currentSnapshot?.status;
+  const configuredSimComp = simSnapshot?.monitored_competition || '';
+  const selectedCompInfo = compInfo?.id === selectedCompetition ? compInfo : null;
 
   // Clean competition options without result leaks or redundant tags
   const competitionOptions = useMemo(() => {
@@ -152,18 +154,23 @@ export const SimulationArena: React.FC = () => {
     }
 
     if (configuredSimComp && !seen.has(configuredSimComp)) {
+      seen.add(configuredSimComp);
       list.push({
         value: configuredSimComp,
         label: `${configuredSimComp} (当前配置)`,
       });
     }
+    if (selectedCompetition && !seen.has(selectedCompetition)) {
+      list.push({ value: selectedCompetition, label: selectedCompetition });
+    }
 
     return list;
-  }, [enteredComps, configuredSimComp, isSimulationCompetition]);
+  }, [enteredComps, configuredSimComp, isSimulationCompetition, selectedCompetition]);
 
   const { matches: matchesCompetition, agents, thresholds } = selectSimulationData(simStatus, selectedCompetition);
   const hasSimData = agents.length > 0;
-  const isFinished = isCompetitionEnded(compInfo?.deadline || currentEnteredMeta?.deadline);
+  const isFinished = isCompetitionEnded(selectedCompInfo?.deadline || currentEnteredMeta?.deadline);
+  const isHistorical = currentSnapshot?.source === 'history';
 
   const formatDate = (val?: string) => {
     if (!val) return '—';
@@ -178,7 +185,7 @@ export const SimulationArena: React.FC = () => {
     });
   };
 
-  const currentTitle = compInfo?.title || currentEnteredMeta?.title || selectedCompetition;
+  const currentTitle = selectedCompInfo?.title || currentEnteredMeta?.title || selectedCompetition;
 
   return (
     <div className="arena-container">
@@ -189,15 +196,23 @@ export const SimulationArena: React.FC = () => {
         competitionOptions={competitionOptions}
         hasSimData={hasSimData}
         isFinished={isFinished}
+        isHistorical={isHistorical}
         refreshing={refreshing}
         onRefresh={() => void loadArenaData(true)}
       />
 
-      {(loadError || (matchesCompetition && simStatus?.last_error)) && (
+      {isHistorical && (
+        <Alert
+          style={{ marginBottom: 16 }} showIcon type="info"
+          message={`历史采集快照 · ${formatDate(currentSnapshot?.captured_at || undefined)}`}
+          description="展示该赛事最近一次已保存的采集结果，不代表最终榜单。查看历史不会切换顶部全局赛事或后台监控任务。"
+        />
+      )}
+      {(loadError || currentSnapshot?.warning || (matchesCompetition && simStatus?.last_error)) && (
         <Alert
           style={{ marginBottom: 16 }} showIcon type="warning"
-          message={loadError ? '本次刷新失败，已有数据可能过期' : '最近一次采集异常'}
-          description={matchesCompetition && simStatus?.last_error ? simStatus.last_error : undefined}
+          message={loadError ? (hasSimData ? '本次刷新失败，保留上次数据' : '赛事数据读取失败') : isHistorical ? '历史采集记录提示' : '最近一次采集异常'}
+          description={loadError || currentSnapshot?.warning || simStatus?.last_error}
         />
       )}
       {/* 2. Main Content Layout */}
@@ -237,7 +252,7 @@ export const SimulationArena: React.FC = () => {
           <MedalCutoffTrack
             thresholds={thresholds}
             agents={agents}
-            totalTeams={thresholds?.total_teams ?? compInfo?.team_count ?? currentEnteredMeta?.team_count}
+            totalTeams={thresholds?.total_teams ?? selectedCompInfo?.team_count ?? currentEnteredMeta?.team_count}
             isFinished={isFinished}
             getAgentMeta={getAgentMeta}
           />
@@ -249,13 +264,14 @@ export const SimulationArena: React.FC = () => {
             competitionTitle={currentTitle}
           />
         </div>
-      ) : (
+      ) : loadError ? null : (
         /* 2B. Standby View */
         <ArenaStandbyView
           selectedCompetition={selectedCompetition}
           currentTitle={currentTitle}
-          compInfo={compInfo}
+          compInfo={selectedCompInfo}
           currentEnteredMeta={currentEnteredMeta}
+          isFinished={isFinished}
           formatDate={formatDate}
           onNavigateToKernels={() => window.location.assign('/kernels')}
         />

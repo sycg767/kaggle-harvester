@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readArenaCompetition, saveArenaCompetition } from '../src/components/arena/arenaData.ts';
 import { api, type SimulationMonitorConfig, type SimulationMonitorSnapshot } from '../src/api.ts';
 
 test('getSimulationMonitor 正确发送请求并解析快照响应', async () => {
@@ -158,6 +159,39 @@ test('runSimulationMonitor 正确触发 POST /api/simulation-monitor/run', async
     const res = await api.runSimulationMonitor();
     assert.equal(requestedUrl, '/api/simulation-monitor/run');
     assert.equal(requestMethod, 'POST');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+test('天梯页选择独立保存，重新打开保留本页选择且不改全局赛事', () => {
+  const values = new Map([['harvester.competition', 'current-contest']]);
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  assert.equal(readArenaCompetition(storage), 'current-contest');
+  assert.equal(saveArenaCompetition(storage, 'ended-contest'), true);
+  assert.equal(readArenaCompetition(storage), 'ended-contest');
+  assert.equal(values.get('harvester.competition'), 'current-contest');
+});
+
+test('天梯页选择持久化失败可辨识，不影响内存中切换', () => {
+  const blocked = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('quota'); } };
+  assert.equal(readArenaCompetition(blocked), '');
+  assert.equal(saveArenaCompetition(blocked, 'ended-contest'), false);
+});
+
+test('天梯快照请求带赛事参数，且不发出监控配置写入请求', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; method: string }> = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), method: init?.method || 'GET' });
+    return new Response(JSON.stringify({ competition: 'ended-contest', source: 'history' }), { headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    await api.getSimulationArena('ended-contest');
+    await api.getSimulationArena();
+    assert.deepEqual(calls, [
+      { url: '/api/simulation-monitor/arena?competition=ended-contest', method: 'GET' },
+      { url: '/api/simulation-monitor/arena', method: 'GET' },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

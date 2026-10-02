@@ -201,3 +201,12 @@ export interface SimulationMonitorSnapshot {
   status: SimulationMonitorStatus;
   logs: SimulationMonitorRunLog[];
 }
+
+export interface SimulationArenaSnapshot {
+  competition: string;
+  monitored_competition: string;
+  source: 'current' | 'history' | 'empty';
+  captured_at?: string | null;
+  warning?: string | null;
+  status: SimulationMonitorStatus;
+}

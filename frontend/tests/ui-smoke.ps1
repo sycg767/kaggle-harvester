@@ -58,13 +58,15 @@ try {
     $EdgeProfile = Join-Path $TempRoot 'edge-profile'
     $EdgeProcess = Start-Process -FilePath $Edge `
         -ArgumentList @('--headless=new', '--disable-gpu', '--no-first-run', '--virtual-time-budget=5000', "--user-data-dir=$EdgeProfile", '--dump-dom', "http://127.0.0.1:$FrontendPort/kernels") `
-        -Wait -PassThru -RedirectStandardOutput $DomPath -RedirectStandardError $EdgeErrorPath
+        -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $DomPath -RedirectStandardError $EdgeErrorPath
     if ($EdgeProcess.ExitCode -ne 0) { throw "Edge exited with code $($EdgeProcess.ExitCode)." }
     $Dom = Get-Content -Raw -Encoding UTF8 $DomPath
     foreach ($Expected in @('newapi-app', 'owner/example-notebook', '6.9390')) {
         if (-not $Dom.Contains($Expected)) { throw "UI smoke assertion failed: $Expected" }
     }
     Write-Host 'UI smoke test passed.' -ForegroundColor Green
+    & node (Join-Path $FrontendDir 'tests/arena-ui-smoke.mjs') $Edge $TempRoot "http://127.0.0.1:$FrontendPort"
+    if ($LASTEXITCODE -ne 0) { throw 'Arena UI regression test failed.' }
 }
 finally {
     foreach ($process in @($FrontendProcess, $MockProcess)) {

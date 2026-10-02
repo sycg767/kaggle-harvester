@@ -23,6 +23,7 @@ import type {
   SimulationMonitorConfig,
   SimulationMonitorRunDetail,
   SimulationMonitorSnapshot,
+  SimulationArenaSnapshot,
   SubmissionMonitorConfig,
   SubmissionMonitorRunDetail,
   SubmissionMonitorSnapshot,
@@ -384,6 +385,11 @@ export const api = {
 
   getSimulationMonitor(): Promise<SimulationMonitorSnapshot> {
     return request('/simulation-monitor');
+  },
+
+  getSimulationArena(competition?: string): Promise<SimulationArenaSnapshot> {
+    const query = competition ? `?competition=${encodeURIComponent(competition)}` : '';
+    return request(`/simulation-monitor/arena${query}`);
   },
 
   updateSimulationMonitor(config: SimulationMonitorConfig): Promise<SimulationMonitorSnapshot> {

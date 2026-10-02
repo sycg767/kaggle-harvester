@@ -17,6 +17,7 @@ from harvester.simulation_monitor import (
     SimulationMonitorBusyError,
     SimulationMonitorManager,
 )
+from harvester.schemas.simulation import SimulationArenaSnapshot
 
 router = APIRouter(tags=["SimulationMonitor"])
 
@@ -26,6 +27,20 @@ async def get_simulation_monitor(request: Request):
     """读取 Simulation 模拟对战与天梯监控状态。"""
     manager: SimulationMonitorManager = request.app.state.simulation_monitor
     return manager.snapshot()
+
+
+@router.get("/api/simulation-monitor/arena", response_model=SimulationArenaSnapshot)
+async def get_simulation_arena(
+    request: Request,
+    competition: Optional[str] = Query(None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$"),
+):
+    manager: SimulationMonitorManager = request.app.state.simulation_monitor
+    try:
+        return await run_in_threadpool(manager.arena_snapshot, competition)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except OSError:
+        raise HTTPException(status_code=503, detail="历史快照暂时无法读取，请稍后重试。")
 
 
 @router.get(

@@ -1,5 +1,22 @@
 import type { SimulationMonitorStatus } from '../../types/simulation.ts';
 
+export function readArenaCompetition(storage: Pick<Storage, 'getItem'>): string {
+  try {
+    return storage.getItem('harvester.arenaCompetition') || storage.getItem('harvester.competition') || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveArenaCompetition(storage: Pick<Storage, 'setItem'>, competition: string): boolean {
+  try {
+    storage.setItem('harvester.arenaCompetition', competition);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // A saved configuration can change before the next scan; only the snapshot's
 // own competition is evidence that its scores belong to the selected workspace.
 export function selectSimulationData(status: SimulationMonitorStatus | undefined, competition: string) {

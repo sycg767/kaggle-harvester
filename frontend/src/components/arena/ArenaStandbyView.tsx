@@ -13,6 +13,7 @@ interface ArenaStandbyViewProps {
   currentTitle: string;
   compInfo: CompetitionInfo | null;
   currentEnteredMeta?: EnteredCompetition;
+  isFinished: boolean;
   formatDate: (val?: string) => string;
   onNavigateToKernels: () => void;
 }
@@ -22,6 +23,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
   currentTitle,
   compInfo,
   currentEnteredMeta,
+  isFinished,
   formatDate,
   onNavigateToKernels,
 }) => {
@@ -50,7 +52,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
                   </Tag>
                   <Tag color="orange" className="arena-standby-status-tag">
                     <Clock size={11} style={{ marginRight: 3 }} />
-                    <span>暂无对应数据</span>
+                    <span>{isFinished ? '暂无历史快照' : '暂无对应数据'}</span>
                   </Tag>
                 </div>
                 <div className="arena-standby-comp-id">
@@ -150,10 +152,10 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
               <Zap size={16} color="#ff9500" />
               <div>
                 <div className="arena-standby-action-title">
-                  当前赛事尚无可展示的 Agent 数据
+                  {isFinished ? '赛事已截止，尚未找到已保存的对战快照' : '当前赛事尚无可展示的 Agent 数据'}
                 </div>
                 <div className="arena-standby-action-desc">
-                  请检查监控赛事、Submission ID 和最近采集结果
+                  {isFinished ? '仅有赛事基本信息；不会使用其他赛事的分数或自动切换后台监控。' : '请检查监控赛事、Submission ID 和最近采集结果'}
                 </div>
               </div>
             </div>
@@ -162,7 +164,7 @@ export const ArenaStandbyView: React.FC<ArenaStandbyViewProps> = ({
               <SimulationMonitorControl
                 currentCompetition={selectedCompetition}
                 buttonType="primary"
-                buttonText="开启对战监控"
+                buttonText={isFinished ? '查看监控配置' : '开启对战监控'}
               />
               <Button
                 icon={<LayoutDashboard size={14} />}

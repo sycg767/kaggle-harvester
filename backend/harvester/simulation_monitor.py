@@ -39,6 +39,8 @@ from .simulation import (
     calculate_agent_stats,
     execute_simulation_sync,
 )
+from .simulation.history import SimulationHistoryReader
+from .schemas.simulation import SimulationArenaSnapshot
 
 
 SIMULATION_FETCH_TIMEOUT_SECONDS = float(
@@ -95,6 +97,7 @@ class SimulationMonitorManager:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._run_details_root = self._state_path.parent / "simulation_monitor_runs"
         self._run_details_root.mkdir(parents=True, exist_ok=True)
+        self._history_reader = SimulationHistoryReader(self._run_details_root)
         self._state_lock = threading.RLock()
         self._sync_run_lock = threading.Lock()
         self._run_lock = asyncio.Lock()
@@ -227,6 +230,42 @@ class SimulationMonitorManager:
                 logs=[item.model_copy(deep=True) for item in self._logs],
             )
 
+    def arena_snapshot(self, competition: str | None = None) -> SimulationArenaSnapshot:
+        with self._state_lock:
+            monitored = self._config.competition
+            selected = (competition or monitored).strip()
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,199}", selected):
+                raise ValueError("赛事 ID 无效。")
+            current = self._status.model_copy(deep=True) if self._status.competition == selected else None
+            if selected == monitored and current and current.agents:
+                current.running = bool(current.running and self._run_lock.locked())
+                current.enabled = self._config.enabled
+                current.scheduler_alive = bool(self._task is not None and not self._task.done())
+                return SimulationArenaSnapshot(
+                    competition=selected, monitored_competition=monitored,
+                    source="current", captured_at=current.last_checked_at, status=current,
+                )
+
+        # Legacy runs remain available even after their summary leaves the 200-log
+        # window. History reads never change scheduler configuration or call Kaggle.
+        detail, warning = self._history_reader.latest(selected)
+        if detail:
+            thresholds = detail.thresholds or detail.medal_thresholds
+            status = SimulationMonitorStatus(
+                competition=selected, agents=detail.agents,
+                thresholds=thresholds, medal_thresholds=thresholds,
+                last_checked_at=detail.log.finished_at, last_error=detail.log.error,
+                total_tracked_episodes=detail.log.total_episodes_found,
+            )
+            return SimulationArenaSnapshot(
+                competition=selected, monitored_competition=monitored, source="history",
+                captured_at=detail.log.finished_at, warning=warning, status=status,
+            )
+        return SimulationArenaSnapshot(
+            competition=selected, monitored_competition=monitored, source="empty",
+            warning=warning, status=current or SimulationMonitorStatus(competition=selected),
+        )
+
     def get_episodes_page(
         self,
         submission_id: int,
@@ -279,6 +318,7 @@ class SimulationMonitorManager:
             encoding="utf-8",
         )
         temp_path.replace(path)
+        self._history_reader.remember(log)
 
     def get_run_detail(self, log_id: str) -> SimulationMonitorRunDetail | None:
         with self._state_lock:

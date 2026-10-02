@@ -241,3 +241,14 @@ class SimulationMonitorSnapshot(BaseModel):
     config: SimulationMonitorConfig
     status: SimulationMonitorStatus
     logs: list[SimulationMonitorRunLog] = Field(default_factory=list)
+
+
+class SimulationArenaSnapshot(BaseModel):
+    """Read-only view of one competition, independent of the active monitor."""
+
+    competition: str
+    monitored_competition: str
+    source: Literal["current", "history", "empty"]
+    captured_at: Optional[str] = None
+    warning: Optional[str] = None
+    status: SimulationMonitorStatus
