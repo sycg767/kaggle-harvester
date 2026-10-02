@@ -2172,7 +2172,7 @@ a:hover {
   .newapi-header {
     padding-inline: 8px;
     background: #ffffff;
-    border-bottom-color: var(--border);
+    border-bottom-color: var(--border-subtle);
   }
 
   .newapi-brand {
