@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="a">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Safari 顶部颜色对照 · Kaggle Harvester</title>
+    <script>
+      // Set the variant before first paint; each comparison uses a full navigation.
+      const mode = new URLSearchParams(location.search).get('mode') || 'a';
+      document.documentElement.dataset.mode = /^[a-e]$/.test(mode) ? mode : 'a';
+    </script>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: #fff; color: #1c1c1e; }
+      body { font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      header { position: relative; height: 58px; padding: 0 18px; display: flex; align-items: center; background: #fff; border-bottom: 1px solid #ddd; z-index: 1; }
+      main { padding: 18px; }
+      .wrap { max-width: 640px; margin: auto; }
+      h1 { font-size: 24px; line-height: 1.3; margin: 0 0 12px; }
+      h2 { font-size: 18px; margin: 0 0 8px; }
+      p { margin: 8px 0 14px; }
+      nav { display: grid; gap: 8px; margin: 18px 0; }
+      a { color: #0068ce; }
+      nav a { display: block; padding: 10px 12px; min-height: 44px; border: 1px solid #ccc; border-radius: 10px; text-decoration: none; background: #fff; }
+      nav a[aria-current="page"] { border: 2px solid #007aff; padding: 9px 11px; font-weight: 600; }
+      section { margin: 16px 0; padding: 16px; background: #fff; border: 1px solid #ddd; border-radius: 12px; }
+      .hint { font-size: 14px; color: #52525b; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+      summary { cursor: pointer; min-height: 44px; padding: 10px 0; }
+      .scroll-sample { min-height: 110vh; display: flex; flex-direction: column; justify-content: space-between; }
+      html:not([data-mode="a"]), html:not([data-mode="a"]) body { background-color: #f2f2f7; }
+      html:not([data-mode="a"]) body {
+        background-image: radial-gradient(circle at 79% 12%, rgba(0,122,255,.08), transparent 23%), radial-gradient(circle at 28% 94%, rgba(175,82,222,.055), transparent 25%);
+      }
+      html:is([data-mode="c"], [data-mode="d"], [data-mode="e"]) body { overflow: hidden; min-height: 100vh; }
+      html:is([data-mode="c"], [data-mode="d"], [data-mode="e"]) main {
+        height: calc(100vh - 58px); height: calc(100dvh - 58px);
+        overflow-y: auto; overflow-x: hidden; background: #f2f2f7;
+        overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch;
+      }
+      html[data-mode="d"] header {
+        background: rgba(248,248,250,.76);
+        backdrop-filter: blur(26px) saturate(180%);
+        -webkit-backdrop-filter: blur(26px) saturate(180%);
+      }
+      html[data-mode="e"] header { position: sticky; top: 0; }
+    </style>
+  </head>
+  <body>
+    <header>Safari 顶部颜色对照</header>
+    <main>
+      <div class="wrap">
+        <h1 id="title">A · 白底普通页面</h1>
+        <p>看屏幕最上方<strong>时间、电量后面的区域</strong>，再看底部地址栏周围。这里测试的是简化布局，未加载赛事数据或业务组件。</p>
+        <p>先比较 <strong>A 和 D</strong>。每版先观察刚打开时，再向下滚动、回到顶部；记下“正常 / 灰色 / 滚动后才灰”。</p>
+        <nav aria-label="选择对照版本">
+          <a href="?mode=a" data-case="a">A · 白底普通页面</a>
+          <a href="?mode=b" data-case="b">B · 渐变背景（对比 A）</a>
+          <a href="?mode=c" data-case="c">C · 内容区域独立滚动（对比 B）</a>
+          <a href="?mode=d" data-case="d">D · 半透明毛玻璃顶部（对比 C）</a>
+          <a href="?mode=e" data-case="e">E · 顶部固定为白色（对比 C）</a>
+        </nav>
+        <section>
+          <h2>把结果发回聊天</h2>
+          <p>A：___　D：___<br />如有差别，再观察 B、C、E。</p>
+          <p class="hint">若 A～E 全部正常，但原页面仍灰，说明这组简化布局没有复现问题，需要继续检查原页面；不能据此认定已经修复。</p>
+        </section>
+        <details>
+          <summary>环境信息（可展开后截图）</summary>
+          <pre id="environment"></pre>
+          <p class="hint">只在当前页面显示，没有上传或保存。iOS 版本请以系统设置为准。</p>
+        </details>
+        <section class="scroll-sample" aria-label="滚动观察区域">
+          <div><h2>向下滚动观察</h2><p>留意顶部和底部灰色是否随滚动出现、消失或加深。</p></div>
+          <div><h2>已到观察区域底部</h2><p>现在滑回顶部，查看颜色是否恢复。</p><a href="?mode=a">返回 A · 白底普通页面</a></div>
+        </section>
+      </div>
+    </main>
+    <script>
+      const selected = document.documentElement.dataset.mode;
+      const active = document.querySelector(`[data-case="${selected}"]`);
+      active.setAttribute('aria-current', 'page');
+      document.getElementById('title').textContent = active.textContent.split('（')[0];
+      function showEnvironment() {
+        const viewport = window.visualViewport;
+        document.getElementById('environment').textContent = [
+          `版本：${selected.toUpperCase()} / 诊断页 v1`,
+          `布局视口：${window.innerWidth} × ${window.innerHeight}`,
+          `可见视口：${viewport ? `${Math.round(viewport.width)} × ${Math.round(viewport.height)}` : '不支持'}`,
+          `可见视口缩放：${viewport ? viewport.scale.toFixed(2) : '不支持'}`,
+          `窄屏布局条件（≤768px）：${matchMedia('(max-width: 768px)').matches ? '满足' : '不满足'}`,
+          `系统深色偏好：${matchMedia('(prefers-color-scheme: dark)').matches ? '是' : '否'}`,
+          `减少透明效果偏好：${matchMedia('(prefers-reduced-transparency: reduce)').matches ? '是' : '否或浏览器不支持'}`,
+          `浏览器标识：${navigator.userAgent}`,
+        ].join('\n');
+      }
+      showEnvironment();
+      window.addEventListener('resize', showEnvironment);
+      window.visualViewport?.addEventListener('resize', showEnvironment);
+    </script>
+  </body>
+</html>
