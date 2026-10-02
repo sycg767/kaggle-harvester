@@ -167,6 +167,18 @@ a:hover {
   border-bottom: 1px solid rgba(60, 60, 67, 0.09);
 }
 
+/* Match the white, viewport-attached header verified in the iPhone comparison.
+   Coarse-pointer devices also need this when requesting a desktop viewport. */
+@media (max-width: 768px), (hover: none) and (pointer: coarse) {
+  .newapi-header {
+    position: sticky;
+    top: 0;
+    background: #ffffff;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
 .newapi-header-brand-group {
   display: flex;
   align-items: center;
