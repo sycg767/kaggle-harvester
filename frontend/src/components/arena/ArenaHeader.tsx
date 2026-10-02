@@ -1,6 +1,6 @@
 import React from 'react';
-import { Tag, Select, Button } from 'antd';
-import { Swords, RefreshCw, CheckCircle2, Activity, Clock } from 'lucide-react';
+import { Tag, Select } from 'antd';
+import { Swords, CheckCircle2, Activity, Clock } from 'lucide-react';
 import SimulationMonitorControl from '../SimulationMonitorControl';
 
 interface ArenaHeaderProps {
@@ -10,8 +10,6 @@ interface ArenaHeaderProps {
   hasSimData: boolean;
   isFinished: boolean;
   isHistorical: boolean;
-  refreshing: boolean;
-  onRefresh: () => void;
 }
 
 export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
@@ -21,8 +19,6 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
   hasSimData,
   isFinished,
   isHistorical,
-  refreshing,
-  onRefresh,
 }) => {
   return (
     <div className="arena-header-banner">
@@ -78,15 +74,6 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
         </div>
         <div className="arena-header-actions">
           <SimulationMonitorControl currentCompetition={selectedCompetition} buttonText="天梯对战监控" />
-          <Button
-            icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
-            loading={refreshing}
-            onClick={onRefresh}
-            className="arena-refresh-btn"
-            aria-label="刷新"
-          >
-            <span>刷新</span>
-          </Button>
         </div>
       </div>
     </div>

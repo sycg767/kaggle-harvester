@@ -43,8 +43,8 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
     return result.result.value;
   };
-  const waitFor = async (expression, label) => {
-    for (let i = 0; i < 100; i++) {
+  const waitFor = async (expression, label, attempts = 100) => {
+    for (let i = 0; i < attempts; i++) {
       if (await evaluate(expression)) return;
       await delay(100);
     }
@@ -99,8 +99,8 @@ try {
 
   await selectCompetition('Pokémon 历史测试赛事');
   await waitFor(`document.body.innerText.includes('历史测试 Agent')`, 'history restored');
-  await evaluate(`window.__failArena = true; document.querySelector('.arena-refresh-btn').click()`);
-  await waitFor(`document.body.innerText.includes('本次刷新失败，保留上次数据')`, 'refresh error');
+  await evaluate('window.__failArena = true');
+  await waitFor(`document.body.innerText.includes('本次刷新失败，保留上次数据')`, 'automatic refresh error', 400);
   assert.equal(await evaluate(`document.body.innerText.includes('历史测试 Agent')`), true);
   await assertGlobalUnchanged();
   console.log('Arena UI passed: independent selection, history, reload, empty state, request race, refresh failure, read-only requests.');

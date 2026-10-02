@@ -26,7 +26,6 @@ export const SimulationArena: React.FC = () => {
   const { message } = AntApp.useApp();
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   const [selectedCompetition, setSelectedCompetition] = useState<string>(() => {
     return readArenaCompetition(localStorage);
@@ -57,7 +56,6 @@ export const SimulationArena: React.FC = () => {
   const loadArenaData = useCallback(async (quiet = false) => {
     const version = ++requestVersion.current;
     if (!quiet) setLoading(true);
-    else setRefreshing(true);
 
     try {
       const sim = await api.getSimulationArena(selectedCompetition || undefined);
@@ -77,7 +75,6 @@ export const SimulationArena: React.FC = () => {
     } finally {
       if (version === requestVersion.current) {
         setLoading(false);
-        setRefreshing(false);
       }
     }
   }, [selectedCompetition]);
@@ -197,8 +194,6 @@ export const SimulationArena: React.FC = () => {
         hasSimData={hasSimData}
         isFinished={isFinished}
         isHistorical={isHistorical}
-        refreshing={refreshing}
-        onRefresh={() => void loadArenaData(true)}
       />
 
       {isHistorical && (
