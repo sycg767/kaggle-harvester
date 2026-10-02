@@ -72,11 +72,24 @@ class NotificationStatus(BaseModel):
     pending_count: int = 0
 
 
+class NotificationDelivery(BaseModel):
+    id: str
+    event_id: str
+    event: str
+    competition: str = ""
+    channel: str
+    state: Literal["queued", "sent", "failed"]
+    attempts: int = 0
+    recorded_at: str
+    error: Optional[str] = None
+
+
 class NotificationSnapshot(BaseModel):
     """通知配置、凭据状态和发送状态。"""
 
     config: NotificationConfigView
     status: NotificationStatus
+    deliveries: list[NotificationDelivery] = Field(default_factory=list)
 
 
 class NotificationChannelResult(BaseModel):

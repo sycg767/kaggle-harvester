@@ -71,7 +71,9 @@ export const SimControlBar: React.FC<SimControlBarProps> = ({
               ? isMonitoringActive
                 ? status?.running
                   ? '正在执行检查中...'
-                  : `后台调度监控中 (${config?.interval_minutes || 10} 分钟/次)`
+                  : status?.scheduler_alive
+                    ? `等待下次调度 (${config?.interval_minutes || 10} 分钟/次)`
+                    : '监控已启用，但调度器未运行'
                 : '后台监控已暂停 (定时关闭)'
               : isMonitoringActive
               ? `后台正监控其他赛事 (${config?.competition})`
@@ -115,6 +117,9 @@ export const SimControlBar: React.FC<SimControlBarProps> = ({
             <Text type="secondary" style={{ fontSize: 12 }}>
               上次检查: {formatDate(status?.last_checked_at)}
             </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              上次完整成功: {formatDate(status?.last_success_at || undefined)}
+            </Text>
 
             {isMonitoringActive && status?.next_run_at && (
               <Text type="secondary" style={{ fontSize: 12 }}>
@@ -133,7 +138,7 @@ export const SimControlBar: React.FC<SimControlBarProps> = ({
         )}
       </div>
 
-      <Space size={8}>
+      <Space size={8} wrap>
         <Button
           type={!isTargetCompActive || !isMonitoringActive ? 'primary' : 'default'}
           size="small"

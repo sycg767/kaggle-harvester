@@ -58,6 +58,11 @@ export function useKernelListState() {
   const [error, setError] = useState<string | null>(null);
   const [cacheInfo, setCacheInfo] = useState<KernelCacheInfo | null>(null);
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
+  const [appliedQuery, setAppliedQuery] = useState<{ sort: string; competition: string; pageSize: number; maxPages: number; scoreLimit: number } | null>(null);
+  const queryPending = Boolean(appliedQuery && (
+    appliedQuery.sort !== sortBy || appliedQuery.competition !== competitionInput.trim() ||
+    !isScoreSort(sortBy) && (appliedQuery.pageSize !== pageSize || appliedQuery.maxPages !== maxPages || appliedQuery.scoreLimit !== scoreLimit)
+  ));
 
   const loadKernels = useCallback(
     async (refresh = false, requestedCompetition?: string) => {
@@ -111,6 +116,7 @@ export function useKernelListState() {
         });
         if (requestSequence !== requestSequenceRef.current) return;
         setKernels(result.items);
+        setAppliedQuery({ sort: sortBy, competition: nextCompetition, pageSize, maxPages, scoreLimit });
         setCacheInfo(result.cache);
         setBackgroundRefreshing(result.cache.refreshing);
         competitionRef.current = nextCompetition;
@@ -226,7 +232,7 @@ export function useKernelListState() {
       if (!slug || slug === competitionRef.current) return;
       competitionRef.current = slug;
       setCompetitionInput(slug); setCompetition(slug);
-      setKernels([]); setArchives([]); setCompetitionInfo(null);
+      setKernels([]); setArchives([]); setCompetitionInfo(null); setCacheInfo(null); setAppliedQuery(null);
       void loadKernels(false, slug);
     };
     window.addEventListener(HARVESTER_EVENTS.competitionChanged, changed);
@@ -255,7 +261,7 @@ export function useKernelListState() {
         dispatchDefaultCompetitionChanged(res.competition);
         return {
           success: true,
-          message: `已将「${competitionInfo?.title || targetComp}」设为全站主攻赛事，所有设备同步生效！`,
+          message: `已将「${competitionInfo?.title || targetComp}」设为全站主攻赛事，作为所有设备首次打开时的默认赛事；已有浏览器选择保持不变！`,
         };
       }
     } catch (err) {
@@ -280,6 +286,8 @@ export function useKernelListState() {
     enteredLoading,
     enteredError,
     sortBy,
+    appliedSortBy: appliedQuery?.sort || sortBy,
+    queryPending,
     setSortBy,
     pageSize,
     setPageSize,

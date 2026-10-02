@@ -18,6 +18,8 @@ import {
   type SimulationMonitorSnapshot,
 } from '../api';
 import DialogTitle from './DialogTitle';
+import { monitorResult } from '../monitorResult';
+import { dispatchSimulationChanged } from '../events';
 import {
   ActiveBattleDashboard,
   AliasEditModal,
@@ -62,8 +64,11 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [clawbotTestResult, setClawbotTestResult] = useState<SimulationClawbotTestResult | null>(null);
   const [availableSubmissions, setAvailableSubmissions] = useState<AvailableSubmissionItem[]>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [submissionsError, setSubmissionsError] = useState('');
+  const submissionsRequest = useRef(0);
   const [form] = Form.useForm<SimulationMonitorConfig>();
   const watchedTargetIds = Form.useWatch('target_submission_ids', form) || [];
+  const watchedCompetition = Form.useWatch('competition', form);
   const [submissionAliases, setSubmissionAliases] = useState<Record<string, string>>({});
 
   // Quick edit alias modal state
@@ -73,11 +78,14 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const [savingAlias, setSavingAlias] = useState(false);
 
   const isMounted = useRef(true);
+  const snapshotRequest = useRef(0);
+  const detailRequest = useRef(0);
 
   useEffect(() => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
+      ++snapshotRequest.current; ++detailRequest.current; ++submissionsRequest.current;
     };
   }, []);
 
@@ -95,13 +103,15 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         ...submissionAliases,
         [String(editingSubId)]: editingAliasValue.trim(),
       };
-      setSubmissionAliases(nextAliases);
       if (snapshot?.config) {
         const updated = await api.updateSimulationMonitor({
           ...snapshot.config,
           submission_aliases: nextAliases,
         });
+        ++snapshotRequest.current;
         setSnapshot(updated);
+        setSubmissionAliases(nextAliases);
+        dispatchSimulationChanged();
         message.success(`已更新 Agent #${editingSubId} 别名为「${editingAliasValue.trim() || '默认'}」`);
       }
       setAliasModalOpen(false);
@@ -121,40 +131,55 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
     : targetCompetition;
 
   const fetchAvailableSubmissions = useCallback(async (comp?: string) => {
+    const slug = (comp ?? form.getFieldValue('competition') ?? targetCompetition).trim();
+    const version = ++submissionsRequest.current;
+    setAvailableSubmissions([]);
+    setSubmissionsError('');
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{2,199}$/.test(slug)) {
+      setLoadingSubmissions(false);
+      return;
+    }
     setLoadingSubmissions(true);
     try {
-      const compSlug = comp || targetCompetition;
-      const subs = await api.listSimulationSubmissions(compSlug);
-      if (isMounted.current) setAvailableSubmissions(subs);
-    } catch {
-      // quiet failback
+      const subs = await api.listSimulationSubmissions(slug);
+      if (isMounted.current && version === submissionsRequest.current) setAvailableSubmissions(subs);
+    } catch (err) {
+      if (isMounted.current && version === submissionsRequest.current) {
+        setSubmissionsError(`提交列表读取失败：${err instanceof Error ? err.message : '请求失败'}，请重试。`);
+      }
     } finally {
-      if (isMounted.current) setLoadingSubmissions(false);
+      if (isMounted.current && version === submissionsRequest.current) setLoadingSubmissions(false);
     }
-  }, [targetCompetition]);
+  }, [form, targetCompetition]);
 
   useEffect(() => {
-    if (settingsOpen) {
-      const compToFetch = form.getFieldValue('competition') || targetCompetition;
-      void fetchAvailableSubmissions(compToFetch);
-    }
-  }, [settingsOpen, fetchAvailableSubmissions, targetCompetition, form]);
+    if (!open) return;
+    if (!settingsOpen && isTargetCompActive) return;
+    ++submissionsRequest.current;
+    setAvailableSubmissions([]);
+    setSubmissionsError('');
+    setLoadingSubmissions(true);
+    const slug = settingsOpen ? watchedCompetition || '' : targetCompetition;
+    const timer = setTimeout(() => void fetchAvailableSubmissions(slug), 450);
+    return () => { clearTimeout(timer); ++submissionsRequest.current; };
+  }, [open, settingsOpen, watchedCompetition, targetCompetition, isTargetCompActive, fetchAvailableSubmissions]);
 
   const fetchSnapshot = useCallback(async (quiet = false) => {
+    const version = ++snapshotRequest.current;
     if (!quiet) setLoading(true);
     try {
       const data = await api.getSimulationMonitor();
-      if (isMounted.current) {
+      if (isMounted.current && version === snapshotRequest.current) {
         setSnapshot(data);
         const activeComp = data.config.competition || 'pokemon-tcg-ai-battle';
         const compToUse = currentCompetition || activeComp;
         const isCurrent = (activeComp === compToUse);
 
-        if (data.config.submission_aliases) {
+        if (!quiet && data.config.submission_aliases) {
           setSubmissionAliases(data.config.submission_aliases);
         }
 
-        form.setFieldsValue({
+        if (!quiet) form.setFieldsValue({
           enabled: isCurrent ? data.config.enabled : false,
           competition: compToUse,
           interval_minutes: data.config.interval_minutes || 10,
@@ -167,11 +192,11 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         });
       }
     } catch (err: any) {
-      if (isMounted.current && !quiet) {
+      if (isMounted.current && !quiet && version === snapshotRequest.current) {
         message.error(`获取模拟对战监控状态失败: ${err.message}`);
       }
     } finally {
-      if (isMounted.current && !quiet) setLoading(false);
+      if (isMounted.current && !quiet && version === snapshotRequest.current) setLoading(false);
     }
   }, [form, message, currentCompetition]);
 
@@ -196,22 +221,30 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   };
 
   useEffect(() => {
-    if (open) {
-      void fetchSnapshot();
-      if (!isTargetCompActive) {
-        void fetchAvailableSubmissions(targetCompetition);
-      }
-    }
-  }, [open, fetchSnapshot, isTargetCompActive, fetchAvailableSubmissions, targetCompetition]);
+    if (!open) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async (quiet = false) => {
+      await fetchSnapshot(quiet);
+      if (active) timer = setTimeout(() => void poll(true), 5000);
+    };
+    void poll();
+    return () => { active = false; clearTimeout(timer); };
+  }, [open, fetchSnapshot]);
 
   const handleRunNow = async () => {
+    ++snapshotRequest.current;
     setRunningNow(true);
     try {
       const updated = await api.runSimulationMonitor();
+      ++snapshotRequest.current;
       setSnapshot(updated);
-      message.success('已触发模拟对战最新轮次检查并成功刷新数据！');
+      message.open(monitorResult(updated, '对战检查完成，数据已更新。'));
+      dispatchSimulationChanged();
     } catch (err: any) {
-      message.error(`立即检查失败: ${err.message}`);
+      message.error(`立即检查未完成: ${err.message} 如请求超时，后台可能仍在执行，请查看运行状态。`);
+      await fetchSnapshot(true);
+      dispatchSimulationChanged();
     } finally {
       setRunningNow(false);
     }
@@ -224,9 +257,11 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         ...values,
         submission_aliases: submissionAliases,
       });
+      ++snapshotRequest.current;
       setSnapshot(updated);
       setSettingsOpen(false);
       message.success('已保存模拟对战监控配置！');
+      dispatchSimulationChanged();
       void fetchSnapshot(true);
     } catch (err: any) {
       message.error(`保存配置失败: ${err.message}`);
@@ -236,21 +271,23 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   };
 
   const handleViewLogDetail = async (logId: string) => {
+    const version = ++detailRequest.current;
+    setLogDetail(null);
     setSelectedLogId(logId);
     setLogDetailLoading(true);
     try {
       const detail = await api.getSimulationMonitorLog(logId);
-      setLogDetail(detail);
+      if (version === detailRequest.current) setLogDetail(detail);
     } catch (err: any) {
-      message.error(`读取明细失败: ${err.message}`);
+      if (version === detailRequest.current) message.error(`读取明细失败: ${err.message}`);
     } finally {
-      setLogDetailLoading(false);
+      if (version === detailRequest.current) setLogDetailLoading(false);
     }
   };
 
   const status = snapshot?.status;
-  const agents = status?.agents || [];
-  const thresholds = status?.thresholds || status?.medal_thresholds;
+  const agents = status?.competition === targetCompetition ? status.agents : [];
+  const thresholds = status?.competition === targetCompetition ? (status.thresholds || status.medal_thresholds) : undefined;
 
   const { episodePages, episodeLoading, fetchEpisodePage } = useSimulationEpisodes({
     open,
@@ -287,19 +324,10 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
     return agent.medal_tier || undefined;
   }, [thresholds]);
 
-  const agent1 = agents[0];
-  const agent2 = agents[1];
-
-  const agent1Page = agent1 ? episodePages[agent1.submission_id] : undefined;
-  const agent2Page = agent2 ? episodePages[agent2.submission_id] : undefined;
-
-  const agent1Episodes = agent1Page?.episodes ?? [];
-  const agent2Episodes = agent2Page?.episodes ?? [];
-
   const getRatedEpisodeCount = (agent?: SimulationAgentStats) => (
     Math.max(0, (agent?.total_episodes || 0) - (agent?.system_checks || 0))
   );
-  const totalTrackedCount = getRatedEpisodeCount(agent1) + getRatedEpisodeCount(agent2);
+  const totalTrackedCount = agents.reduce((sum, agent) => sum + getRatedEpisodeCount(agent), 0);
   const isMonitoringActive = Boolean(snapshot?.config?.enabled);
 
   return (
@@ -340,7 +368,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
               config={snapshot?.config}
               targetCompTitle={targetCompTitle}
               targetCompetition={targetCompetition}
-              runningNow={runningNow}
+              runningNow={runningNow || Boolean(status?.running)}
               loadingSubmissions={loadingSubmissions}
               onOpenClawbot={() => setClawbotOpen(true)}
               onOpenSettings={() => {
@@ -353,7 +381,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
             />
 
             {/* Error or Warning Alert */}
-            {status?.last_error && (
+            {isTargetCompActive && status?.competition === targetCompetition && status.last_error && (
               <Alert
                 message="对战状态检查提示"
                 description={status.last_error}
@@ -363,6 +391,8 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 style={{ marginBottom: 14, borderRadius: 8 }}
               />
             )}
+
+            {submissionsError && !settingsOpen && <Alert type="error" showIcon message={submissionsError} style={{ marginBottom: 14 }} />}
 
             {!isTargetCompActive ? (
               <CandidateSubmissionsView
@@ -389,7 +419,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                   const currentSelected: number[] = form.getFieldValue('target_submission_ids') || [];
                   const nextSelected = currentSelected.includes(subId)
                     ? currentSelected
-                    : [...currentSelected, subId].slice(-2);
+                    : [...currentSelected, subId].slice(0, 10);
                   form.setFieldsValue({
                     enabled: true,
                     competition: targetCompetition,
@@ -411,12 +441,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
                 openEditAliasModal={openEditAliasModal}
                 getRatedEpisodeCount={getRatedEpisodeCount}
                 totalTrackedCount={totalTrackedCount}
-                agent1={agent1}
-                agent2={agent2}
-                agent1Episodes={agent1Episodes}
-                agent2Episodes={agent2Episodes}
-                agent1Page={agent1Page}
-                agent2Page={agent2Page}
+                episodePages={episodePages}
                 episodeLoading={episodeLoading}
                 fetchEpisodePage={fetchEpisodePage}
               />
@@ -432,6 +457,8 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
         form={form}
         onFinish={handleSaveConfig}
         saving={saving}
+        running={runningNow || Boolean(status?.running)}
+        submissionsError={submissionsError}
         targetCompetition={targetCompetition}
         loadingSubmissions={loadingSubmissions}
         availableSubmissions={availableSubmissions}
@@ -455,6 +482,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
       <RunDetailModal
         open={Boolean(selectedLogId)}
         onClose={() => {
+          ++detailRequest.current;
           setSelectedLogId(null);
           setLogDetail(null);
         }}

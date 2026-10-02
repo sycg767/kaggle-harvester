@@ -208,7 +208,7 @@ class SimulationMonitorManager:
             for agent in status["agents"]:
                 agent["recent_episodes"] = []
                 agent["rating_trajectory"] = []
-            status["running"] = bool(status["running"] and self._run_lock.locked())
+            status["running"] = bool(status["running"] and self._run_lock.locked()) or self._sync_run_lock.locked()
             status["scheduler_alive"] = bool(self._task is not None and not self._task.done())
             status["enabled"] = bool(self._config.enabled)
             return status
@@ -218,6 +218,7 @@ class SimulationMonitorManager:
             status = self._status.model_copy(deep=True)
             if not self._run_lock.locked():
                 status.running = False
+            status.running = status.running or self._sync_run_lock.locked()
             status.scheduler_alive = bool(
                 self._task is not None and not self._task.done()
             )
@@ -230,25 +231,38 @@ class SimulationMonitorManager:
                 logs=[item.model_copy(deep=True) for item in self._logs],
             )
 
-    def arena_snapshot(self, competition: str | None = None) -> SimulationArenaSnapshot:
+    @staticmethod
+    def _data_captured_at(status: SimulationMonitorStatus) -> str | None:
+        times = [_parse_datetime(agent.last_updated) for agent in status.agents]
+        # A failed attempt must never make retained data appear freshly collected.
+        if times and all(value is not None for value in times):
+            return min(times).isoformat()
+        return status.last_success_at
+
+    def arena_snapshot(self, competition: str | None = None, run_id: str | None = None) -> SimulationArenaSnapshot:
         with self._state_lock:
             monitored = self._config.competition
             selected = (competition or monitored).strip()
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,199}", selected):
                 raise ValueError("赛事 ID 无效。")
             current = self._status.model_copy(deep=True) if self._status.competition == selected else None
-            if selected == monitored and current and current.agents:
-                current.running = bool(current.running and self._run_lock.locked())
+            if not run_id and selected == monitored and current and current.agents:
+                current.running = bool(current.running and self._run_lock.locked()) or self._sync_run_lock.locked()
                 current.enabled = self._config.enabled
                 current.scheduler_alive = bool(self._task is not None and not self._task.done())
                 return SimulationArenaSnapshot(
                     competition=selected, monitored_competition=monitored,
-                    source="current", captured_at=current.last_checked_at, status=current,
+                    source="current", captured_at=self._data_captured_at(current), status=current,
                 )
 
         # Legacy runs remain available even after their summary leaves the 200-log
         # window. History reads never change scheduler configuration or call Kaggle.
-        detail, warning = self._history_reader.latest(selected)
+        if run_id:
+            detail, warning = self._history_reader.read(selected, run_id), None
+            if detail is None:
+                raise LookupError("该赛事的指定快照不存在。")
+        else:
+            detail, warning = self._history_reader.latest(selected)
         if detail:
             thresholds = detail.thresholds or detail.medal_thresholds
             status = SimulationMonitorStatus(
@@ -259,12 +273,15 @@ class SimulationMonitorManager:
             )
             return SimulationArenaSnapshot(
                 competition=selected, monitored_competition=monitored, source="history",
-                captured_at=detail.log.finished_at, warning=warning, status=status,
+                captured_at=detail.log.finished_at, run_id=detail.log.id, warning=warning, status=status,
             )
         return SimulationArenaSnapshot(
             competition=selected, monitored_competition=monitored, source="empty",
             warning=warning, status=current or SimulationMonitorStatus(competition=selected),
         )
+
+    def arena_history(self, competition: str, offset: int = 0, limit: int = 20, day: str | None = None) -> dict:
+        return self._history_reader.list_runs(competition, offset, limit, day)
 
     def get_episodes_page(
         self,
@@ -370,6 +387,11 @@ class SimulationMonitorManager:
         self, config: SimulationMonitorConfig
     ) -> SimulationMonitorSnapshot:
         with self._state_lock:
+            if self._run_lock.locked() or self._sync_run_lock.locked():
+                raise SimulationMonitorBusyError("对战检查仍在运行，请等待完成后再保存监控配置。")
+            previous = (self._config, self._status.model_copy(deep=True),
+                        list(self._history_points), dict(self._known_episode_counts),
+                        dict(self._known_medal_tiers))
             comp_changed = (self._config.competition != config.competition)
             self._config = config.model_copy(deep=True)
             self._status.enabled = bool(config.enabled)
@@ -386,6 +408,8 @@ class SimulationMonitorManager:
                 self._known_episode_counts.clear()
                 self._known_medal_tiers.clear()
                 self._status.last_checked_at = None
+                self._status.last_success_at = None
+                self._status.last_error = None
             self._status.next_run_at = (
                 (_utc_now() + timedelta(minutes=config.interval_minutes)).isoformat()
                 if config.enabled
@@ -398,14 +422,19 @@ class SimulationMonitorManager:
                         agent.alias = config.submission_aliases[sub_str] or None
                     elif agent.submission_id in config.submission_aliases:
                         agent.alias = config.submission_aliases[agent.submission_id] or None
-            self._save_state()
+            try:
+                self._save_state()
+            except OSError:
+                (self._config, self._status, self._history_points,
+                 self._known_episode_counts, self._known_medal_tiers) = previous
+                raise
         self._wake_event.set()
         return self.snapshot()
 
     async def run_now(
         self, trigger: Literal["scheduled", "manual"] = "manual"
     ) -> SimulationMonitorSnapshot:
-        if self._run_lock.locked():
+        if self._run_lock.locked() or self._sync_run_lock.locked():
             raise SimulationMonitorBusyError("Simulation 对战检查正在运行中，请稍候。")
 
         async with self._run_lock:
@@ -444,7 +473,7 @@ class SimulationMonitorManager:
                     status.last_checked_at = _utc_now().isoformat()
                     status.last_error = (
                         f"Kaggle 网络请求超时 ({int(SIMULATION_CHECK_TIMEOUT_SECONDS)}秒)，"
-                        "本次检查已安全中止，已保留上次成功数据。"
+                        "本次检查已停止等待，后台请求可能仍在收尾；已保留上次成功数据。"
                     )
                 except Exception as exc:
                     status = previous_status
@@ -453,6 +482,10 @@ class SimulationMonitorManager:
 
                 with self._state_lock:
                     finished_at = _utc_now()
+                    status.last_success_at = (
+                        status.last_checked_at if not status.last_error
+                        else previous_status.last_success_at
+                    )
                     status.running = False
                     status.scheduler_alive = True
                     status.service_started_at = self._service_started_at

@@ -22,6 +22,7 @@ import type {
   SimulationEpisodePageResponse,
   SimulationMonitorConfig,
   SimulationMonitorRunDetail,
+  SimulationMonitorRunLog,
   SimulationMonitorSnapshot,
   SimulationArenaSnapshot,
   SubmissionMonitorConfig,
@@ -338,7 +339,7 @@ export const api = {
   },
 
   runAutoArchive(): Promise<AutoArchiveSnapshot> {
-    return request('/auto-archive/run', { method: 'POST' });
+    return request('/auto-archive/run', { method: 'POST', timeoutMs: 120_000 });
   },
 
   getAutoArchiveLog(logId: string): Promise<AutoArchiveRunDetail> {
@@ -376,7 +377,7 @@ export const api = {
   },
 
   runSubmissionMonitor(): Promise<SubmissionMonitorSnapshot> {
-    return request('/submission-monitor/run', { method: 'POST' });
+    return request('/submission-monitor/run', { method: 'POST', timeoutMs: 120_000 });
   },
 
   getSubmissionMonitorLog(logId: string): Promise<SubmissionMonitorRunDetail> {
@@ -387,9 +388,19 @@ export const api = {
     return request('/simulation-monitor');
   },
 
-  getSimulationArena(competition?: string): Promise<SimulationArenaSnapshot> {
-    const query = competition ? `?competition=${encodeURIComponent(competition)}` : '';
-    return request(`/simulation-monitor/arena${query}`);
+  getSimulationArena(competition?: string, runId?: string): Promise<SimulationArenaSnapshot> {
+    const query = new URLSearchParams();
+    if (competition) query.set('competition', competition);
+    if (runId) query.set('run_id', runId);
+    return request(`/simulation-monitor/arena${query.size ? `?${query}` : ''}`);
+  },
+
+  getSimulationHistory(competition: string, offset = 0, day = ''): Promise<{
+    logs: SimulationMonitorRunLog[]; total: number; warning?: string | null;
+  }> {
+    const query = new URLSearchParams({ competition, offset: String(offset) });
+    if (day) query.set('day', day);
+    return request(`/simulation-monitor/arena/history?${query}`);
   },
 
   updateSimulationMonitor(config: SimulationMonitorConfig): Promise<SimulationMonitorSnapshot> {
@@ -400,7 +411,7 @@ export const api = {
   },
 
   runSimulationMonitor(): Promise<SimulationMonitorSnapshot> {
-    return request('/simulation-monitor/run', { method: 'POST' });
+    return request('/simulation-monitor/run', { method: 'POST', timeoutMs: 120_000 });
   },
 
   getSimulationEpisodes(

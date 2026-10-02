@@ -14,6 +14,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import { api, type ArchiveEntry, type ArchiveFile } from '../api';
+import { useSessionState } from '../useSessionState';
 import ArchiveJobsPanel from './ArchiveJobsPanel';
 import { dispatchArchivesChanged, HARVESTER_EVENTS } from '../events';
 import {
@@ -40,11 +41,15 @@ const ArchiveManager: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [listLoaded, setListLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchText, setSearchText] = useState('');
-  const [competitionFilter, setCompetitionFilter] = useState('all');
-  const [scoredOnly, setScoredOnly] = useState(false);
+  const [searchText, setSearchText] = useSessionState('harvester.archives.searchText', '');
+  const [competitionFilter, setCompetitionFilter] = useSessionState('harvester.archives.competitionFilter', 'all');
+  const [scoredOnly, setScoredOnly] = useSessionState('harvester.archives.scoredOnly', false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [mobilePage, setMobilePage] = useState(1);
+  const [mobilePage, setMobilePage] = useSessionState('harvester.archives.mobilePage', 1);
+
+  const [desktopPage, setDesktopPage] = useSessionState('harvester.archives.page', 1);
+  const [desktopPageSize, setDesktopPageSize] = useSessionState('harvester.archives.pageSize', 25);
+  const filterInitialized = useRef(false);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailArchive, setDetailArchive] = useState<ArchiveEntry | null>(null);
@@ -91,8 +96,17 @@ const ArchiveManager: React.FC = () => {
   }, [archives, competitionFilter, scoredOnly, searchText]);
 
   useEffect(() => {
-    setMobilePage(1);
-  }, [archives, competitionFilter, scoredOnly, searchText]);
+    if (filterInitialized.current) { setMobilePage(1); setDesktopPage(1); }
+    filterInitialized.current = true;
+  }, [competitionFilter, scoredOnly, searchText]);
+
+  useEffect(() => {
+    if (!listLoaded) return;
+    setMobilePage(page => Math.min(page, Math.max(1, Math.ceil(displayArchives.length / MOBILE_PAGE_SIZE))));
+    setDesktopPage(page => Math.min(page, Math.max(1, Math.ceil(displayArchives.length / desktopPageSize))));
+  }, [listLoaded, displayArchives.length, desktopPageSize]);
+
+  const resetFilters = () => { setSearchText(''); setCompetitionFilter('all'); setScoredOnly(false); };
 
   const mobileArchives = useMemo(
     () => displayArchives.slice((mobilePage - 1) * MOBILE_PAGE_SIZE, mobilePage * MOBILE_PAGE_SIZE),
@@ -282,15 +296,16 @@ const ArchiveManager: React.FC = () => {
             loading={loading}
             rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
             pagination={{
-              defaultPageSize: 25,
+              current: desktopPage, pageSize: desktopPageSize,
+              onChange: (page, size) => { setDesktopPage(page); setDesktopPageSize(size); },
               pageSizeOptions: [10, 25, 50, 100],
               showSizeChanger: true,
               showTotal: (total) => `共 ${total} 条`,
             }}
             locale={{
               emptyText: (
-                <Empty description="暂无服务器归档">
-                  <Button type="primary" onClick={() => navigate('/kernels')}>前往 Kernel 广场</Button>
+                <Empty description={archives.length ? '没有符合当前筛选条件的归档' : '暂无服务器归档'}>
+                  {archives.length ? <Button onClick={resetFilters}>清除筛选</Button> : <Button type="primary" onClick={() => navigate('/kernels')}>前往 Kernel 广场</Button>}
                 </Empty>
               ),
             }}
@@ -301,6 +316,8 @@ const ArchiveManager: React.FC = () => {
         <MobileArchiveCardList
           archives={mobileArchives}
           allDisplayArchives={displayArchives}
+          hasArchives={archives.length > 0}
+          onResetFilters={resetFilters}
           loading={loading}
           selectedRowKeys={selectedRowKeys}
           setSelectedRowKeys={setSelectedRowKeys}

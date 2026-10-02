@@ -37,8 +37,8 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
       title={(
         <DialogTitle
           icon={<History size={17} color="#007aff" />}
-          title="模拟对战监控运行日志"
-          subtitle={`历史巡检检查记录（共 ${logs.length} 次运行）`}
+          title="后台检查日志（全部赛事）"
+          subtitle={`最近 ${logs.length} 次检查；更早的已保存快照可在天梯页按赛事查看`}
           onClose={onClose}
         />
       )}
@@ -78,7 +78,8 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                 )
               }
               title={
-                <Space>
+                <Space wrap>
+                  {log.competition && <Tag color="blue">{log.competition}</Tag>}
                   <Tag>{log.trigger === 'manual' ? '手动触发' : '定时调度'}</Tag>
                   <Text strong>{formatDate(log.started_at)}</Text>
                   <Text type="secondary">耗时: {formatDuration(log.duration_seconds)}</Text>

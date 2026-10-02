@@ -9,9 +9,9 @@ export const MessagePreviewTab: React.FC = () => {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
         <Text type="secondary" style={{ fontSize: 13 }}>
-          选择不同的事件场景，查看真实推送到飞书、企业微信或邮件的卡片格式：
+          示例预览：以下赛事、积分和数量均为演示数据，实际通知内容与样式以投递结果为准。
         </Text>
         <Segmented
           value={previewType}

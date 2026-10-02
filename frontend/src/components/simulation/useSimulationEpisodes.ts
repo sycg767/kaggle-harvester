@@ -19,6 +19,7 @@ export function useSimulationEpisodes({
   const [episodeLoading, setEpisodeLoading] = useState<Record<number, boolean>>({});
   const episodeRequestedTotals = useRef<Record<number, number>>({});
   const isMounted = useRef(true);
+  const requestVersions = useRef<Record<number, number>>({});
 
   useEffect(() => {
     isMounted.current = true;
@@ -29,18 +30,20 @@ export function useSimulationEpisodes({
 
   const fetchEpisodePage = useCallback(
     async (submissionId: number, page = 1, pageSize = 6) => {
+      const version = (requestVersions.current[submissionId] || 0) + 1;
+      requestVersions.current[submissionId] = version;
       setEpisodeLoading((previous) => ({ ...previous, [submissionId]: true }));
       try {
         const data = await api.getSimulationEpisodes(submissionId, (page - 1) * pageSize, pageSize);
-        if (isMounted.current) {
+        if (isMounted.current && requestVersions.current[submissionId] === version) {
           setEpisodePages((previous) => ({ ...previous, [submissionId]: data }));
         }
       } catch (err: any) {
-        if (isMounted.current && onError) {
+        if (isMounted.current && requestVersions.current[submissionId] === version && onError) {
           onError(err);
         }
       } finally {
-        if (isMounted.current) {
+        if (isMounted.current && requestVersions.current[submissionId] === version) {
           setEpisodeLoading((previous) => ({ ...previous, [submissionId]: false }));
         }
       }
@@ -50,7 +53,7 @@ export function useSimulationEpisodes({
 
   useEffect(() => {
     if (!open || !isTargetCompActive) return;
-    agents.slice(0, 2).forEach((agent) => {
+    agents.forEach((agent) => {
       if (
         !episodeLoading[agent.submission_id] &&
         episodeRequestedTotals.current[agent.submission_id] !== agent.total_episodes &&

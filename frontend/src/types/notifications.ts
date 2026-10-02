@@ -53,6 +53,10 @@ export interface NotificationStatus {
 export interface NotificationSnapshot {
   config: NotificationConfig;
   status: NotificationStatus;
+  deliveries?: Array<{
+    id: string; event_id: string; event: string; competition: string; channel: string;
+    state: 'queued' | 'sent' | 'failed'; attempts: number; recorded_at: string; error?: string | null;
+  }>;
 }
 
 export interface NotificationChannelResult {

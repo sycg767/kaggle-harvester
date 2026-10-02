@@ -81,6 +81,19 @@ const AppLayout: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const competitionRequest = useRef(0);
+  const loadCompetition = useCallback(async (slug: string) => {
+    const version = ++competitionRequest.current;
+    setCompetitionInfo((previous) => previous?.id === slug ? previous : { id: slug, title: slug } as CompetitionInfo);
+    try {
+      const info = await api.getCompetition(slug);
+      if (version === competitionRequest.current && info.id === slug) setCompetitionInfo(info);
+    } catch {
+      // Keep the selected slug visible; never restore a previous competition's title.
+    }
+  }, []);
+  useEffect(() => () => { competitionRequest.current += 1; }, []);
+
   // All triggers share one request and one failure count, including initial load and retries.
   const loadData = useCallback((isManualRetry = false): Promise<HealthStatus | null> => {
     if (healthRequestRef.current) return healthRequestRef.current;
@@ -109,9 +122,7 @@ const AppLayout: React.FC = () => {
           if (activeCompetition && !localStorage.getItem('harvester.competition')) {
             localStorage.setItem('harvester.competition', activeCompetition);
           }
-          void api.getCompetition(activeCompetition)
-            .then((comp) => { if (comp) setCompetitionInfo(comp); })
-            .catch(() => null);
+          if (activeCompetition) void loadCompetition(activeCompetition);
         }
         return status;
       } catch (error) {
@@ -136,7 +147,7 @@ const AppLayout: React.FC = () => {
     })();
     healthRequestRef.current = pending;
     return pending;
-  }, []);
+  }, [loadCompetition]);
 
   useEffect(() => {
     const handleDefaultChanged = () => {
@@ -214,15 +225,12 @@ const AppLayout: React.FC = () => {
       const customEvent = event as CustomEvent<string>;
       const slug = customEvent.detail;
       if (!slug) return;
-      void api
-        .getCompetition(slug)
-        .then(setCompetitionInfo)
-        .catch(() => setCompetitionInfo(null));
+      void loadCompetition(slug);
     };
     window.addEventListener(HARVESTER_EVENTS.competitionChanged, handleCompetitionChanged);
     return () =>
       window.removeEventListener(HARVESTER_EVENTS.competitionChanged, handleCompetitionChanged);
-  }, []);
+  }, [loadCompetition]);
 
   useEffect(() => {
     const refreshArchiveStats = () => {
@@ -241,14 +249,14 @@ const AppLayout: React.FC = () => {
   const handleSelectGlobalCompetition = (slug: string, navigateToKernels = false) => {
     if (!slug) return;
     const cleanSlug = slug.trim();
-    localStorage.setItem('harvester.competition', cleanSlug);
+    try {
+      localStorage.setItem('harvester.competition', cleanSlug);
+    } catch {
+      message.error('浏览器未能保存赛事选择，请检查存储权限后重试。');
+      return;
+    }
     dispatchCompetitionChanged(cleanSlug);
-    void api.getCompetition(cleanSlug).then((comp) => {
-      if (comp) {
-        setCompetitionInfo(comp);
-        message.success(`已切换全站工作区赛事为：${comp.title}`);
-      }
-    }).catch(() => null);
+    message.success(`已切换当前浏览器工作区赛事：${cleanSlug}`);
     setSwitcherOpen(false);
     if (navigateToKernels) {
       navigate('/kernels');

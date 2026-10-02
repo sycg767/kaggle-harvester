@@ -59,6 +59,8 @@ const KernelList: React.FC = () => {
     enteredLoading,
     enteredError,
     sortBy,
+    appliedSortBy,
+    queryPending,
     setSortBy,
     pageSize,
     setPageSize,
@@ -209,18 +211,18 @@ const KernelList: React.FC = () => {
         .some((value) => value.toLowerCase().includes(query));
     });
 
-    if (!isScoreSort(sortBy)) return filtered;
+    if (!isScoreSort(appliedSortBy)) return filtered;
 
     if (!confirmedDirection) return filtered;
     const isLowerBetter = confirmedDirection === 'minimize';
     return [...filtered].sort((left, right) =>
-      comparePublicScores(left.public_score, right.public_score, sortBy, isLowerBetter),
+      comparePublicScores(left.public_score, right.public_score, appliedSortBy, isLowerBetter),
     );
-  }, [archivedOnly, archivedVersions, confirmedDirection, kernels, scoreFilter, searchText, sortBy]);
+  }, [archivedOnly, archivedVersions, confirmedDirection, kernels, scoreFilter, searchText, appliedSortBy]);
 
   useEffect(() => {
     setMobilePage(1);
-  }, [archivedOnly, kernels, scoreFilter, searchText, sortBy]);
+  }, [archivedOnly, kernels, scoreFilter, searchText, appliedSortBy]);
 
   const mobileKernels = useMemo(
     () => displayKernels.slice((mobilePage - 1) * MOBILE_PAGE_SIZE, mobilePage * MOBILE_PAGE_SIZE),
@@ -369,9 +371,11 @@ const KernelList: React.FC = () => {
           />
         )}
 
+        {queryPending && <Alert type="info" showIcon message="查询条件尚未应用，列表仍显示上次获取的结果。" action={<Button size="small" loading={loading} onClick={() => void loadKernels(false)}>应用并获取结果</Button>} style={{ marginBottom: 12 }} />}
+
         <KernelFreshnessBanner
           cacheInfo={cacheInfo}
-          sortBy={sortBy}
+          sortBy={appliedSortBy}
           confirmedDirection={confirmedDirection}
           kernelsCount={kernels.length}
           backgroundRefreshing={backgroundRefreshing}

@@ -11,8 +11,10 @@ import {
   type SimulationArenaSnapshot,
 } from '../api';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
+import { HARVESTER_EVENTS } from '../events';
 import { isCompetitionEnded, parseKaggleDeadline } from '../competitionOptions';
 import ScoreTrajectoryChart from './ScoreTrajectoryChart';
+import ArenaHistoryPicker from './arena/ArenaHistoryPicker';
 import { readArenaCompetition, saveArenaCompetition, selectSimulationData } from './arena/arenaData';
 import {
   ArenaHeader,
@@ -31,6 +33,7 @@ export const SimulationArena: React.FC = () => {
     return readArenaCompetition(localStorage);
   });
   const [loadError, setLoadError] = useState('');
+  const [selectedRun, setSelectedRun] = useState<string>();
   const [simSnapshot, setSimSnapshot] = useState<SimulationArenaSnapshot | null>(null);
   const [enteredComps, setEnteredComps] = useState<EnteredCompetition[]>([]);
   const [compInfo, setCompInfo] = useState<CompetitionInfo | null>(null);
@@ -41,6 +44,7 @@ export const SimulationArena: React.FC = () => {
     requestVersion.current += 1;
     setLoading(true);
     setLoadError('');
+    setSelectedRun(undefined);
     setSelectedCompetition(comp);
     if (!saveArenaCompetition(localStorage, comp)) {
       message.warning('已切换本页赛事，但浏览器未能保存选择；重新打开后可能需要再次选择。');
@@ -58,7 +62,7 @@ export const SimulationArena: React.FC = () => {
     if (!quiet) setLoading(true);
 
     try {
-      const sim = await api.getSimulationArena(selectedCompetition || undefined);
+      const sim = await api.getSimulationArena(selectedCompetition || undefined, selectedRun);
       if (version !== requestVersion.current) return;
       if (selectedCompetition && sim.competition !== selectedCompetition) {
         throw new Error('返回数据的赛事与当前选择不一致');
@@ -77,7 +81,7 @@ export const SimulationArena: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [selectedCompetition]);
+  }, [selectedCompetition, selectedRun]);
 
   useEffect(() => {
     let active = true;
@@ -92,6 +96,12 @@ export const SimulationArena: React.FC = () => {
       clearTimeout(timer);
       requestVersion.current += 1;
     };
+  }, [loadArenaData]);
+
+  useEffect(() => {
+    const refresh = () => { void loadArenaData(true); };
+    window.addEventListener(HARVESTER_EVENTS.simulationChanged, refresh);
+    return () => window.removeEventListener(HARVESTER_EVENTS.simulationChanged, refresh);
   }, [loadArenaData]);
 
   useEffect(() => {
@@ -124,7 +134,7 @@ export const SimulationArena: React.FC = () => {
     return false;
   }, []);
 
-  const currentSnapshot = simSnapshot?.competition === selectedCompetition ? simSnapshot : null;
+  const currentSnapshot = simSnapshot?.competition === selectedCompetition && (!selectedRun || simSnapshot.run_id === selectedRun) ? simSnapshot : null;
   const simStatus = currentSnapshot?.status;
   const configuredSimComp = simSnapshot?.monitored_competition || '';
   const selectedCompInfo = compInfo?.id === selectedCompetition ? compInfo : null;
@@ -196,12 +206,23 @@ export const SimulationArena: React.FC = () => {
         isHistorical={isHistorical}
       />
 
+      <ArenaHistoryPicker key={selectedCompetition} competition={selectedCompetition} selectedRun={selectedRun} onSelect={run => {
+        requestVersion.current += 1; setLoading(true); setLoadError(''); setSelectedRun(run);
+      }} />
+
       {isHistorical && (
         <Alert
           style={{ marginBottom: 16 }} showIcon type="info"
           message={`历史采集快照 · ${formatDate(currentSnapshot?.captured_at || undefined)}`}
-          description="展示该赛事最近一次已保存的采集结果，不代表最终榜单。查看历史不会切换顶部全局赛事或后台监控任务。"
+          description={`展示该赛事${selectedRun ? '所选时刻' : '最近一次'}已保存的采集结果，不代表最终榜单。查看历史不会切换顶部全局赛事或后台监控任务。`}
         />
+      )}
+      {currentSnapshot?.source === 'current' && (
+        <div className="arena-freshness" style={{ marginBottom: 16, fontSize: 12, color: '#64748b' }}>
+          数据采集时间：{formatDate(currentSnapshot.captured_at || undefined)}
+          {' · '}最近检查：{formatDate(simStatus?.last_checked_at)}
+          {' · '}{simStatus?.running ? '正在采集' : !simStatus?.enabled ? '自动监控已停用' : simStatus?.scheduler_alive ? '等待下次调度' : '调度器未运行'}
+        </div>
       )}
       {(loadError || currentSnapshot?.warning || (matchesCompetition && simStatus?.last_error)) && (
         <Alert

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Spin,
@@ -15,11 +15,13 @@ import {
 } from '../api';
 import {
   dispatchCompetitionChanged,
+  dispatchSimulationChanged,
   dispatchDefaultCompetitionChanged,
   HARVESTER_EVENTS,
 } from '../events';
 import { buildEnteredCompetitionOptions, competitionDisplayName } from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
+import { monitorResult } from '../monitorResult';
 import CompetitionHeroBanner from './dashboard/CompetitionHeroBanner';
 import SchedulerCards from './dashboard/SchedulerCards';
 import StorageStatusCards from './dashboard/StorageStatusCards';
@@ -38,6 +40,9 @@ export const Dashboard: React.FC = () => {
   const [currentCompetition, setCurrentCompetition] = useState<string>(() => {
     return localStorage.getItem('harvester.competition') || '';
   });
+
+  const competitionRef = useRef(currentCompetition);
+  competitionRef.current = currentCompetition;
 
   // Action loading states for 1-click execution
   const [runningAutoArchive, setRunningAutoArchive] = useState(false);
@@ -72,7 +77,7 @@ export const Dashboard: React.FC = () => {
         if (curComp) {
           api.getCompetition(curComp, { refresh: true })
             .then((info) => {
-              if (info) setCompetitionInfo(info);
+              if (info?.id === competitionRef.current) setCompetitionInfo(info);
             })
             .catch(() => null);
         }
@@ -89,7 +94,7 @@ export const Dashboard: React.FC = () => {
     setRefreshingComp(true);
     try {
       const info = await api.getCompetition(currentCompetition, { refresh: true });
-      if (info) setCompetitionInfo(info);
+      if (info?.id === competitionRef.current) setCompetitionInfo(info);
       const items = await getEnteredCompetitions({ refresh: true });
       if (items) setEnteredCompetitions(items);
       message.success(`已从 Kaggle 同步最新赛事信息（当前 ${info.team_count ?? 0} 支队伍）`);
@@ -127,11 +132,11 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     const handleCompetitionChanged = (event: Event) => {
       const comp = (event as CustomEvent<string>).detail;
-      if (comp) setCurrentCompetition(comp);
+      if (comp) { competitionRef.current = comp; setCurrentCompetition(comp); }
     };
     const handleDefaultChanged = (event: Event) => {
       const comp = (event as CustomEvent<string>).detail;
-      if (comp) setCurrentCompetition(comp);
+      if (comp && !localStorage.getItem('harvester.competition')) setCurrentCompetition(comp);
     };
     window.addEventListener(HARVESTER_EVENTS.competitionChanged, handleCompetitionChanged);
     window.addEventListener(HARVESTER_EVENTS.defaultCompetitionChanged, handleDefaultChanged);
@@ -143,6 +148,7 @@ export const Dashboard: React.FC = () => {
 
   const handleSelectCompetition = (newComp: string) => {
     if (!newComp || newComp === currentCompetition) return;
+    competitionRef.current = newComp;
     setCurrentCompetition(newComp);
     localStorage.setItem('harvester.competition', newComp);
     dispatchCompetitionChanged(newComp);
@@ -177,9 +183,7 @@ export const Dashboard: React.FC = () => {
     setRunningAutoArchive(true);
     try {
       const snap = await api.runAutoArchive();
-      message.success(
-        `自动归档执行成功！检查 ${snap.status.checked_count} 个版本，命中 ${snap.status.matched_count} 个`
-      );
+      message.open(monitorResult(snap, `自动归档完成，检查 ${snap.status.checked_count} 个版本，命中 ${snap.status.matched_count} 个`));
       void loadDashboardData(true);
     } catch (err: any) {
       message.error(`自动归档执行失败: ${err.message}`);
@@ -192,9 +196,7 @@ export const Dashboard: React.FC = () => {
     setRunningSubmissionCheck(true);
     try {
       const snap = await api.runSubmissionMonitor();
-      message.success(
-        `出分检查完成！检查 ${snap.status.checked_count} 条提交，当前 ${snap.status.pending_count} 条等待出分`
-      );
+      message.open(monitorResult(snap, `出分检查完成，检查 ${snap.status.checked_count} 条提交，当前 ${snap.status.pending_count} 条等待出分`));
       void loadDashboardData(true);
     } catch (err: any) {
       message.error(`出分检查执行失败: ${err.message}`);
@@ -211,9 +213,8 @@ export const Dashboard: React.FC = () => {
     setRunningSimulationCheck(true);
     try {
       const snap = await api.runSimulationMonitor();
-      message.success(
-        `对战战报更新完成！本次检查发现 ${snap.status.new_episodes_this_run || 0} 场新对局`
-      );
+      message.open(monitorResult(snap, `对战检查完成，本次发现 ${snap.status.new_episodes_this_run || 0} 场新对局`));
+      dispatchSimulationChanged();
       void loadDashboardData(true);
     } catch (err: any) {
       message.error(`对战检查失败: ${err.message}`);

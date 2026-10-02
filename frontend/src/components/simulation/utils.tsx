@@ -71,7 +71,7 @@ export const getMedalTag = (tier?: string) => {
   if (tier === 'bronze') {
     return <Tag color="orange" icon={<TrophyOutlined />}>铜牌线内</Tag>;
   }
-  return <Tag color="default">暂无奖牌</Tag>;
+  return <Tag color="default">{tier === 'none' ? '暂未进入奖牌线' : '奖牌状态未知'}</Tag>;
 };
 
 export const getShortAgentName = (agent: SimulationAgentStats, defaultIdx: number) => {

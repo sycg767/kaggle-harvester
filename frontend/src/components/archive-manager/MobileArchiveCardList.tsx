@@ -29,6 +29,8 @@ const { Text } = Typography;
 interface MobileArchiveCardListProps {
   archives: ArchiveEntry[];
   allDisplayArchives: ArchiveEntry[];
+  hasArchives: boolean;
+  onResetFilters: () => void;
   loading: boolean;
   selectedRowKeys: React.Key[];
   setSelectedRowKeys: React.Dispatch<React.SetStateAction<React.Key[]>>;
@@ -44,6 +46,8 @@ interface MobileArchiveCardListProps {
 export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
   archives,
   allDisplayArchives,
+  hasArchives,
+  onResetFilters,
   loading,
   selectedRowKeys,
   setSelectedRowKeys,
@@ -63,8 +67,8 @@ export const MobileArchiveCardList: React.FC<MobileArchiveCardListProps> = ({
         </div>
       ) : !allDisplayArchives.length ? (
         <div className="archive-mobile-empty-card">
-          <Empty description="暂无服务器归档">
-            <Button type="primary" onClick={onNavigateToKernels}>前往 Kernel 广场</Button>
+          <Empty description={hasArchives ? '没有符合当前筛选条件的归档' : '暂无服务器归档'}>
+            {hasArchives ? <Button onClick={onResetFilters}>清除筛选</Button> : <Button type="primary" onClick={onNavigateToKernels}>前往 Kernel 广场</Button>}
           </Empty>
         </div>
       ) : (

@@ -71,6 +71,41 @@ class TestSimulationArena(unittest.TestCase):
         self.assertIsNone(view.status.thresholds)
         self.assertIsNone(view.captured_at)
 
+    def test_history_pages_dates_and_exact_snapshot_stay_competition_scoped(self):
+        old = self.save_run(stamp="2026-09-17T00:00:00Z", score=700)
+        latest = self.save_run(stamp="2026-09-18T00:00:00Z", score=900)
+        foreign = self.save_run("other-contest", stamp="2026-09-19T00:00:00Z", score=1000)
+        page = self.manager.arena_history("ended-contest", offset=1, limit=1)
+        self.assertEqual(page["total"], 2)
+        self.assertEqual(page["logs"][0].id, old.id)
+        day = self.manager.arena_history("ended-contest", day="2026-09-18")
+        self.assertEqual([log.id for log in day["logs"]], [latest.id])
+        exact = self.manager.arena_snapshot("ended-contest", old.id)
+        self.assertEqual(exact.run_id, old.id)
+        self.assertEqual(exact.status.agents[0].score, 700)
+        with self.assertRaises(LookupError):
+            self.manager.arena_snapshot("ended-contest", foreign.id)
+        self.assertEqual(self.manager._config.competition, "current-contest")
+
+    def test_corrupt_selected_snapshot_fails_instead_of_silently_selecting_another(self):
+        log = self.save_run()
+        self.manager.arena_history("ended-contest")
+        self.manager._run_detail_path(log.id).write_text("broken", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            self.manager.arena_snapshot("ended-contest", log.id)
+
+    def test_history_route_validation_and_404(self):
+        log = self.save_run()
+        app = FastAPI()
+        app.state.simulation_monitor = self.manager
+        app.include_router(router)
+        with TestClient(app) as client:
+            path = "/api/simulation-monitor/arena/history?competition=ended-contest"
+            self.assertEqual(client.get(path).json()["logs"][0]["id"], log.id)
+            self.assertEqual(client.get(path + "&day=2026-02-31").status_code, 422)
+            self.assertEqual(client.get(path + "&offset=-1").status_code, 422)
+            self.assertEqual(client.get("/api/simulation-monitor/arena", params={"competition": "other-contest", "run_id": log.id}).status_code, 404)
+
     def test_latest_capture_uses_timestamp_and_does_not_mutate_cached_data(self):
         self.save_run(stamp="2026-09-18T08:00:00+08:00", score=801)
         self.save_run(stamp="2026-09-18T00:30:00Z", score=802)

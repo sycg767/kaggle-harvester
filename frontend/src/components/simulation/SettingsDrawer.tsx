@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Alert,
   Button,
   Drawer,
   Form,
@@ -31,6 +32,8 @@ interface SettingsDrawerProps {
   form: FormInstance<SimulationMonitorConfig>;
   onFinish: (values: SimulationMonitorConfig) => Promise<void>;
   saving: boolean;
+  running: boolean;
+  submissionsError: string;
   targetCompetition: string;
   loadingSubmissions: boolean;
   availableSubmissions: AvailableSubmissionItem[];
@@ -46,6 +49,8 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
   form,
   onFinish,
   saving,
+  running,
+  submissionsError,
   targetCompetition,
   loadingSubmissions,
   availableSubmissions,
@@ -69,12 +74,15 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
           type="primary"
           icon={<SaveOutlined />}
           loading={saving}
+          disabled={running}
           onClick={() => form.submit()}
         >
           保存配置
         </Button>
       }
     >
+      <Alert type="info" showIcon message="此配置作用于服务器后台监控任务，所有设备共用；切换查看赛事不会修改此配置。" style={{ marginBottom: 16 }} />
+      {running && <Alert type="warning" message="检查正在运行，完成后可保存配置。" style={{ marginBottom: 16 }} />}
       <Form
         form={form}
         layout="vertical"
@@ -100,13 +108,13 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
         <Form.Item
           name="competition"
           label="监控竞赛 Slug"
-          rules={[{ required: true, message: '请输入竞赛 Slug' }]}
+          rules={[{ required: true, message: '请输入竞赛 Slug' }, { pattern: /^[A-Za-z0-9][A-Za-z0-9_-]{2,199}$/, message: '请输入完整竞赛 Slug' }]}
         >
           <Input
             placeholder={targetCompetition}
-            onChange={(e) => {
-              const val = e.target.value?.trim();
-              if (val) void fetchAvailableSubmissions(val);
+            onChange={() => {
+              form.setFieldsValue({ target_submission_ids: [] });
+              setSubmissionAliases({});
             }}
           />
         </Form.Item>
@@ -127,8 +135,10 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
           <InputNumber min={0.01} max={0.50} step={0.01} style={{ width: '100%' }} />
         </Form.Item>
 
+        {submissionsError && <Alert type="error" showIcon message={submissionsError} action={<Button size="small" onClick={() => void fetchAvailableSubmissions()}>重试</Button>} style={{ marginBottom: 12 }} />}
         <Form.Item
           name="target_submission_ids"
+          rules={[{ validator: async (_, ids) => { if (ids?.length > 10 || ids?.some((id: string | number) => !/^[1-9][0-9]*$/.test(String(id)))) throw new Error('最多填写 10 个有效提交 ID'); } }]}
           label={
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
               <Crosshair size={14} color="#007aff" />

@@ -79,7 +79,7 @@ export const GlobalCompetitionSwitcherModal: React.FC<GlobalCompetitionSwitcherM
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <p style={{ margin: 0, fontSize: 13, color: '#636366' }}>
-          全局切换当前主工作区竞赛，工作台、开源代码广场与天梯对抗将同步联动：
+          切换当前浏览器的工作台和代码发现赛事。天梯页独立选择；服务器默认赛事和后台监控配置保持原设置。
         </p>
 
         <AutoComplete

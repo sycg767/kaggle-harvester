@@ -21,7 +21,6 @@ import {
 import { Flame, Swords } from 'lucide-react';
 import type {
   SimulationAgentStats,
-  SimulationEpisode,
   SimulationEpisodePageResponse,
   SimulationMedalThresholds,
 } from '../../types/api';
@@ -37,12 +36,7 @@ interface ActiveBattleDashboardProps {
   openEditAliasModal: (subId: number, currentAlias: string) => void;
   getRatedEpisodeCount: (agent?: SimulationAgentStats) => number;
   totalTrackedCount: number;
-  agent1?: SimulationAgentStats;
-  agent2?: SimulationAgentStats;
-  agent1Episodes: SimulationEpisode[];
-  agent2Episodes: SimulationEpisode[];
-  agent1Page?: SimulationEpisodePageResponse;
-  agent2Page?: SimulationEpisodePageResponse;
+  episodePages: Record<number, SimulationEpisodePageResponse>;
   episodeLoading: Record<number, boolean>;
   fetchEpisodePage: (submissionId: number, page?: number, pageSize?: number) => Promise<void>;
 }
@@ -54,12 +48,7 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
   openEditAliasModal,
   getRatedEpisodeCount,
   totalTrackedCount,
-  agent1,
-  agent2,
-  agent1Episodes,
-  agent2Episodes,
-  agent1Page,
-  agent2Page,
+  episodePages,
   episodeLoading,
   fetchEpisodePage,
 }) => {
@@ -139,7 +128,7 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
           <Flame size={16} color="#f97316" />
-          <Text strong style={{ fontSize: 14 }}>我方 2 个活跃提交实时战况</Text>
+          <Text strong style={{ fontSize: 14 }}>已跟踪 {agents.length} 个提交的最近战况</Text>
         </div>
 
         {agents.length === 0 ? (
@@ -157,12 +146,12 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
                     className="sim-agent-card"
                     styles={{ body: { padding: 18 } }}
                     title={
-                      <div style={{ display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'space-between' }}>
-                        <Space size={8} align="center">
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                        <Space size={8} align="center" wrap style={{ minWidth: 0 }}>
                           <Tag color={idx === 0 ? 'blue' : 'purple'} style={{ margin: 0, fontWeight: 700 }}>
                             Agent #{idx + 1}
                           </Tag>
-                          <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                          <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
                             {shortName}
                           </span>
                           <Tooltip title={`修改自定义别名（如 p32, p46，当前：${shortName}）`}>
@@ -208,39 +197,41 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
 
                     {/* Dynamic Medal Tier Cushion Banner */}
                     {(() => {
-                      const sc = scoreVal !== undefined && scoreVal !== null ? Number(scoreVal) : 0;
+                      const sc = scoreVal != null ? Number(scoreVal) : null;
+                      const difference = (cutoff?: number | null) => sc != null && cutoff != null ? sc - cutoff : null;
+                      const formatGap = (value?: number | null, plus = false) => value == null ? '未知（缺少积分或奖牌线）' : `${plus && value >= 0 ? '+' : ''}${value.toFixed(1)} 分`;
                       let cushionTitle = '⚠️ 距离铜牌线差距';
-                      let cushionVal = `${(agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0)).toFixed(1)} 分`;
+                      let cushionVal = formatGap(agent.bronze_gap_score ?? difference(thresholds?.bronze_cutoff_score));
                       let nextGapText: string | null = null;
                       let bannerClass = 'sim-cushion-banner-danger';
 
                       if (medalTier === 'gold') {
                         cushionTitle = '金牌安全垫 (高于金牌线)';
-                        const c = agent.tier_cushion_score ?? (thresholds?.gold_cutoff_score ? sc - thresholds.gold_cutoff_score : 0);
-                        cushionVal = `+${c.toFixed(1)} 分`;
+                        const c = agent.tier_cushion_score ?? difference(thresholds?.gold_cutoff_score);
+                        cushionVal = formatGap(c, true);
                         bannerClass = 'sim-cushion-banner-gold';
                       } else if (medalTier === 'silver') {
                         cushionTitle = '银牌安全垫 (高于银牌线)';
-                        const c = agent.tier_cushion_score ?? (thresholds?.silver_cutoff_score ? sc - thresholds.silver_cutoff_score : 0);
-                        cushionVal = `+${c.toFixed(1)} 分`;
+                        const c = agent.tier_cushion_score ?? difference(thresholds?.silver_cutoff_score);
+                        cushionVal = formatGap(c, true);
                         bannerClass = 'sim-cushion-banner-silver';
-                        const nextGap = agent.next_tier_gap_score ?? (thresholds?.gold_cutoff_score ? thresholds.gold_cutoff_score - sc : null);
+                        const nextGap = agent.next_tier_gap_score ?? (sc != null && thresholds?.gold_cutoff_score != null ? thresholds.gold_cutoff_score - sc : null);
                         if (nextGap !== null && nextGap !== undefined) {
                           nextGapText = `距金牌线 ${nextGap.toFixed(1)} 分`;
                         }
                       } else if (medalTier === 'bronze') {
                         cushionTitle = '铜牌安全垫 (高于铜牌线)';
-                        const c = agent.tier_cushion_score ?? agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
-                        cushionVal = `+${c.toFixed(1)} 分`;
+                        const c = agent.tier_cushion_score ?? agent.bronze_gap_score ?? difference(thresholds?.bronze_cutoff_score);
+                        cushionVal = formatGap(c, true);
                         bannerClass = 'sim-cushion-banner-bronze';
-                        const nextGap = agent.next_tier_gap_score ?? (thresholds?.silver_cutoff_score ? thresholds.silver_cutoff_score - sc : null);
+                        const nextGap = agent.next_tier_gap_score ?? (sc != null && thresholds?.silver_cutoff_score != null ? thresholds.silver_cutoff_score - sc : null);
                         if (nextGap !== null && nextGap !== undefined) {
                           nextGapText = `距银牌线 ${nextGap.toFixed(1)} 分`;
                         }
                       } else {
                         cushionTitle = '距离铜牌线差距';
-                        const gap = agent.bronze_gap_score ?? (thresholds?.bronze_cutoff_score ? sc - thresholds.bronze_cutoff_score : 0);
-                        cushionVal = `${gap.toFixed(1)} 分`;
+                        const gap = agent.bronze_gap_score ?? difference(thresholds?.bronze_cutoff_score);
+                        cushionVal = formatGap(gap);
                         bannerClass = 'sim-cushion-banner-danger';
                       }
 
@@ -263,11 +254,11 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
 
                     {/* Win Rate Progress & Stats */}
                     <div className="sim-stats-section">
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
                         <span style={{ fontWeight: 600, fontSize: 12, color: '#334155' }}>
                           胜率 ({agent.win_rate.toFixed(1)}%)
                         </span>
-                        <Space size={4}>
+                        <Space size={4} wrap>
                           <Tag color="success" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>{agent.wins} 胜</Tag>
                           <Tag color="error" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>{agent.losses} 负</Tag>
                           {agent.ties > 0 && <Tag style={{ margin: 0, fontSize: 11 }}>{agent.ties} 平</Tag>}
@@ -300,7 +291,7 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
 
       {/* Match Stream Section: Split into Left and Right Columns */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Swords size={16} color="#3b82f6" />
             <Text strong style={{ fontSize: 14 }}>最新对局流水 (点击对局 ID 可观看回放)</Text>
@@ -311,83 +302,30 @@ export const ActiveBattleDashboard: React.FC<ActiveBattleDashboardProps> = ({
         </div>
 
         <Row gutter={[16, 16]}>
-          {/* Left Column: Agent 1 Episodes */}
-          <Col xs={24} lg={12}>
-            <Card
-              size="small"
-              className="sim-agent-card"
-              title={
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0' }}>
-                  <Space size={6}>
-                    <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>Agent #1</Tag>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{agent1 ? getShortAgentName(agent1, 0) : 'Agent 1'} 对局流水</span>
-                  </Space>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    共 {getRatedEpisodeCount(agent1)} 局 ({agent1?.wins || 0}胜 {agent1?.losses || 0}负)
-                  </Text>
-                </div>
-              }
-            >
-              <Table
-                columns={sideEpisodeColumns}
-                dataSource={agent1Episodes}
-                rowKey="id"
-                size="small"
-                scroll={{ x: 380 }}
-                pagination={{
-                  current: agent1Page ? Math.floor(agent1Page.offset / agent1Page.limit) + 1 : 1,
-                  pageSize: agent1Page?.limit || 6,
-                  total: agent1Page?.total || 0,
-                  showSizeChanger: false,
-                  size: 'small',
-                  onChange: (page, pageSize) => {
-                    if (agent1) void fetchEpisodePage(agent1.submission_id, page, pageSize);
-                  },
-                }}
-                loading={agent1 ? Boolean(episodeLoading[agent1.submission_id]) : false}
-                bordered
-              />
-            </Card>
-          </Col>
-
-          {/* Right Column: Agent 2 Episodes */}
-          <Col xs={24} lg={12}>
-            <Card
-              size="small"
-              className="sim-agent-card"
-              title={
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0' }}>
-                  <Space size={6}>
-                    <Tag color="purple" style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>Agent #2</Tag>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{agent2 ? getShortAgentName(agent2, 1) : 'Agent 2'} 对局流水</span>
-                  </Space>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    共 {getRatedEpisodeCount(agent2)} 局 ({agent2?.wins || 0}胜 {agent2?.losses || 0}负)
-                  </Text>
-                </div>
-              }
-            >
-              <Table
-                columns={sideEpisodeColumns}
-                dataSource={agent2Episodes}
-                rowKey="id"
-                size="small"
-                scroll={{ x: 380 }}
-                pagination={{
-                  current: agent2Page ? Math.floor(agent2Page.offset / agent2Page.limit) + 1 : 1,
-                  pageSize: agent2Page?.limit || 6,
-                  total: agent2Page?.total || 0,
-                  showSizeChanger: false,
-                  size: 'small',
-                  onChange: (page, pageSize) => {
-                    if (agent2) void fetchEpisodePage(agent2.submission_id, page, pageSize);
-                  },
-                }}
-                loading={agent2 ? Boolean(episodeLoading[agent2.submission_id]) : false}
-                bordered
-              />
-            </Card>
-          </Col>
+          {agents.map((agent, index) => {
+            const page = episodePages[agent.submission_id];
+            return (
+              <Col xs={24} lg={12} key={agent.submission_id}>
+                <Card size="small" className="sim-agent-card" title={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', whiteSpace: 'normal' }}>
+                    <Tag color={index % 2 ? 'purple' : 'blue'}>Agent #{index + 1}</Tag>
+                    <span style={{ overflowWrap: 'anywhere' }}>{getShortAgentName(agent, index)} 对局流水</span>
+                    <Text type="secondary" style={{ fontSize: 12 }}>共 {getRatedEpisodeCount(agent)} 局 ({agent.wins || 0}胜 {agent.losses || 0}负)</Text>
+                  </div>
+                }>
+                  <Table columns={sideEpisodeColumns} dataSource={page?.episodes ?? []} rowKey="id"
+                    size="small" scroll={{ x: 380 }} bordered
+                    pagination={{
+                      current: page ? Math.floor(page.offset / page.limit) + 1 : 1,
+                      pageSize: page?.limit || 6, total: page?.total || 0,
+                      showSizeChanger: false, size: 'small',
+                      onChange: (number, size) => { void fetchEpisodePage(agent.submission_id, number, size); },
+                    }} loading={Boolean(episodeLoading[agent.submission_id])}
+                  />
+                </Card>
+              </Col>
+            );
+          })}
         </Row>
       </div>
     </>

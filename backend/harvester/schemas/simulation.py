@@ -181,6 +181,7 @@ class SimulationMonitorStatus(BaseModel):
     service_started_at: Optional[str] = None
     scheduler_heartbeat_at: Optional[str] = None
     last_checked_at: Optional[str] = None
+    last_success_at: Optional[str] = None
     next_run_at: Optional[str] = None
     last_error: Optional[str] = None
     competition: str = "pokemon-tcg-ai-battle"
@@ -250,5 +251,14 @@ class SimulationArenaSnapshot(BaseModel):
     monitored_competition: str
     source: Literal["current", "history", "empty"]
     captured_at: Optional[str] = None
+    run_id: Optional[str] = None
     warning: Optional[str] = None
     status: SimulationMonitorStatus
+
+
+class SimulationHistoryPage(BaseModel):
+    logs: list[SimulationMonitorRunLog] = Field(default_factory=list)
+    total: int = 0
+    offset: int = 0
+    limit: int = 20
+    warning: Optional[str] = None

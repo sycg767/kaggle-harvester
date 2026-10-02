@@ -27,6 +27,7 @@ import {
 import { buildEnteredCompetitionOptions, competitionDisplayName } from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import DialogTitle from './DialogTitle';
+import { monitorResult } from '../monitorResult';
 import ArchiveRulePreview from './auto-archive/ArchiveRulePreview';
 import {
   AutoArchiveConfigForm,
@@ -196,9 +197,7 @@ const AutoArchiveControl: React.FC<AutoArchiveControlProps> = ({
       latestLogIdRef.current = data.logs[0]?.id || latestLogIdRef.current;
       form.setFieldsValue(data.config);
       if (data.status.archived_count > 0) onArchiveComplete?.();
-      message.success(
-        `检查完成：新增 ${data.status.archived_count}，跳过 ${data.status.skipped_count}`,
-      );
+      message.open(monitorResult(data, `检查完成：新增 ${data.status.archived_count}，跳过 ${data.status.skipped_count}`));
     } catch (error) {
       message.error(error instanceof Error ? error.message : '立即检查失败。');
       await loadStatus(false);

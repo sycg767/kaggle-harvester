@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,6 +18,7 @@ from ..schemas import (
     NotificationStatus,
     NotificationTestResult,
 )
+from ..schemas.notifications import NotificationDelivery
 from .formatters import (
     format_beijing_time,
     format_run_message,
@@ -62,6 +64,7 @@ class NotificationManager:
         self._status = NotificationStatus()
         self._pending: dict[str, dict[str, Any]] = {}
         self._delivered: dict[str, list[str]] = {}
+        self._delivery_history: list[NotificationDelivery] = []
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._queued_ids: set[str] = set()
         self._task: asyncio.Task[None] | None = None
@@ -105,6 +108,11 @@ class NotificationManager:
                     for key, value in delivered.items()
                     if isinstance(value, list)
                 }
+            for item in data.get("delivery_history", [])[:self.MAX_DELIVERED_EVENTS]:
+                try:
+                    self._delivery_history.append(NotificationDelivery.model_validate(item))
+                except (TypeError, ValueError):
+                    continue
             webhook_url = self._secret_store.get("webhook_url")
             fixed = self._maybe_fix_webhook_format(
                 self._config.webhook_format, webhook_url
@@ -138,6 +146,7 @@ class NotificationManager:
                 "status": self._status.model_dump(),
                 "pending": self._pending,
                 "delivered": self._delivered,
+                "delivery_history": [item.model_dump() for item in self._delivery_history],
             }
             temp_path = self._state_path.with_suffix(".tmp")
             temp_path.write_text(
@@ -169,7 +178,8 @@ class NotificationManager:
                 self._task is not None and not self._task.done()
             )
             status.pending_count = len(self._pending)
-        return NotificationSnapshot(config=config, status=status)
+            history = [item.model_copy(deep=True) for item in self._delivery_history]
+        return NotificationSnapshot(config=config, status=status, deliveries=history)
 
     @staticmethod
     def _validate_webhook_url(value: str) -> None:
@@ -355,6 +365,8 @@ class NotificationManager:
                 },
             }
             self._pending[log.id] = event
+            for channel in channels:
+                self._record_delivery(event, channel, "queued", 0)
             self._save_state()
         self._queue_event(log.id)
         return True
@@ -390,6 +402,8 @@ class NotificationManager:
                 "summary": summary or {},
             }
             self._pending[event_id] = event
+            for channel in channels:
+                self._record_delivery(event, channel, "queued", 0)
             self._save_state()
         self._queue_event(event_id)
         return True
@@ -487,6 +501,15 @@ class NotificationManager:
                 self._queued_ids.discard(event_id)
                 self._queue.task_done()
 
+    def _record_delivery(self, event: dict, channel: str, state: str, attempts: int, error: str | None = None) -> None:
+        # Keep delivery metadata only: message bodies and credentials are excluded.
+        self._delivery_history.insert(0, NotificationDelivery(
+            id=uuid.uuid4().hex, event_id=str(event["id"]), event=str(event.get("event", "unknown")),
+            competition=str(event.get("competition", "")), channel=channel, state=state,
+            attempts=attempts, recorded_at=_utc_now_iso(), error=error,
+        ))
+        self._delivery_history = self._delivery_history[:self.MAX_DELIVERED_EVENTS]
+
     async def _deliver_event(self, event_id: str) -> None:
         with self._lock:
             event = self._pending.get(event_id)
@@ -494,6 +517,7 @@ class NotificationManager:
                 return
             event = json.loads(json.dumps(event))
             delivered = set(self._delivered.get(event_id, []))
+        failures: list[str] = []
         for channel in event.get("channels", []):
             if channel in delivered:
                 continue
@@ -508,10 +532,12 @@ class NotificationManager:
                     if attempt + 1 < self.MAX_ATTEMPTS:
                         await asyncio.sleep(2**attempt)
             if last_error is not None:
+                failures.append(f"{channel}：{self._sanitize_error(last_error)}")
                 with self._lock:
                     self._status.last_error = (
                         f"{channel} 通知发送失败：{self._sanitize_error(last_error)}"
                     )
+                    self._record_delivery(event, channel, "failed", attempt + 1, self._sanitize_error(last_error))
                     self._save_state()
                 continue
             delivered.add(channel)
@@ -520,6 +546,11 @@ class NotificationManager:
                 self._status.last_sent_at = _utc_now_iso()
                 self._status.last_event_id = event_id
                 self._status.last_error = None
+                self._record_delivery(event, channel, "sent", attempt + 1)
+                self._save_state()
+        if failures:
+            with self._lock:
+                self._status.last_error = "；".join(failures)
                 self._save_state()
         expected = set(event.get("channels", []))
         if expected and expected.issubset(delivered):
@@ -607,6 +638,8 @@ class NotificationManager:
                 )
         success = bool(results) and all(item.success for item in results)
         with self._lock:
+            for result in results:
+                self._record_delivery(event, result.channel, "sent" if result.success else "failed", 1, None if result.success else result.message)
             self._status.last_error = (
                 None
                 if success

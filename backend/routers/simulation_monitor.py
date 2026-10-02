@@ -17,7 +17,7 @@ from harvester.simulation_monitor import (
     SimulationMonitorBusyError,
     SimulationMonitorManager,
 )
-from harvester.schemas.simulation import SimulationArenaSnapshot
+from harvester.schemas.simulation import SimulationArenaSnapshot, SimulationHistoryPage
 
 router = APIRouter(tags=["SimulationMonitor"])
 
@@ -33,14 +33,33 @@ async def get_simulation_monitor(request: Request):
 async def get_simulation_arena(
     request: Request,
     competition: Optional[str] = Query(None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$"),
+    run_id: Optional[str] = Query(None, pattern=r"^[0-9a-f]{32}$"),
 ):
     manager: SimulationMonitorManager = request.app.state.simulation_monitor
     try:
-        return await run_in_threadpool(manager.arena_snapshot, competition)
+        return await run_in_threadpool(manager.arena_snapshot, competition, run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except OSError:
         raise HTTPException(status_code=503, detail="历史快照暂时无法读取，请稍后重试。")
+
+
+@router.get("/api/simulation-monitor/arena/history", response_model=SimulationHistoryPage)
+async def get_simulation_history(
+    request: Request,
+    competition: str = Query(..., min_length=1, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$"),
+    offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+    day: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    manager: SimulationMonitorManager = request.app.state.simulation_monitor
+    try:
+        return await run_in_threadpool(manager.arena_history, competition, offset, limit, day)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="快照日期无效。")
+    except OSError:
+        raise HTTPException(status_code=503, detail="历史快照列表暂时无法读取，请稍后重试。")
 
 
 @router.get(
@@ -68,6 +87,10 @@ async def update_simulation_monitor(
     manager: SimulationMonitorManager = request.app.state.simulation_monitor
     try:
         return await manager.update_config(config)
+    except SimulationMonitorBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except OSError:
+        raise HTTPException(status_code=503, detail="配置保存失败，原配置仍然生效，请稍后重试。")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -139,7 +162,7 @@ async def list_simulation_submissions(
     seen_ids: set[int] = set()
 
     snap = manager.snapshot()
-    if snap.config.competition == comp:
+    if snap.config.competition == comp and snap.status.competition == comp:
         for idx, agent in enumerate(snap.status.agents or []):
             sub_id = int(agent.submission_id)
             if sub_id not in seen_ids:
@@ -174,7 +197,7 @@ async def list_simulation_submissions(
                     "public_score": s.public_score,
                     "team_name": s.team_name,
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Kaggle 提交列表读取失败，请稍后重试。") from exc
 
     return results

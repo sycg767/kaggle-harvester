@@ -28,6 +28,7 @@ import {
 import { buildEnteredCompetitionOptions } from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import DialogTitle from './DialogTitle';
+import { monitorResult } from '../monitorResult';
 import {
   formatDate,
   SubmissionConfigForm,
@@ -175,11 +176,9 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       setSnapshot(data);
       form.setFieldsValue(data.config);
       const newly = data.status.newly_scored_count;
-      message.success(
-        newly > 0
-          ? `检查完成：新出分 ${newly} 条`
-          : `检查完成：待出分 ${data.status.pending_count}，已出分 ${data.status.scored_count}`,
-      );
+      message.open(monitorResult(data, newly > 0
+        ? `检查完成：新出分 ${newly} 条`
+        : `检查完成：待出分 ${data.status.pending_count}，已出分 ${data.status.scored_count}`));
     } catch (error) {
       message.error(error instanceof Error ? error.message : '立即检查失败。');
       await loadStatus(false);

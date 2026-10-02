@@ -158,6 +158,7 @@ export interface SimulationClawbotTestResult {
 }
 
 export interface SimulationMonitorStatus {
+  last_success_at?: string | null;
   running: boolean;
   scheduler_alive: boolean;
   enabled?: boolean;
@@ -177,6 +178,7 @@ export interface SimulationMonitorStatus {
 }
 
 export interface SimulationMonitorRunLog {
+  competition?: string;
   id: string;
   trigger: 'scheduled' | 'manual';
   outcome: 'success' | 'partial' | 'failed';
@@ -203,6 +205,7 @@ export interface SimulationMonitorSnapshot {
 }
 
 export interface SimulationArenaSnapshot {
+  run_id?: string | null;
   competition: string;
   monitored_competition: string;
   source: 'current' | 'history' | 'empty';

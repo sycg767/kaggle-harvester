@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from ..schemas.simulation import SimulationMonitorRunDetail, SimulationMonitorRunLog
@@ -16,6 +16,7 @@ class SimulationHistoryReader:
         self._root = root
         self._lock = threading.RLock()
         self._index: dict[str, dict[str, datetime]] | None = None
+        self._headers: dict[str, SimulationMonitorRunLog] = {}
         self._index_warning: str | None = None
         self._cache: dict[str, tuple[int, int, SimulationMonitorRunDetail]] = {}
 
@@ -52,6 +53,7 @@ class SimulationHistoryReader:
         if log.agent_count > 0:
             assert self._index is not None
             self._index.setdefault(log.competition, {})[log.id] = self._timestamp(log.finished_at)
+            self._headers[log.id] = log.model_copy(deep=True)
 
     def remember(self, log: SimulationMonitorRunLog) -> None:
         """Called only after the run detail's atomic write has succeeded."""
@@ -59,25 +61,52 @@ class SimulationHistoryReader:
             if self._index is not None:
                 self._add(log)
 
+    def _ensure_index(self) -> None:
+        if self._index is None:
+            self._index = {}
+            try:
+                for path in self._root.iterdir():
+                    if not re.fullmatch(r"[0-9a-f]{32}\.json", path.name) or path.is_symlink():
+                        continue
+                    try:
+                        log = self._read_header(path)
+                        if log.id != path.stem:
+                            raise ValueError("Run ID does not match its file")
+                        self._add(log)
+                    except (OSError, ValueError, TypeError):
+                        self._index_warning = "部分历史记录无法读取，正在显示可读取的采集结果。"
+            except OSError:
+                self._index = None
+                raise
+
+    def list_runs(self, competition: str, offset: int = 0, limit: int = 20, day: str | None = None) -> dict:
+        selected_date = date.fromisoformat(day) if day else None
+        with self._lock:
+            self._ensure_index()
+            candidates = sorted(self._index.get(competition, {}).items(), key=lambda item: item[1], reverse=True)
+            if selected_date:
+                candidates = [item for item in candidates if item[1].astimezone(timezone.utc).date() == selected_date]
+            return {"logs": [self._headers[log_id].model_copy(deep=True) for log_id, _ in candidates[offset:offset + limit]],
+                    "total": len(candidates), "offset": offset, "limit": limit, "warning": self._index_warning}
+
+    def read(self, competition: str, log_id: str) -> SimulationMonitorRunDetail | None:
+        if not re.fullmatch(r"[0-9a-f]{32}", log_id):
+            raise ValueError("快照 ID 无效。")
+        with self._lock:
+            self._ensure_index()
+            if log_id not in self._index.get(competition, {}):
+                return None
+            path = self._root / f"{log_id}.json"
+            if path.is_symlink():
+                raise ValueError("快照文件无效。")
+            detail = SimulationMonitorRunDetail.model_validate_json(path.read_text(encoding="utf-8"))
+            if detail.log.id != log_id or detail.log.competition != competition or not detail.agents:
+                raise ValueError("快照内容与所选赛事不一致。")
+            return detail
+
     def latest(self, competition: str) -> tuple[SimulationMonitorRunDetail | None, str | None]:
         with self._lock:
-            if self._index is None:
-                self._index = {}
-                try:
-                    for path in self._root.iterdir():
-                        if not re.fullmatch(r"[0-9a-f]{32}\.json", path.name) or path.is_symlink():
-                            continue
-                        try:
-                            log = self._read_header(path)
-                            if log.id != path.stem:
-                                raise ValueError("Run ID does not match its file")
-                            self._add(log)
-                        except (OSError, ValueError, TypeError):
-                            self._index_warning = "部分历史记录无法读取，正在显示可读取的采集结果。"
-                except OSError:
-                    self._index = None
-                    raise
-
+            self._ensure_index()
             warning = self._index_warning
             candidates = sorted(self._index.get(competition, {}).items(), key=lambda item: item[1], reverse=True)
             for log_id, _ in candidates:
