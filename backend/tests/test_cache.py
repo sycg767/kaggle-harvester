@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import sys
 import tempfile
 import time
@@ -453,6 +454,53 @@ class StaleWhileRevalidateTests(unittest.IsolatedAsyncioTestCase):
             store_reloaded = PersistentSimulationEpisodeStore(temp_dir)
             self.assertEqual(store_reloaded.get_episode_count(55565346), 3)
             self.assertEqual(store_reloaded.stats()["total_episodes_stored"], 3)
+
+    def test_simulation_episode_store_isolates_competitions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = PersistentSimulationEpisodeStore(temp_dir)
+            episode = SimulationEpisode(
+                id=7,
+                create_time="2026-08-20T00:00:00Z",
+                my_submission_id=42,
+                result="win",
+            )
+            store.upsert_episodes([episode], competition="competition-a")
+            store.upsert_episodes([episode.model_copy(update={"result": "loss"})], competition="competition-b")
+
+            self.assertEqual(store.get_episode_count(42, competition="competition-a"), 1)
+            self.assertEqual(store.get_episode_count(42, competition="competition-b"), 1)
+            self.assertEqual(store.get_episodes(42, competition="competition-a")[0].result, "win")
+            self.assertEqual(store.get_episodes(42, competition="competition-b")[0].result, "loss")
+
+    def test_simulation_episode_store_migrates_unclassified_rows_without_overwriting_legacy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "_cache"
+            cache_dir.mkdir()
+            legacy_path = cache_dir / "simulation_episodes.db"
+            conn = sqlite3.connect(legacy_path)
+            conn.execute("""
+                CREATE TABLE episodes (
+                    id INTEGER PRIMARY KEY, submission_id INTEGER NOT NULL,
+                    create_time TEXT, end_time TEXT, duration_seconds REAL,
+                    state TEXT, type TEXT, my_agent_index INTEGER,
+                    my_team_name TEXT, opponent_team_name TEXT,
+                    opponent_team_id INTEGER, opponent_submission_id INTEGER,
+                    result TEXT, is_system_check INTEGER, reward REAL,
+                    score_delta REAL, opponent_score REAL, replay_url TEXT,
+                    agents_json TEXT
+                )
+            """)
+            conn.execute(
+                "INSERT INTO episodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (1, 42, "2026-08-20T00:00:00Z", None, None, "", "", 0, "", "", None, None, "win", 0, 1.0, 1.0, None, "", "[]"),
+            )
+            conn.commit()
+            conn.close()
+
+            store = PersistentSimulationEpisodeStore(temp_dir)
+            self.assertEqual(store.get_episode_count(42, competition=store.UNCLASSIFIED_COMPETITION), 1)
+            self.assertEqual(store.get_episode_count(42), 0)
+            self.assertTrue(legacy_path.exists())
 
 
 class TestActiveCompetitionPersistenceAndResolution(unittest.TestCase):

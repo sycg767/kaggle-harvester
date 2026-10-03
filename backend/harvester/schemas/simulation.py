@@ -194,6 +194,8 @@ class SimulationMonitorStatus(BaseModel):
     new_episodes_this_run: int = 0
     new_episodes_count: int = 0
     clawbot: Optional[SimulationClawbotStatus] = None
+    lifecycle: Literal["active", "ended", "archived", "unknown"] = "unknown"
+    frozen_at: Optional[str] = None
 
 
 class SimulationMonitorRunLog(BaseModel):
@@ -230,6 +232,7 @@ class SimulationEpisodePageResponse(BaseModel):
     """单个提交对局流水的分页响应。"""
 
     submission_id: int
+    competition: str = "pokemon-tcg-ai-battle"
     total: int = 0
     offset: int = 0
     limit: int = 0

@@ -109,7 +109,7 @@ class KaggleClient:
         self._episode_store = episode_store
         self._competition_info_memory: dict[str, tuple[float, CompetitionInfo]] = {}
         self._sim_leaderboard_cache: dict[str, tuple[float, SimulationMedalThresholds, list[dict[str, Any]]]] = {}
-        self._sim_episodes_cache: dict[int, list[SimulationEpisode]] = {}
+        self._sim_episodes_cache: dict[tuple[str, int], list[SimulationEpisode]] = {}
         self._utf8_wrapper = _locate_utf8_wrapper(__file__)
         if self._token:
             os.environ["KAGGLE_API_TOKEN"] = self._token
@@ -513,6 +513,7 @@ class KaggleClient:
     ) -> list[SimulationEpisode]:
         """获取指定提交的完整对局历史（含当时真实天梯分、加减变动、对手及 Replay 链接）。"""
         sub_id = int(submission_id)
+        cache_key = (competition.strip(), sub_id)
         episodes = list_simulation_episodes_for_submission(
             sub_id,
             token=self._token,
@@ -520,31 +521,32 @@ class KaggleClient:
         )
 
         if self._episode_store is not None and episodes:
-            self._episode_store.upsert_episodes(episodes)
-            merged = self._episode_store.get_episodes(sub_id, order="DESC")
-            self._sim_episodes_cache[sub_id] = merged
+            self._episode_store.upsert_episodes(episodes, competition=competition)
+            merged = self._episode_store.get_episodes(sub_id, competition=competition, order="DESC")
+            self._sim_episodes_cache[cache_key] = merged
             return merged
 
         if episodes:
-            known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(sub_id, [])}
+            known_map = {ep.id: ep for ep in self._sim_episodes_cache.get(cache_key, [])}
             for ep in episodes:
                 known_map[ep.id] = ep
             merged = sorted(known_map.values(), key=lambda x: x.create_time or "", reverse=True)
-            self._sim_episodes_cache[sub_id] = merged
+            self._sim_episodes_cache[cache_key] = merged
             return merged
 
         if self._episode_store is not None:
-            return self._episode_store.get_episodes(sub_id, order="DESC")
-        return list(self._sim_episodes_cache.get(sub_id, []))
+            return self._episode_store.get_episodes(sub_id, competition=competition, order="DESC")
+        return list(self._sim_episodes_cache.get(cache_key, []))
 
     def get_simulation_episodes_cached(
-        self, submission_id: int
+        self, submission_id: int, competition: str = "pokemon-tcg-ai-battle"
     ) -> list[SimulationEpisode]:
         """返回指定提交已缓存的全部对局流水（按最新在前排序，不触发网络拉取）。"""
         sub_id = int(submission_id)
+        cache_key = (competition.strip(), sub_id)
         if self._episode_store is not None:
-            return self._episode_store.get_episodes(sub_id, order="DESC")
-        return list(self._sim_episodes_cache.get(sub_id, []))
+            return self._episode_store.get_episodes(sub_id, competition=competition, order="DESC")
+        return list(self._sim_episodes_cache.get(cache_key, []))
 
     def get_simulation_leaderboard(
         self,

@@ -5,6 +5,7 @@ import type { SimulationAgentStats, SimulationEpisodePageResponse } from '../../
 interface UseSimulationEpisodesOptions {
   open: boolean;
   isTargetCompActive: boolean;
+  competition: string;
   agents: SimulationAgentStats[];
   onError?: (err: Error) => void;
 }
@@ -12,6 +13,7 @@ interface UseSimulationEpisodesOptions {
 export function useSimulationEpisodes({
   open,
   isTargetCompActive,
+  competition,
   agents,
   onError,
 }: UseSimulationEpisodesOptions) {
@@ -34,7 +36,7 @@ export function useSimulationEpisodes({
       requestVersions.current[submissionId] = version;
       setEpisodeLoading((previous) => ({ ...previous, [submissionId]: true }));
       try {
-        const data = await api.getSimulationEpisodes(submissionId, (page - 1) * pageSize, pageSize);
+        const data = await api.getSimulationEpisodes(submissionId, (page - 1) * pageSize, pageSize, competition);
         if (isMounted.current && requestVersions.current[submissionId] === version) {
           setEpisodePages((previous) => ({ ...previous, [submissionId]: data }));
         }
@@ -48,7 +50,7 @@ export function useSimulationEpisodes({
         }
       }
     },
-    [onError]
+    [competition, onError]
   );
 
   useEffect(() => {

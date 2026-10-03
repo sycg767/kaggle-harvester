@@ -69,13 +69,14 @@ async def get_simulation_history(
 async def get_simulation_episodes(
     request: Request,
     submission_id: int = Query(..., description="目标提交 ID"),
+    competition: Optional[str] = Query(None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$"),
     offset: int = Query(0, ge=0, description="分页偏移量"),
     limit: int = Query(50, ge=1, le=200, description="每页条数"),
 ):
     """按分页返回指定提交的对局流水（从内存缓存读取，不触发网络拉取）。"""
     manager: SimulationMonitorManager = request.app.state.simulation_monitor
     return await run_in_threadpool(
-        manager.get_episodes_page, submission_id, offset, limit
+        manager.get_episodes_page, submission_id, offset, limit, competition
     )
 
 

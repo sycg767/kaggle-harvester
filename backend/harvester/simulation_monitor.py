@@ -95,6 +95,7 @@ class SimulationMonitorManager:
             Path(harvest_root).resolve() / "_cache" / "simulation_monitor.json"
         )
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        self._entered_competitions_path = self._state_path.parent / "entered_competitions.json"
         self._run_details_root = self._state_path.parent / "simulation_monitor_runs"
         self._run_details_root.mkdir(parents=True, exist_ok=True)
         self._history_reader = SimulationHistoryReader(self._run_details_root)
@@ -118,6 +119,36 @@ class SimulationMonitorManager:
         self._history_points: list[SimulationHistoryPoint] = []
         self._logs: list[SimulationMonitorRunLog] = []
         self._load_state()
+        self._apply_competition_lifecycle(self._config.competition)
+
+    def _competition_deadline(self, competition: str) -> datetime | None:
+        try:
+            payload = json.loads(self._entered_competitions_path.read_text(encoding="utf-8"))
+            for item in payload.get("items", []):
+                if str(item.get("id", "")).strip() == competition and item.get("deadline"):
+                    return _parse_datetime(str(item["deadline"]))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        return None
+
+    def _apply_competition_lifecycle(self, competition: str) -> None:
+        deadline = self._competition_deadline(competition)
+        if deadline is not None and deadline <= _utc_now():
+            self._status.lifecycle = "ended"
+            self._status.frozen_at = self._status.frozen_at or _utc_now().isoformat()
+        else:
+            self._status.lifecycle = "active" if deadline is not None else "unknown"
+            self._status.frozen_at = None
+
+    def _is_frozen(self, competition: str) -> bool:
+        deadline = self._competition_deadline(competition)
+        return deadline is not None and deadline <= _utc_now()
+
+    def _lifecycle_for(self, competition: str) -> tuple[str, str | None]:
+        deadline = self._competition_deadline(competition)
+        if deadline is not None and deadline <= _utc_now():
+            return "ended", deadline.isoformat()
+        return ("active", None) if deadline is not None else ("unknown", None)
 
     def _load_state(self) -> None:
         if not self._state_path.exists():
@@ -143,6 +174,17 @@ class SimulationMonitorManager:
             self._known_medal_tiers = {
                 str(k): str(v)
                 for k, v in data.get("known_medal_tiers", {}).items()
+            }
+            # v1 state used bare submission IDs. Scope those retained values to
+            # the competition that owned the old monitor configuration.
+            prefix = f"{self._config.competition}:"
+            self._known_episode_counts = {
+                (key if ":" in key else prefix + key): value
+                for key, value in self._known_episode_counts.items()
+            }
+            self._known_medal_tiers = {
+                (key if ":" in key else prefix + key): value
+                for key, value in self._known_medal_tiers.items()
             }
             raw_history = data.get("history_points", [])
             if isinstance(raw_history, list):
@@ -208,13 +250,18 @@ class SimulationMonitorManager:
             for agent in status["agents"]:
                 agent["recent_episodes"] = []
                 agent["rating_trajectory"] = []
-            status["running"] = bool(status["running"] and self._run_lock.locked()) or self._sync_run_lock.locked()
+            run_lock = getattr(self, "_run_lock", None)
+            sync_run_lock = getattr(self, "_sync_run_lock", None)
+            status["running"] = bool(status["running"] and run_lock and run_lock.locked()) or bool(
+                sync_run_lock and sync_run_lock.locked()
+            )
             status["scheduler_alive"] = bool(self._task is not None and not self._task.done())
             status["enabled"] = bool(self._config.enabled)
             return status
 
     def snapshot(self) -> SimulationMonitorSnapshot:
         with self._state_lock:
+            self._apply_competition_lifecycle(self._config.competition)
             status = self._status.model_copy(deep=True)
             if not self._run_lock.locked():
                 status.running = False
@@ -247,6 +294,8 @@ class SimulationMonitorManager:
                 raise ValueError("赛事 ID 无效。")
             current = self._status.model_copy(deep=True) if self._status.competition == selected else None
             if not run_id and selected == monitored and current and current.agents:
+                self._apply_competition_lifecycle(selected)
+                current = self._status.model_copy(deep=True)
                 current.running = bool(current.running and self._run_lock.locked()) or self._sync_run_lock.locked()
                 current.enabled = self._config.enabled
                 current.scheduler_alive = bool(self._task is not None and not self._task.done())
@@ -265,11 +314,13 @@ class SimulationMonitorManager:
             detail, warning = self._history_reader.latest(selected)
         if detail:
             thresholds = detail.thresholds or detail.medal_thresholds
+            lifecycle, frozen_at = self._lifecycle_for(selected)
             status = SimulationMonitorStatus(
                 competition=selected, agents=detail.agents,
                 thresholds=thresholds, medal_thresholds=thresholds,
                 last_checked_at=detail.log.finished_at, last_error=detail.log.error,
                 total_tracked_episodes=detail.log.total_episodes_found,
+                lifecycle=lifecycle, frozen_at=frozen_at,
             )
             return SimulationArenaSnapshot(
                 competition=selected, monitored_competition=monitored, source="history",
@@ -277,7 +328,11 @@ class SimulationMonitorManager:
             )
         return SimulationArenaSnapshot(
             competition=selected, monitored_competition=monitored, source="empty",
-            warning=warning, status=current or SimulationMonitorStatus(competition=selected),
+            warning=warning, status=current or SimulationMonitorStatus(
+                competition=selected,
+                lifecycle=self._lifecycle_for(selected)[0],
+                frozen_at=self._lifecycle_for(selected)[1],
+            ),
         )
 
     def arena_history(self, competition: str, offset: int = 0, limit: int = 20, day: str | None = None) -> dict:
@@ -288,6 +343,7 @@ class SimulationMonitorManager:
         submission_id: int,
         offset: int = 0,
         limit: int = 50,
+        competition: str | None = None,
     ) -> SimulationEpisodePageResponse:
         """按分页返回指定提交的对局流水。
 
@@ -296,16 +352,20 @@ class SimulationMonitorManager:
         """
         offset = max(0, int(offset))
         limit = max(1, min(int(limit), 200))
-        episodes = self._kaggle.get_simulation_episodes_cached(submission_id)
-        if not episodes:
+        selected_competition = (competition or self._config.competition).strip()
+        episodes = self._kaggle.get_simulation_episodes_cached(
+            submission_id, competition=selected_competition
+        )
+        if not episodes and not self._is_frozen(selected_competition):
             episodes = self._kaggle.list_simulation_episodes(
                 submission_id=submission_id,
-                competition=self._config.competition,
+                competition=selected_competition,
             )
         total = len(episodes)
         page = episodes[offset : offset + limit]
         return SimulationEpisodePageResponse(
             submission_id=submission_id,
+            competition=selected_competition,
             total=total,
             offset=offset,
             limit=limit,
@@ -396,6 +456,7 @@ class SimulationMonitorManager:
             self._config = config.model_copy(deep=True)
             self._status.enabled = bool(config.enabled)
             self._status.competition = config.competition
+            self._apply_competition_lifecycle(config.competition)
             if comp_changed:
                 self._status.agents = []
                 self._status.thresholds = None
@@ -447,6 +508,17 @@ class SimulationMonitorManager:
                 self._save_state()
                 config = self._config.model_copy(deep=True)
 
+            if self._is_frozen(config.competition):
+                with self._state_lock:
+                    self._apply_competition_lifecycle(config.competition)
+                    self._status.running = False
+                    self._status.next_run_at = None
+                    self._status.last_error = "赛事已结束，自动监控已冻结，仅保留历史快照。"
+                    self._save_state()
+                if trigger == "manual":
+                    raise ValueError("赛事已结束，自动监控已冻结，仅保留历史快照。")
+                return self.snapshot()
+
             status: SimulationMonitorStatus | None = None
             agents: list[SimulationAgentStats] = []
             thresholds: SimulationMedalThresholds | None = None
@@ -490,6 +562,9 @@ class SimulationMonitorManager:
                     status.scheduler_alive = True
                     status.service_started_at = self._service_started_at
                     status.scheduler_heartbeat_at = _utc_now().isoformat()
+                    self._apply_competition_lifecycle(config.competition)
+                    status.lifecycle = self._status.lifecycle
+                    status.frozen_at = self._status.frozen_at
                     status.next_run_at = (
                         (
                             _utc_now()
@@ -506,8 +581,9 @@ class SimulationMonitorManager:
                     self._status = status
 
                     for agent in agents:
-                        self._known_episode_counts[str(agent.submission_id)] = agent.total_episodes
-                        self._known_medal_tiers[str(agent.submission_id)] = agent.medal_tier
+                        state_key = f"{config.competition}:{agent.submission_id}"
+                        self._known_episode_counts[state_key] = agent.total_episodes
+                        self._known_medal_tiers[state_key] = agent.medal_tier
 
                     outcome: Literal["success", "partial", "failed"] = (
                         "failed"
@@ -563,6 +639,10 @@ class SimulationMonitorManager:
                             self._save_run_detail(log, agents, thresholds)
                         except (OSError, ValueError, TypeError):
                             log.details_available = False
+                    try:
+                        self._episode_store.register_monitor_run(log, agents)
+                    except Exception:
+                        pass
                     self._logs.insert(0, log)
                     self._logs = self._logs[: self.MAX_RUN_LOGS]
                     self._save_state()
@@ -637,6 +717,19 @@ class SimulationMonitorManager:
                 self._wake_event.clear()
                 try:
                     await asyncio.wait_for(self._wake_event.wait(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+
+            if self._is_frozen(snapshot.config.competition):
+                with self._state_lock:
+                    self._apply_competition_lifecycle(snapshot.config.competition)
+                    self._status.next_run_at = None
+                    self._status.last_error = "赛事已结束，自动监控已冻结，仅保留历史快照。"
+                    self._save_state()
+                self._wake_event.clear()
+                try:
+                    await asyncio.wait_for(self._wake_event.wait(), timeout=60.0)
                 except asyncio.TimeoutError:
                     pass
                 continue

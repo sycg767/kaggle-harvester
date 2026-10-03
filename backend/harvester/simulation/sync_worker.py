@@ -278,8 +278,11 @@ def execute_simulation_sync(
         medal_tier = agent_stat.medal_tier
 
         # 对比增量对局与通知
-        prev_cnt = counts.get(str(sub_id))
-        prev_tier = tiers.get(str(sub_id))
+        # Include the competition in persistent counters so a reused submission
+        # number from another competition cannot create a false delta/medal event.
+        state_key = f"{comp}:{sub_id}"
+        prev_cnt = counts.get(state_key)
+        prev_tier = tiers.get(state_key)
         if prev_cnt is not None and total > prev_cnt:
             new_cnt = total - prev_cnt
             new_episodes_total += new_cnt

@@ -67,7 +67,9 @@ export const SimControlBar: React.FC<SimControlBarProps> = ({
               color: isTargetCompActive && isMonitoringActive ? '#0f172a' : '#64748b',
             }}
           >
-            {isTargetCompActive
+            {isTargetCompActive && status?.lifecycle === 'ended'
+              ? '赛事已结束，自动监控已冻结'
+              : isTargetCompActive
               ? isMonitoringActive
                 ? status?.running
                   ? '正在执行检查中...'
@@ -156,9 +158,10 @@ export const SimControlBar: React.FC<SimControlBarProps> = ({
             size="small"
             icon={<ReloadOutlined spin={runningNow} />}
             loading={runningNow}
+            disabled={status?.lifecycle === 'ended' || status?.lifecycle === 'archived'}
             onClick={onRunNow}
           >
-            立即刷新
+            {status?.lifecycle === 'ended' ? '已冻结' : '立即采集'}
           </Button>
         ) : (
           <Button

@@ -314,6 +314,22 @@ class TestSimulationMonitor(unittest.TestCase):
         self.assertEqual(agents[0].submission_id, 55565346)
         self.assertEqual(agents[1].submission_id, 55555162)
 
+    def test_ended_competition_is_frozen(self) -> None:
+        entered_path = Path(self.root) / "_cache" / "entered_competitions.json"
+        entered_path.parent.mkdir(parents=True, exist_ok=True)
+        entered_path.write_text(
+            json.dumps({"items": [{"id": "pokemon-tcg-ai-battle", "deadline": "2020-01-01T00:00:00Z"}]}),
+            encoding="utf-8",
+        )
+        manager = SimulationMonitorManager(
+            kaggle_client=self.client,  # type: ignore[arg-type]
+            harvest_root=self.root,
+            default_competition="pokemon-tcg-ai-battle",
+        )
+        self.assertEqual(manager.snapshot().status.lifecycle, "ended")
+        with self.assertRaisesRegex(ValueError, "赛事已结束"):
+            asyncio.run(manager.run_now(trigger="manual"))
+
     def test_render_trajectory_chart_aligns_to_zero(self) -> None:
         from harvester.chart_renderer import render_trajectory_chart
 

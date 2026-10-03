@@ -418,12 +418,14 @@ export const api = {
     submissionId: number,
     offset = 0,
     limit = 6,
+    competition?: string,
   ): Promise<SimulationEpisodePageResponse> {
     const q = new URLSearchParams({
       submission_id: String(submissionId),
       offset: String(offset),
       limit: String(limit),
     });
+    if (competition) q.set('competition', competition);
     return request(`/simulation-monitor/episodes?${q.toString()}`);
   },
 

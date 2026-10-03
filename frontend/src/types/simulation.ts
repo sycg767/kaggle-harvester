@@ -31,6 +31,7 @@ export interface SimulationEpisode {
 
 export interface SimulationEpisodePageResponse {
   submission_id: number;
+  competition?: string;
   total: number;
   offset: number;
   limit: number;
@@ -175,6 +176,8 @@ export interface SimulationMonitorStatus {
   new_episodes_this_run: number;
   history: SimulationHistoryPoint[];
   clawbot?: SimulationClawbotStatus;
+  lifecycle?: 'active' | 'ended' | 'archived' | 'unknown';
+  frozen_at?: string | null;
 }
 
 export interface SimulationMonitorRunLog {

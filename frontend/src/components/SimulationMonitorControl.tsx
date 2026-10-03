@@ -292,6 +292,7 @@ export const SimulationMonitorControl: React.FC<SimulationMonitorControlProps> =
   const { episodePages, episodeLoading, fetchEpisodePage } = useSimulationEpisodes({
     open,
     isTargetCompActive,
+    competition: targetCompetition,
     agents,
     onError: (err) => message.error(`读取对局流水失败: ${err.message}`),
   });
