@@ -3,6 +3,7 @@ import {
   App as AntApp,
   Spin,
   Alert,
+  Button,
 } from 'antd';
 import {
   api,
@@ -204,15 +205,17 @@ export const SimulationArena: React.FC = () => {
         hasSimData={hasSimData}
         isFinished={isFinished}
         isHistorical={isHistorical}
+        historyAction={<ArenaHistoryPicker key={selectedCompetition} competition={selectedCompetition} onSelect={run => {
+          requestVersion.current += 1; setLoading(true); setLoadError(''); setSelectedRun(run);
+        }} />}
       />
 
-      <ArenaHistoryPicker key={selectedCompetition} competition={selectedCompetition} selectedRun={selectedRun} onSelect={run => {
-        requestVersion.current += 1; setLoading(true); setLoadError(''); setSelectedRun(run);
-      }} />
-
-      {isHistorical && (
+      {(isHistorical || selectedRun) && (
         <Alert
           style={{ marginBottom: 16 }} showIcon type="info"
+          action={selectedRun && <Button size="small" onClick={() => {
+            requestVersion.current += 1; setLoading(true); setLoadError(''); setSelectedRun(undefined);
+          }}>返回当前 / 最新快照</Button>}
           message={`历史采集快照 · ${formatDate(currentSnapshot?.captured_at || undefined)}`}
           description={`展示该赛事${selectedRun ? '所选时刻' : '最近一次'}已保存的采集结果，不代表最终榜单。查看历史不会切换顶部全局赛事或后台监控任务。`}
         />

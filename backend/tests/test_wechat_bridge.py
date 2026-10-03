@@ -36,6 +36,9 @@ class BridgeTests(unittest.TestCase):
                 for body in [b'{"ret":-14}', b'{"errcode":1}']:
                     opener.return_value.open.return_value = io.BytesIO(body)
                     with self.assertRaises(ValueError): bridge.send_message(plugin, plugin, 'test', 'client-id')
+                opener.return_value.open.return_value = io.BytesIO(b'{"ret":-2,"errmsg":"prepare failed"}')
+                with self.assertRaisesRegex(ValueError, '会话上下文可能已失效'):
+                    bridge.send_message(plugin, plugin, 'test', 'client-id')
                 opener.return_value.open.return_value = io.BytesIO(b'not json')
                 with self.assertRaises(RuntimeError): bridge.send_message(plugin, plugin, 'test', 'client-id')
 

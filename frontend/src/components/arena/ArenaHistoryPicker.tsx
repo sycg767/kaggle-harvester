@@ -3,9 +3,8 @@ import { Alert, Button, Drawer, Input, List, Pagination, Space, Tag } from 'antd
 import { History } from 'lucide-react';
 import { api, type SimulationMonitorRunLog } from '../../api';
 
-export default function ArenaHistoryPicker({ competition, selectedRun, onSelect }: {
+export default function ArenaHistoryPicker({ competition, onSelect }: {
   competition: string;
-  selectedRun?: string;
   onSelect: (run?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -30,10 +29,7 @@ export default function ArenaHistoryPicker({ competition, selectedRun, onSelect 
   }, [competition, open, day, page, retry]);
 
   return <>
-    <Space wrap style={{ marginBottom: 12 }}>
-      <Button icon={<History size={14} />} disabled={!competition} onClick={() => setOpen(true)}>历史快照</Button>
-      {selectedRun && <Button onClick={() => onSelect()}>返回当前 / 最新快照</Button>}
-    </Space>
+    <Button type="text" className="arena-history-trigger" icon={<History size={14} />} disabled={!competition} onClick={() => setOpen(true)}>历史快照</Button>
     <Drawer title={`${competition} · 已保存快照`} open={open} onClose={() => setOpen(false)} width="min(560px, 100vw)">
       <p>按采集时间回看历史数据；仅列出成功保存的快照，不代表最终榜单。</p>
       <label>快照日期（UTC）<Input type="date" aria-label="快照日期（UTC）" value={day} onChange={event => { setDay(event.target.value); setPage(1); }} /></label>

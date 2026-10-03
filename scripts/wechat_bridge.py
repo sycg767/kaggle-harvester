@@ -100,8 +100,13 @@ def send_message(home, plugin, text, client_id):
     # The installed Tencent SDK treats an omitted protobuf-default ret as zero.
     # Still require the real HTTP JSON response; a socket connection is never a receipt.
     if data.get('ret', 0) != 0 or data.get('errcode', 0) != 0:
-        # Do not expose server text, recipients, tokens or message content in errors.
-        raise ValueError('微信平台未确认发送成功（ret=%s）' % data.get('ret', 'missing'))
+        ret = data.get('ret', 'missing')
+        # ret=-2 is the platform's prepare failure. In practice this is most
+        # often an expired conversation context, so give the operator a
+        # recoverable action without exposing server details or credentials.
+        if ret == -2:
+            raise ValueError('微信会话上下文可能已失效，请先在微信中给机器人发一条消息，再重试通知')
+        raise ValueError('微信平台未确认发送成功（ret=%s）' % ret)
     return {'status': 'accepted', 'message_id': client_id, 'accepted_at': now(),
             'ret_omitted': 'ret' not in data}
 

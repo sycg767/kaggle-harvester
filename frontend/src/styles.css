@@ -6059,6 +6059,11 @@ a:hover {
   flex-shrink: 0;
 }
 
+.arena-history-trigger.ant-btn {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 .arena-refresh-btn.ant-btn {
   height: 32px;
   border-radius: 8px;

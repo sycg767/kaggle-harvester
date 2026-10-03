@@ -10,6 +10,7 @@ interface ArenaHeaderProps {
   hasSimData: boolean;
   isFinished: boolean;
   isHistorical: boolean;
+  historyAction: React.ReactNode;
 }
 
 export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
@@ -19,6 +20,7 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
   hasSimData,
   isFinished,
   isHistorical,
+  historyAction,
 }) => {
   return (
     <div className="arena-header-banner">
@@ -74,6 +76,7 @@ export const ArenaHeader: React.FC<ArenaHeaderProps> = ({
         </div>
         <div className="arena-header-actions">
           <SimulationMonitorControl currentCompetition={selectedCompetition} buttonText="天梯对战监控" />
+          {historyAction}
         </div>
       </div>
     </div>
