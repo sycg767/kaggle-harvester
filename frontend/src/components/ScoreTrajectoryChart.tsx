@@ -36,7 +36,7 @@ const ScoreTrajectoryChart: React.FC<ScoreTrajectoryChartProps> = ({
         const trajectory = (agent.rating_trajectory?.length
           ? agent.rating_trajectory
           : buildLegacyTrajectory(agent)
-        ).filter((point) => !systemCheckIds.has(point.episode_id));
+        ).filter((point) => !point.is_system_check && !systemCheckIds.has(point.episode_id));
         const points = trajectory
           .slice()
           .sort((a, b) => a.game_number - b.game_number)

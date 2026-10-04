@@ -357,6 +357,46 @@ class TestSimulationMonitor(unittest.TestCase):
         png_bytes = render_trajectory_chart(snapshot)
         self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
 
+    def test_wechat_chart_model_matches_current_web_chart_contract(self) -> None:
+        from harvester.chart_renderer import build_trajectory_chart_model
+
+        snapshot = {
+            "config": {"competition": "kaggriculture"},
+            "status": {
+                "competition": "kaggriculture",
+                "agents": [
+                    {
+                        "submission_id": 42,
+                        "alias": "mer",
+                        "total_episodes": 3,
+                        "system_checks": 1,
+                        "recent_episodes": [
+                            {"id": 99, "is_system_check": True},
+                        ],
+                        "rating_trajectory": [
+                            {"episode_id": 1, "game_number": 1, "score": 600.0},
+                            {"episode_id": 99, "game_number": 19, "score": 9999.0},
+                            {"episode_id": 2, "game_number": 20, "score": 880.0},
+                        ],
+                    }
+                ],
+                "thresholds": {
+                    "gold_cutoff_score": 910.0,
+                    "silver_cutoff_score": 850.0,
+                    "bronze_cutoff_score": 800.0,
+                },
+            },
+        }
+
+        model = build_trajectory_chart_model(snapshot)
+
+        self.assertEqual(model["title"], "kaggriculture — Rating Progression")
+        self.assertEqual(model["series"][0]["x"], [1, 20])
+        self.assertEqual(model["series"][0]["y"], [600.0, 880.0])
+        self.assertEqual(model["series"][0]["total_games"], 2)
+        self.assertEqual(model["cutoffs"]["gold"], 910.0)
+        self.assertEqual(model["x_max"], 36)
+
     def test_custom_submission_aliases(self) -> None:
         manager = SimulationMonitorManager(
             kaggle_client=self.client,  # type: ignore[arg-type]

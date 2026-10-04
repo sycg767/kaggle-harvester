@@ -1,6 +1,6 @@
 import io
+import math
 from pathlib import Path
-from typing import Any, Optional, Union
 
 import matplotlib
 matplotlib.use("Agg")  # Non-interactive headless backend
@@ -35,95 +35,221 @@ def _label_for_agent(agent_data, index):
     return "Agent #" + str(index + 1)
 
 
+def _finite_number(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _competition_title(snapshot_data):
+    config = snapshot_data.get("config") or {}
+    status = snapshot_data.get("status") or {}
+    explicit = config.get("competition_title") or status.get("competition_title")
+    if explicit:
+        return str(explicit).strip()
+    competition = str(
+        config.get("competition")
+        or status.get("competition")
+        or "Simulation"
+    ).strip()
+    if competition == "pokemon-tcg-ai-battle":
+        return "Pokémon TCG AI Battle"
+    return competition or "Simulation"
+
+
+def _nice_y_axis(minimum, maximum, target_count=6):
+    if maximum <= minimum:
+        rounded = round(minimum)
+        return rounded - 50, rounded + 50, [rounded - 50, rounded, rounded + 50]
+    raw_step = (maximum - minimum) / max(1, target_count - 1)
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    normalized = raw_step / magnitude
+    if normalized <= 1.25:
+        multiplier = 1
+    elif normalized <= 2.2:
+        multiplier = 2
+    elif normalized <= 3.8:
+        multiplier = 2.5
+    elif normalized <= 7.0:
+        multiplier = 5
+    else:
+        multiplier = 10
+    step = max(1, round(multiplier * magnitude))
+    y_min = math.floor(minimum / step) * step
+    y_max = math.ceil(maximum / step) * step
+    ticks = []
+    value = y_min
+    while value <= y_max + 1e-5:
+        ticks.append(round(value, 6))
+        value += step
+    return y_min, y_max, ticks
+
+
+def _integer_ticks(minimum, maximum, count=5):
+    if maximum <= minimum:
+        return [round(minimum)]
+    raw_step = (maximum - minimum) / max(1, count - 1)
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    normalized = raw_step / magnitude
+    if normalized <= 1:
+        multiplier = 1
+    elif normalized <= 2:
+        multiplier = 2
+    elif normalized <= 5:
+        multiplier = 5
+    else:
+        multiplier = 10
+    step = max(1, multiplier * magnitude)
+    first = math.ceil(minimum / step) * step
+    last = math.ceil(maximum / step) * step
+    return [
+        round(first + index * step, 6)
+        for index in range(max(1, math.floor((last - first) / step) + 1))
+    ]
+
+
+def build_trajectory_chart_model(snapshot_data):
+    """Build the same display model used by the current web trajectory chart."""
+    status = snapshot_data.get("status") or {}
+    agents = status.get("agents") or []
+    thresholds = status.get("thresholds") or status.get("medal_thresholds") or {}
+    cutoff_by_tier = {
+        "gold": _finite_number(thresholds.get("gold_cutoff_score")),
+        "silver": _finite_number(thresholds.get("silver_cutoff_score")),
+        "bronze": _finite_number(thresholds.get("bronze_cutoff_score")),
+    }
+    all_x = []
+    all_y = []
+    series = []
+
+    for index, agent in enumerate(agents):
+        system_check_ids = {
+            episode.get("id")
+            for episode in (agent.get("recent_episodes") or [])
+            if episode.get("is_system_check") is True
+        }
+        trajectory = [
+            point
+            for point in (agent.get("rating_trajectory") or [])
+            if point.get("is_system_check") is not True
+            and point.get("episode_id") not in system_check_ids
+        ]
+        if not trajectory:
+            episodes = [
+                episode
+                for episode in (agent.get("recent_episodes") or [])
+                if episode.get("is_system_check") is not True
+            ]
+            episodes.sort(
+                key=lambda item: (
+                    item.get("end_time") or item.get("create_time") or "",
+                    item.get("id") or 0,
+                )
+            )
+            final_score = _finite_number(
+                agent.get("score")
+                if agent.get("score") is not None
+                else agent.get("public_score")
+            )
+            if final_score is not None and episodes:
+                score_after = final_score
+                reversed_points = []
+                for game_number, episode in reversed(
+                    list(enumerate(episodes, start=1))
+                ):
+                    reversed_points.append(
+                        {
+                            "episode_id": episode.get("id"),
+                            "game_number": game_number,
+                            "score": round(score_after, 1),
+                        }
+                    )
+                    score_after = round(
+                        score_after - float(episode.get("score_delta") or 0.0), 1
+                    )
+                trajectory = list(reversed(reversed_points))
+
+        points = []
+        for point_index, point in enumerate(
+            sorted(trajectory, key=lambda item: int(item.get("game_number") or 0))
+        ):
+            score = _finite_number(point.get("score"))
+            if score is None:
+                continue
+            game_number = int(point.get("game_number") or point_index + 1)
+            points.append((game_number, score))
+        if not points:
+            continue
+
+        x_values = [point[0] for point in points]
+        y_values = [point[1] for point in points]
+        all_x.extend(x_values)
+        all_y.extend(y_values)
+        system_checks = int(agent.get("system_checks") or 0)
+        raw_total = int(agent.get("total_episodes") or 0)
+        total_games = max(0, raw_total - system_checks) or x_values[-1]
+        series.append(
+            {
+                "id": agent.get("submission_id"),
+                "label": _label_for_agent(agent, index),
+                "color": COLORS[index % len(COLORS)],
+                "x": x_values,
+                "y": y_values,
+                "total_games": total_games,
+            }
+        )
+
+    if not all_x:
+        x_min, x_max, x_ticks = 0, 10, [0, 5, 10]
+        y_min, y_max, y_ticks = 0, 100, [0, 50, 100]
+    else:
+        max_games = max(all_x + [item["total_games"] for item in series])
+        x_padding = max(16, round(max_games * 0.08))
+        x_min, x_max = 0, max(10, max_games + x_padding)
+        x_ticks = _integer_ticks(x_min, x_max, 5)
+        cutoff_values = [value for value in cutoff_by_tier.values() if value is not None]
+        effective_min = min(all_y + cutoff_values)
+        maximum = max(all_y + cutoff_values)
+        y_min, y_max, y_ticks = _nice_y_axis(effective_min - 10, maximum + 15, 6)
+
+    competition_title = _competition_title(snapshot_data)
+    return {
+        "competition_title": competition_title,
+        "title": competition_title + " — Rating Progression",
+        "series": series,
+        "cutoffs": cutoff_by_tier,
+        "x_min": x_min,
+        "x_max": x_max,
+        "x_ticks": x_ticks,
+        "y_min": y_min,
+        "y_max": y_max,
+        "y_ticks": y_ticks,
+    }
+
+
 def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
     """
     根据 SimulationMonitor 快照数据，使用 Matplotlib 生成与前端 ScoreTrajectoryChart 1:1 风格的高清评分轨迹折线图。
     使用纯英文标签，完美适配任何 Docker 容器与无中文字体环境。
     """
-    status = snapshot_data.get("status", {})
-    agents = status.get("agents", [])
-    thresholds = status.get("thresholds") or status.get("medal_thresholds") or {}
-
-    silver_cutoff = thresholds.get("silver_cutoff_score")
-    bronze_cutoff = thresholds.get("bronze_cutoff_score")
-
-    fig, ax = plt.subplots(figsize=(9.2, 4.2), dpi=dpi)
+    model = build_trajectory_chart_model(snapshot_data)
+    series_list = model["series"]
+    fig, ax = plt.subplots(figsize=(9.2, 4.0), dpi=dpi)
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#ffffff")
 
-    # 提取各 Agent 的轨迹数据
-    all_x = []
-    all_y = []
-    series_list = []
-
-    for idx, agent in enumerate(agents):
-        label = _label_for_agent(agent, idx)
-        color = COLORS[idx % len(COLORS)]
-
-        trajectory = agent.get("rating_trajectory") or []
-        if not trajectory:
-            # 回退通过 recent_episodes 推导
-            episodes = list(agent.get("recent_episodes") or [])
-            episodes.sort(key=lambda item: (item.get("end_time") or item.get("create_time") or "", item.get("id") or 0))
-            final_score = agent.get("score") if agent.get("score") is not None else agent.get("public_score")
-            if final_score is not None and episodes:
-                cur = float(final_score)
-                reversed_pts = []
-                for g_idx, ep in reversed(list(enumerate(episodes, start=1))):
-                    reversed_pts.append((g_idx, cur))
-                    cur = round(cur - float(ep.get("score_delta") or 0.0), 1)
-                trajectory = [{"game_number": pt[0], "score": pt[1]} for pt in reversed(reversed_pts)]
-
-        if trajectory:
-            pts = sorted(trajectory, key=lambda p: int(p.get("game_number", 0)))
-            x_vals = [int(p.get("game_number", 0)) for p in pts]
-            y_vals = [float(p.get("score", 0.0)) for p in pts]
-
-            # 若起点不是 0 局（例如首局为第 1 局或增量截取），补充 (0, 首局初始分) 锚点，确保折线平滑连接至原点 0
-            if x_vals:
-                if x_vals[0] > 0:
-                    x_vals = [0] + x_vals
-                    y_vals = [y_vals[0]] + y_vals
-
-            all_x.extend(x_vals)
-            all_y.extend(y_vals)
-            final_s = y_vals[-1] if y_vals else (agent.get("score") or agent.get("public_score") or 0.0)
-            system_checks = int(agent.get("system_checks") or 0)
-            raw_total = agent.get("total_episodes")
-            if raw_total is not None:
-                total_g = max(0, int(raw_total) - system_checks)
-            else:
-                total_g = pts[-1].get("game_number", len(x_vals)) if pts else len(x_vals)
-
-            series_list.append({
-                "label": label,
-                "color": color,
-                "x": x_vals,
-                "y": y_vals,
-                "final_score": final_s,
-                "total_games": total_g,
-            })
-
-    # 设置参考线与范围（聚焦 600 分以上真实竞争区间，右侧留足标签留白）
-    cutoff_vals = [v for v in [silver_cutoff, bronze_cutoff] if v is not None]
-    if all_y or cutoff_vals:
-        min_y = min(all_y + cutoff_vals) if (all_y or cutoff_vals) else 600.0
-        max_y = max(all_y + cutoff_vals) if (all_y or cutoff_vals) else 1000.0
-        effective_min = max(600.0, min_y)
-        y_padding = max(10.0, (max_y - effective_min) * 0.12)
-        ax.set_ylim(max(550.0, effective_min - y_padding), max_y + y_padding)
-
-    if all_x:
-        max_x = max(all_x)
-        x_padding_right = max(70.0, max_x * 0.08)
-        ax.set_xlim(0, max_x + x_padding_right)
-    else:
-        ax.set_xlim(0, 100)
-        ax.set_ylim(600, 1000)
+    ax.set_xticks(model["x_ticks"])
+    ax.set_xlim(model["x_min"], model["x_max"])
+    ax.set_yticks(model["y_ticks"])
+    ax.set_ylim(model["y_min"], model["y_max"])
 
     # 主标题（居中正式展示）
     ax.set_title(
-        "Pokémon TCG AI Battle — Final Submission Rating Progression",
+        model["title"],
         fontsize=11.5,
         fontweight="bold",
         color="#0f172a",
@@ -134,11 +260,18 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
     ax.grid(True, linestyle="-", linewidth=0.6, color="#f1f5f9", zorder=1)
     ax.set_axisbelow(True)
 
-    # 绘制银牌线与铜牌线虚线 (左侧胶囊徽章参考体系)
-    if silver_cutoff is not None:
+    # Match the web chart's complete Gold / Silver / Bronze reference system.
+    for tier, label, line_color, text_color in (
+        ("gold", "Gold", "#eab308", "#a16207"),
+        ("silver", "Silver", "#94a3b8", "#64748b"),
+        ("bronze", "Bronze", "#d97706", "#d97706"),
+    ):
+        cutoff = model["cutoffs"][tier]
+        if cutoff is None:
+            continue
         ax.axhline(
-            y=silver_cutoff,
-            color="#64748b",
+            y=cutoff,
+            color=line_color,
             linestyle="--",
             linewidth=1.2,
             alpha=0.85,
@@ -147,36 +280,20 @@ def render_trajectory_chart(snapshot_data, output_path=None, dpi=150):
         x_lims = ax.get_xlim()
         ax.text(
             x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
-            silver_cutoff,
-            "Silver {:.1f}".format(silver_cutoff),
-            color="#64748b",
+            cutoff,
+            "{} {:.1f}".format(label, cutoff),
+            color=text_color,
             fontsize=8.8,
             fontweight="bold",
             va="center",
             zorder=4,
-            bbox=dict(boxstyle="round,pad=0.25", facecolor="#ffffff", edgecolor="#64748b", linewidth=0.8, alpha=0.95),
-        )
-
-    if bronze_cutoff is not None:
-        ax.axhline(
-            y=bronze_cutoff,
-            color="#d97706",
-            linestyle="--",
-            linewidth=1.2,
-            alpha=0.85,
-            zorder=2,
-        )
-        x_lims = ax.get_xlim()
-        ax.text(
-            x_lims[0] + (x_lims[1] - x_lims[0]) * 0.015,
-            bronze_cutoff,
-            "Bronze {:.1f}".format(bronze_cutoff),
-            color="#d97706",
-            fontsize=8.8,
-            fontweight="bold",
-            va="center",
-            zorder=4,
-            bbox=dict(boxstyle="round,pad=0.25", facecolor="#ffffff", edgecolor="#d97706", linewidth=0.8, alpha=0.95),
+            bbox=dict(
+                boxstyle="round,pad=0.25",
+                facecolor="#ffffff",
+                edgecolor=text_color,
+                linewidth=0.8,
+                alpha=0.95,
+            ),
         )
 
     import matplotlib.patheffects as patheffects
