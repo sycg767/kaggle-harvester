@@ -71,12 +71,12 @@ export const SubmissionConfigForm: React.FC<SubmissionConfigFormProps> = ({
             }
           >
             <Select
-              mode="multiple"
+              mode="tags"
               allowClear
               showSearch
               loading={enteredLoading}
               optionFilterProp="label"
-              placeholder="选择竞赛"
+              placeholder="选择竞赛（可多选或直接输入 Slug 添加）"
               aria-label="出分监控竞赛"
               options={competitionSelectOptions}
               maxTagCount="responsive"

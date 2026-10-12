@@ -25,7 +25,10 @@ import {
   type SubmissionMonitorSnapshot,
   type SubmissionScoreEvent,
 } from '../api';
-import { buildEnteredCompetitionOptions } from '../competitionOptions';
+import {
+  ALLOWED_LATE_SUBMISSION_COMPETITIONS,
+  buildEnteredCompetitionOptions,
+} from '../competitionOptions';
 import { getEnteredCompetitions } from '../enteredCompetitionsCache';
 import DialogTitle from './DialogTitle';
 import { monitorResult } from '../monitorResult';
@@ -117,7 +120,8 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       ],
       {
         currentSlug: currentCompetition,
-        excludeEnded: false,
+        excludeEnded: true,
+        allowedEndedSlugs: ALLOWED_LATE_SUBMISSION_COMPETITIONS,
       },
     ),
     [currentCompetition, enteredCompetitions, snapshot?.config.competitions],

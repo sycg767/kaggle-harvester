@@ -45,10 +45,15 @@ export function competitionOptionLabel(
   return extraHint ? `${slug} · ${extraHint}` : slug;
 }
 
+export const ALLOWED_LATE_SUBMISSION_COMPETITIONS = new Set<string>([
+  'optiver-trading-at-the-close',
+]);
+
 export interface BuildCompetitionOptionsConfig {
   activeSlug?: string | null;
   excludeEnded?: boolean;
   currentSlug?: string | null;
+  allowedEndedSlugs?: Iterable<string>;
 }
 
 export function buildEnteredCompetitionOptions(
@@ -60,15 +65,29 @@ export function buildEnteredCompetitionOptions(
   let activeSlug: string | null | undefined;
   let excludeEnded = true;
   let currentSlug: string | null | undefined;
+  let allowedEndedSlugs: Iterable<string> | undefined;
 
   if (activeSlugOrConfig && typeof activeSlugOrConfig === 'object') {
     activeSlug = activeSlugOrConfig.activeSlug;
     excludeEnded = activeSlugOrConfig.excludeEnded !== false;
     currentSlug = activeSlugOrConfig.currentSlug;
+    allowedEndedSlugs = activeSlugOrConfig.allowedEndedSlugs;
   } else {
     activeSlug = activeSlugOrConfig;
     excludeEnded = excludeEndedParam !== false;
   }
+
+  const allowedEnded = new Set<string>(
+    allowedEndedSlugs
+      ? Array.from(allowedEndedSlugs).map((s) => s.toLowerCase())
+      : []
+  );
+
+  const extraSlugsLower = new Set(
+    extras
+      .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0)
+      .map((slug) => slug.toLowerCase())
+  );
 
   const enteredDeadlines = new Map(
     entered.map((item) => [item.id.toLowerCase(), item.deadline])
@@ -76,9 +95,16 @@ export function buildEnteredCompetitionOptions(
 
   const filteredEntered = excludeEnded
     ? entered.filter((item) => {
+        const idLower = item.id.toLowerCase();
+        // 1. 进行中的竞赛正常保留
         if (!isCompetitionEnded(item.deadline)) return true;
-        // 如果当前选中的正是该比赛，保留以确保下拉框正常展示当前项
-        if (currentSlug && item.id.toLowerCase() === currentSlug.toLowerCase()) return true;
+        // 2. 当前选中或当前页面的竞赛保留
+        if (currentSlug && idLower === currentSlug.toLowerCase()) return true;
+        // 3. 用户已经在配置 extras 中选定保存的竞赛始终保留，不因完赛被隐藏
+        if (extraSlugsLower.has(idLower)) return true;
+        // 4. 用户指定需要的特定迟提交/完赛赛事（如 optiver-trading-at-the-close）单独保留
+        if (allowedEnded.has(idLower)) return true;
+        // 其余未特别需要的历史已完赛赛事一律过滤，避免选项过度冗余
         return false;
       })
     : entered;
@@ -100,9 +126,13 @@ export function buildEnteredCompetitionOptions(
     .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0)
     .filter((slug) => !known.has(slug))
     .filter((slug) => {
+      const slugLower = slug.toLowerCase();
       if (!excludeEnded) return true;
-      if (currentSlug && slug.toLowerCase() === currentSlug.toLowerCase()) return true;
-      const deadline = enteredDeadlines.get(slug.toLowerCase());
+      // 显式传入 extras 的配置项始终保留
+      if (extraSlugsLower.has(slugLower)) return true;
+      if (currentSlug && slugLower === currentSlug.toLowerCase()) return true;
+      if (allowedEnded.has(slugLower)) return true;
+      const deadline = enteredDeadlines.get(slugLower);
       if (deadline && isCompetitionEnded(deadline)) return false;
       return true;
     })
