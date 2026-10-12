@@ -1477,6 +1477,167 @@ class SubmissionMonitorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(scored.status.newly_scored_count, 1)
             self.assertEqual(scored.status.recent_events[0].ref, "1")
 
+    async def test_auto_score_picks_private_score_when_public_is_zero_or_ended(self) -> None:
+        """测试自动模式下，当 public 为 0 且 private 存在时自动使用 private 分数。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            notifications = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            sent: list[tuple[str, str, str]] = []
+            notifications._send_channel = (  # type: ignore[method-assign]
+                lambda channel, event: sent.append((event["id"], event["title"], event["text"]))
+            )
+            await notifications.start()
+            try:
+                await notifications.update_config(NotificationConfigUpdate(
+                    webhook_enabled=True,
+                    webhook_url="https://example.com/hook",
+                    notify_on_score=True,
+                ))
+                client = FakeSubmissionClient([
+                    # Baseline
+                    [],
+                    # New submission for Optiver late submission
+                    [
+                        CompetitionSubmission(
+                            ref="optiver-57023961",
+                            description="E012 forward ensemble",
+                            status="COMPLETE",
+                            public_score=0.0,
+                            public_score_display="0.0000",
+                            private_score=5.4411,
+                            private_score_display="5.4411",
+                        ),
+                    ],
+                ])
+                monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                    client,
+                    temp_dir,
+                    "optiver-trading-at-the-close",
+                    notification_manager=notifications,
+                )
+                await monitor.update_config(SubmissionMonitorConfig(
+                    enabled=False,
+                    competitions=["optiver-trading-at-the-close"],
+                    score_source="auto",
+                ))
+
+                await monitor.run_now(trigger="manual")
+                scored = await monitor.run_now(trigger="manual")
+                self.assertEqual(scored.status.newly_scored_count, 1)
+                event = scored.status.recent_events[0]
+                self.assertEqual(event.ref, "optiver-57023961")
+                self.assertEqual(event.public_score, 5.4411)
+                self.assertEqual(event.score_type, "private")
+                self.assertTrue("5.4411" in event.public_score_display)
+                await notifications.wait_until_idle()
+                self.assertEqual(len(sent), 1)
+                event_id, title, text = sent[0]
+                self.assertEqual(event_id, "score::optiver-trading-at-the-close::optiver-57023961")
+                self.assertIn("Private LB", text)
+            finally:
+                await notifications.stop()
+
+    async def test_failed_submission_triggers_failure_notification_once(self) -> None:
+        """测试提交失败（例如代码报错或超时）时发送失败通知，且按 ref 去重。"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            secrets = FakeSecretStore()
+            notifications = NotificationManager(  # type: ignore[arg-type]
+                temp_dir, secret_store=secrets
+            )
+            sent: list[tuple[str, str, str]] = []
+            notifications._send_channel = (  # type: ignore[method-assign]
+                lambda channel, event: sent.append((event["id"], event["title"], event["text"]))
+            )
+            await notifications.start()
+            try:
+                await notifications.update_config(NotificationConfigUpdate(
+                    webhook_enabled=True,
+                    webhook_url="https://example.com/hook",
+                    notify_on_failure=True,
+                ))
+                client = FakeSubmissionClient([
+                    # Baseline: has an existing failure (should not spam)
+                    [
+                        CompetitionSubmission(
+                            ref="historical-fail",
+                            description="old-fail",
+                            status="ERROR",
+                            error_description="Notebook exceeded timeout",
+                            public_score=None,
+                        ),
+                    ],
+                    # Second run: new failure occurs
+                    [
+                        CompetitionSubmission(
+                            ref="historical-fail",
+                            description="old-fail",
+                            status="ERROR",
+                            error_description="Notebook exceeded timeout",
+                            public_score=None,
+                        ),
+                        CompetitionSubmission(
+                            ref="new-failed-submission",
+                            description="experiment-9",
+                            status="ERROR",
+                            error_description="Submission CSV contains NaNs",
+                            public_score=None,
+                        ),
+                    ],
+                    # Third run: same state, should not notify again
+                    [
+                        CompetitionSubmission(
+                            ref="historical-fail",
+                            description="old-fail",
+                            status="ERROR",
+                            error_description="Notebook exceeded timeout",
+                            public_score=None,
+                        ),
+                        CompetitionSubmission(
+                            ref="new-failed-submission",
+                            description="experiment-9",
+                            status="ERROR",
+                            error_description="Submission CSV contains NaNs",
+                            public_score=None,
+                        ),
+                    ],
+                ])
+                monitor = SubmissionMonitorManager(  # type: ignore[arg-type]
+                    client,
+                    temp_dir,
+                    "optiver-trading-at-the-close",
+                    notification_manager=notifications,
+                )
+                await monitor.update_config(SubmissionMonitorConfig(
+                    enabled=False,
+                    competitions=["optiver-trading-at-the-close"],
+                ))
+
+                baseline = await monitor.run_now(trigger="manual")
+                self.assertEqual(baseline.status.failed_count, 1)
+                await notifications.wait_until_idle()
+                self.assertEqual(sent, [])
+
+                # Run 2: new failure detected
+                failed_snap = await monitor.run_now(trigger="manual")
+                self.assertEqual(failed_snap.status.failed_count, 2)
+                self.assertEqual(len(failed_snap.status.recent_failure_events), 1)
+                self.assertEqual(failed_snap.status.recent_failure_events[0].ref, "new-failed-submission")
+                await notifications.wait_until_idle()
+                self.assertEqual(len(sent), 1)
+                ev_id, title, text = sent[0]
+                self.assertEqual(ev_id, "failure::optiver-trading-at-the-close::new-failed-submission")
+                self.assertIn("运行失败", title)
+                self.assertIn("Submission CSV contains NaNs", text)
+
+                # Run 3: repeat check, no duplicate notification
+                await monitor.run_now(trigger="manual")
+                await notifications.wait_until_idle()
+                self.assertEqual(len(sent), 1)
+            finally:
+                await notifications.stop()
+
 
 class ActiveCompetitionApiTests(unittest.TestCase):
     def test_active_competition_api_lifecycle(self) -> None:

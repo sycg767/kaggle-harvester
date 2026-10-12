@@ -59,6 +59,7 @@ from .simulation import (
 )
 from .submissions import (
     CompetitionSubmission,
+    SubmissionFailureEvent,
     SubmissionMonitorConfig,
     SubmissionMonitorItem,
     SubmissionMonitorRunDetail,
@@ -111,6 +112,7 @@ __all__ = [
     "CompetitionSubmission",
     "SubmissionMonitorConfig",
     "SubmissionScoreEvent",
+    "SubmissionFailureEvent",
     "SubmissionMonitorItem",
     "SubmissionMonitorStatus",
     "SubmissionMonitorRunLog",

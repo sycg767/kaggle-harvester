@@ -38,6 +38,7 @@ class SubmissionMonitorConfig(BaseModel):
     # 本人每日提交很少；默认只拉最近少量记录即可覆盖待出分窗口。
     page_size: int = Field(default=10, ge=1, le=50)
     description_prefix: str = Field(default="", max_length=200)
+    score_source: Literal["auto", "public", "private"] = "auto"
 
     @model_validator(mode="before")
     @classmethod
@@ -76,12 +77,30 @@ class SubmissionScoreEvent(BaseModel):
     public_score_display: str = ""
     status: str = ""
     date: Optional[str] = None
-    # 监控器首次观察到该提交已有 Public LB 分数的时间，并非 Kaggle 实际出分时间。
+    # 监控器首次观察到该提交已有有效分数的时间，并非 Kaggle 实际出分时间。
     scored_at: Optional[str] = None
     submitted_by: str = ""
     submitted_by_ref: str = ""
     team_name: str = ""
     previous_public_score: Optional[float] = None
+    score_type: Literal["public", "private"] = "public"
+    private_score: Optional[float] = None
+    private_score_display: Optional[str] = None
+
+
+class SubmissionFailureEvent(BaseModel):
+    """一次提交运行失败事件。"""
+
+    competition: str = ""
+    ref: str
+    description: str = ""
+    status: str = ""
+    error_description: str = ""
+    date: Optional[str] = None
+    failed_at: Optional[str] = None
+    submitted_by: str = ""
+    submitted_by_ref: str = ""
+    team_name: str = ""
 
 
 class SubmissionMonitorItem(BaseModel):
@@ -97,12 +116,16 @@ class SubmissionMonitorItem(BaseModel):
     team_name: str = ""
     public_score: Optional[float] = None
     public_score_display: Optional[str] = None
+    private_score: Optional[float] = None
+    private_score_display: Optional[str] = None
+    score_type: Optional[Literal["public", "private"]] = None
     date: Optional[str] = None
-    # 监控器首次观察到该提交已有 Public LB 分数的时间，并非 Kaggle 实际出分时间。
+    # 监控器首次观察到该提交已有有效分数的时间，并非 Kaggle 实际出分时间。
     scored_at: Optional[str] = None
     state: Literal["pending", "scored", "failed"] = "pending"
     watched: bool = True
     newly_scored: bool = False
+    newly_failed: bool = False
 
 
 class SubmissionMonitorStatus(BaseModel):
@@ -122,6 +145,7 @@ class SubmissionMonitorStatus(BaseModel):
     newly_scored_count: int = 0
     competitions_checked: list[str] = Field(default_factory=list)
     recent_events: list[SubmissionScoreEvent] = Field(default_factory=list)
+    recent_failure_events: list[SubmissionFailureEvent] = Field(default_factory=list)
     recent_items: list[SubmissionMonitorItem] = Field(default_factory=list)
 
 

@@ -87,8 +87,8 @@ export function buildEnteredCompetitionOptions(
     const isDefault = activeSlug && item.id.toLowerCase() === activeSlug.toLowerCase();
     const isEnded = isCompetitionEnded(item.deadline);
     const hint = isDefault
-      ? (isEnded ? '全站主攻 · 已结束' : '全站主攻')
-      : (isEnded ? '已结束' : undefined);
+      ? (isEnded ? '全站主攻 · 迟提交 / 已完赛' : '全站主攻')
+      : (isEnded ? '迟提交 / 已完赛' : undefined);
     return {
       value: item.id,
       label: competitionOptionLabel(item, hint),
@@ -112,8 +112,8 @@ export function buildEnteredCompetitionOptions(
       const deadline = enteredDeadlines.get(slug.toLowerCase());
       const isEnded = deadline ? isCompetitionEnded(deadline) : false;
       const hint = isDefault
-        ? (isEnded ? '全站主攻 · 已结束' : '全站主攻')
-        : (isEnded ? '已结束' : '已保存');
+        ? (isEnded ? '全站主攻 · 迟提交 / 已完赛' : '全站主攻')
+        : (isEnded ? '迟提交 / 已完赛' : '已保存');
       return {
         value: slug,
         label: competitionOptionLabel(slug, hint),

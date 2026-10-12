@@ -4,6 +4,7 @@ export interface SubmissionMonitorConfig {
   interval_minutes: number;
   page_size: number;
   description_prefix: string;
+  score_source?: 'auto' | 'public' | 'private';
 }
 
 export interface SubmissionScoreEvent {
@@ -19,6 +20,22 @@ export interface SubmissionScoreEvent {
   submitted_by_ref?: string;
   team_name?: string;
   previous_public_score?: number;
+  score_type?: 'public' | 'private';
+  private_score?: number;
+  private_score_display?: string;
+}
+
+export interface SubmissionFailureEvent {
+  competition?: string;
+  ref: string;
+  description: string;
+  status: string;
+  error_description?: string;
+  date?: string;
+  failed_at?: string;
+  submitted_by?: string;
+  submitted_by_ref?: string;
+  team_name?: string;
 }
 
 export interface SubmissionMonitorItem {
@@ -32,11 +49,15 @@ export interface SubmissionMonitorItem {
   team_name?: string;
   public_score?: number;
   public_score_display?: string;
+  private_score?: number;
+  private_score_display?: string;
+  score_type?: 'public' | 'private';
   date?: string;
   scored_at?: string;
   state?: 'pending' | 'scored' | 'failed';
   watched: boolean;
   newly_scored: boolean;
+  newly_failed?: boolean;
 }
 
 export interface SubmissionMonitorStatus {
@@ -54,6 +75,7 @@ export interface SubmissionMonitorStatus {
   newly_scored_count: number;
   competitions_checked?: string[];
   recent_events: SubmissionScoreEvent[];
+  recent_failure_events?: SubmissionFailureEvent[];
   recent_items: SubmissionMonitorItem[];
 }
 

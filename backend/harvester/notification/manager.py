@@ -23,6 +23,7 @@ from .formatters import (
     format_beijing_time,
     format_run_message,
     format_simulation_event_message,
+    format_submission_failure_message,
     format_submission_score_message,
     utc_now_iso,
 )
@@ -382,12 +383,15 @@ class NotificationManager:
         created_at: Optional[str] = None,
         summary: Optional[dict[str, Any]] = None,
         require_score_switch: bool = False,
+        require_failure_switch: bool = False,
     ) -> bool:
         with self._lock:
             channels = self._enabled_channels(self._config)
             if not channels:
                 return False
             if require_score_switch and not self._config.notify_on_score:
+                return False
+            if require_failure_switch and not self._config.notify_on_failure:
                 return False
             if event_id in self._pending or event_id in self._delivered:
                 return False
@@ -435,9 +439,46 @@ class NotificationManager:
                 summary={
                     "ref": ref,
                     "public_score": item.get("public_score"),
+                    "score_type": item.get("score_type", "public"),
+                    "private_score": item.get("private_score"),
                     "description": str(item.get("description") or "").strip() or "（无描述）",
                 },
                 require_score_switch=True,
+            ):
+                queued += 1
+        return queued
+
+    def enqueue_submission_failures(
+        self,
+        *,
+        competition: str,
+        events: list[dict[str, Any]],
+        checked_at: Optional[str] = None,
+    ) -> int:
+        if not events:
+            return 0
+        queued = 0
+        finished = checked_at or _utc_now_iso()
+        for item in events:
+            ref, title, text = format_submission_failure_message(
+                item, competition, finished
+            )
+            if not ref:
+                continue
+            if self.enqueue_event(
+                f"failure::{competition}::{ref}",
+                event_type="submission_failure",
+                title=title,
+                text=text,
+                competition=competition,
+                created_at=finished,
+                summary={
+                    "ref": ref,
+                    "status": item.get("status") or "FAILED",
+                    "error_description": item.get("error_description") or "",
+                    "description": str(item.get("description") or "").strip() or "（无描述）",
+                },
+                require_failure_switch=True,
             ):
                 queued += 1
         return queued

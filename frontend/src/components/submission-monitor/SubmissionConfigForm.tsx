@@ -41,6 +41,7 @@ export const SubmissionConfigForm: React.FC<SubmissionConfigFormProps> = ({
         interval_minutes: 5,
         page_size: 10,
         description_prefix: '',
+        score_source: 'auto',
       }}
     >
       <Row gutter={16}>
@@ -122,7 +123,20 @@ export const SubmissionConfigForm: React.FC<SubmissionConfigFormProps> = ({
         </Col>
       </Row>
       <Row gutter={16}>
-        <Col xs={24} sm={16}>
+        <Col xs={24} sm={12}>
+          <Form.Item
+            name="score_source"
+            label="评分捕获策略"
+            tooltip="迟提交或已完赛项目（如 Optiver）在 Kaggle 公开榜往往无分或为 0，选择智能自动会在完赛/零分时自动监听 Private 真实成绩"
+          >
+            <Select aria-label="评分策略" options={[
+              { value: 'auto', label: '智能自动（完赛/迟提交优先 Private，常规优先 Public）' },
+              { value: 'private', label: '优先 Private LB（迟提交 / 私有成绩模式）' },
+              { value: 'public', label: '仅限 Public LB（常规公开榜单）' },
+            ]} />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12}>
           <Form.Item
             name="description_prefix"
             label="描述前缀过滤（可选）"
@@ -131,7 +145,9 @@ export const SubmissionConfigForm: React.FC<SubmissionConfigFormProps> = ({
             <Input aria-label="提交描述前缀" placeholder="例如 dexp003 或 method-d" allowClear />
           </Form.Item>
         </Col>
-        <Col xs={24} sm={8}>
+      </Row>
+      <Row gutter={16}>
+        <Col xs={24}>
           <Form.Item name="enabled" valuePropName="checked" label="定时任务" style={{ marginBottom: 16 }}>
             <Switch checkedChildren="已启用" unCheckedChildren="已关闭" />
           </Form.Item>

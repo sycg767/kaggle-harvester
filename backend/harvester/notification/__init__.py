@@ -5,6 +5,7 @@ from .formatters import (
     format_beijing_time,
     format_run_message,
     format_simulation_event_message,
+    format_submission_failure_message,
     format_submission_score_message,
     utc_now_iso,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "format_beijing_time",
     "format_run_message",
     "format_simulation_event_message",
+    "format_submission_failure_message",
     "format_submission_score_message",
     "utc_now_iso",
     "detect_webhook_format",

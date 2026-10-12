@@ -54,8 +54,14 @@ export const formatDuration = (seconds: number) => {
 };
 
 export const formatScore = (item: SubmissionMonitorItem | SubmissionScoreEvent) => {
+  if (item.score_type === 'private') {
+    if (item.private_score_display) return item.private_score_display;
+    if (typeof item.private_score === 'number') return item.private_score.toFixed(4);
+  }
   if (item.public_score_display) return item.public_score_display;
   if (typeof item.public_score === 'number') return item.public_score.toFixed(4);
+  if (item.private_score_display) return item.private_score_display;
+  if (typeof item.private_score === 'number') return item.private_score.toFixed(4);
   return '—';
 };
 
@@ -74,13 +80,16 @@ export const renderRunOutcome = (log: SubmissionMonitorRunLog) => {
 };
 
 export const renderItemState = (item: SubmissionMonitorItem) => {
+  if (item.newly_failed) {
+    return <Tag color="error">新失败</Tag>;
+  }
   if (item.state === 'failed') {
     return <Tag color="error">失败</Tag>;
   }
   if (item.newly_scored) {
     return <Tag color="success">新出分</Tag>;
   }
-  if (item.state === 'pending' || item.public_score === undefined || item.public_score === null) {
+  if (item.state === 'pending' || (item.public_score == null && item.private_score == null)) {
     return <Tag color="processing">待出分</Tag>;
   }
   return <Tag>已出分</Tag>;

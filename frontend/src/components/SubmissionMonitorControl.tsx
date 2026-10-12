@@ -117,7 +117,7 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
       ],
       {
         currentSlug: currentCompetition,
-        excludeEnded: true,
+        excludeEnded: false,
       },
     ),
     [currentCompetition, enteredCompetitions, snapshot?.config.competitions],
@@ -347,7 +347,10 @@ const SubmissionMonitorControl: React.FC<SubmissionMonitorControlProps> = ({
           />
         )}
 
-        <SubmissionEventsList events={recentEvents} />
+        <SubmissionEventsList
+          events={recentEvents}
+          failureEvents={status?.recent_failure_events}
+        />
 
         <div className="dialog-section-heading" style={{ marginTop: 20, marginBottom: 8 }}>
           <Text strong style={{ fontSize: 13.5 }}>运行记录</Text>

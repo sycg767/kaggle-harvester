@@ -18,6 +18,7 @@ from .monitors import (
 from .notifications import NotificationManager
 from .models import (
     CompetitionSubmission,
+    SubmissionFailureEvent,
     SubmissionMonitorConfig,
     SubmissionMonitorItem,
     SubmissionMonitorRunDetail,
@@ -83,8 +84,10 @@ class SubmissionMonitorManager:
         )
         # key: f"{competition}::{ref}" -> last known public_score
         self._known_scores: dict[str, float | None] = {}
-        # key: f"{competition}::{ref}" -> 首次观察到 Public LB 分数的时间
+        # key: f"{competition}::{ref}" -> 首次观察到有效分数的时间
         self._known_scored_at: dict[str, str] = {}
+        # key: f"{competition}::{ref}" -> last known submission status
+        self._known_statuses: dict[str, str] = {}
         self._baseline_seeded_by_competition: dict[str, bool] = {}
         self._logs: list[SubmissionMonitorRunLog] = []
         self._load_state()
@@ -134,6 +137,11 @@ class SubmissionMonitorManager:
                     for key, value in known_scored_at.items()
                     if isinstance(value, str) and _parse_datetime(value) is not None
                 }
+            known_statuses = data.get("known_statuses", {})
+            if isinstance(known_statuses, dict):
+                self._known_statuses = {
+                    str(key): str(value) for key, value in known_statuses.items()
+                }
             baselines = data.get("baseline_seeded_by_competition")
             if isinstance(baselines, dict):
                 self._baseline_seeded_by_competition = {
@@ -170,6 +178,9 @@ class SubmissionMonitorManager:
                 for key, value in self._known_scored_at.items()
                 if key in self._known_scores
             }
+            if len(self._known_statuses) > self.MAX_KNOWN_REFS:
+                keep_statuses = list(self._known_statuses.items())[-self.MAX_KNOWN_REFS :]
+                self._known_statuses = dict(keep_statuses)
             payload = {
                 "version": 2,
                 "updated_at": _utc_now().isoformat(),
@@ -177,6 +188,7 @@ class SubmissionMonitorManager:
                 "status": self._status.model_dump(),
                 "known_scores": self._known_scores,
                 "known_scored_at": self._known_scored_at,
+                "known_statuses": self._known_statuses,
                 "baseline_seeded_by_competition": self._baseline_seeded_by_competition,
                 "logs": [item.model_dump() for item in self._logs],
             }
@@ -190,8 +202,11 @@ class SubmissionMonitorManager:
     def health_status(self) -> dict[str, object]:
         """Return counters and the dashboard's latest submission, without history."""
         with self._state_lock:
-            status = self._status.model_dump(exclude={"recent_events", "recent_items"})
+            status = self._status.model_dump(
+                exclude={"recent_events", "recent_failure_events", "recent_items"}
+            )
             status["recent_events"] = []
+            status["recent_failure_events"] = []
             status["recent_items"] = [
                 item.model_dump() for item in self._status.recent_items[:1]
             ]
@@ -313,11 +328,17 @@ class SubmissionMonitorManager:
 
             try:
                 # 设定硬超时 35 秒，防止 Kaggle API 挂起死锁
-                status, known_scores, known_scored_at, baselines, new_events = (
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self._run_once_sync, config),
-                        timeout=35.0,
-                    )
+                (
+                    status,
+                    known_scores,
+                    known_scored_at,
+                    baselines,
+                    known_statuses,
+                    new_events,
+                    new_failure_events,
+                ) = await asyncio.wait_for(
+                    asyncio.to_thread(self._run_once_sync, config),
+                    timeout=35.0,
                 )
             except asyncio.TimeoutError:
                 status = SubmissionMonitorStatus(
@@ -327,7 +348,9 @@ class SubmissionMonitorManager:
                 known_scores = None
                 known_scored_at = None
                 baselines = None
+                known_statuses = None
                 new_events = []
+                new_failure_events = []
             except Exception as exc:
                 status = SubmissionMonitorStatus(
                     last_checked_at=_utc_now().isoformat(),
@@ -336,7 +359,9 @@ class SubmissionMonitorManager:
                 known_scores = None
                 known_scored_at = None
                 baselines = None
+                known_statuses = None
                 new_events = []
+                new_failure_events = []
             finally:
                 with self._state_lock:
                     self._status.running = False
@@ -374,13 +399,32 @@ class SubmissionMonitorManager:
                         if len(deduped) >= self.MAX_RECENT_EVENTS:
                             break
                     status.recent_events = deduped
+
+                    merged_fail_events = list(new_failure_events) + list(
+                        self._status.recent_failure_events
+                    )
+                    seen_fail_keys: set[str] = set()
+                    deduped_fail: list[SubmissionFailureEvent] = []
+                    for fevent in merged_fail_events:
+                        fkey = f"{fevent.competition}::{fevent.ref}"
+                        if fkey in seen_fail_keys:
+                            continue
+                        seen_fail_keys.add(fkey)
+                        deduped_fail.append(fevent)
+                        if len(deduped_fail) >= self.MAX_RECENT_EVENTS:
+                            break
+                    status.recent_failure_events = deduped_fail
+
                     self._known_scores = known_scores
                     if known_scored_at is not None:
                         self._known_scored_at = known_scored_at
+                    if known_statuses is not None:
+                        self._known_statuses = known_statuses
                     if baselines is not None:
                         self._baseline_seeded_by_competition = baselines
                 else:
                     status.recent_events = list(self._status.recent_events)
+                    status.recent_failure_events = list(self._status.recent_failure_events)
                 self._status = status
                 outcome: Literal["success", "partial", "failed"] = (
                     "failed"
@@ -432,6 +476,23 @@ class SubmissionMonitorManager:
                         )
                 except Exception:
                     pass
+
+            if self._notifications is not None and new_failure_events:
+                try:
+                    by_comp_fail: dict[str, list[SubmissionFailureEvent]] = {}
+                    for fevent in new_failure_events:
+                        by_comp_fail.setdefault(
+                            fevent.competition or "unknown", []
+                        ).append(fevent)
+                    for competition, fevents in by_comp_fail.items():
+                        self._notifications.enqueue_submission_failures(
+                            competition=competition,
+                            events=[fevent.model_dump() for fevent in fevents],
+                            checked_at=status.last_checked_at,
+                        )
+                except Exception:
+                    pass
+
             self._wake_event.set()
             return self.snapshot()
 
@@ -443,9 +504,10 @@ class SubmissionMonitorManager:
     @staticmethod
     def _submission_state(
         submission: CompetitionSubmission,
+        effective_score: float | None = None,
     ) -> Literal["pending", "scored", "failed"]:
         """依据 Kaggle 提交状态分类，避免把失败提交误报为待出分。"""
-        return classify_submission_state(submission)
+        return classify_submission_state(submission, effective_score=effective_score)
 
     def _run_once_sync(
         self, config: SubmissionMonitorConfig
@@ -454,12 +516,15 @@ class SubmissionMonitorManager:
         dict[str, float | None],
         dict[str, str],
         dict[str, bool],
+        dict[str, str],
         list[SubmissionScoreEvent],
+        list[SubmissionFailureEvent],
     ]:
         with self._state_lock:
             known_scores = dict(self._known_scores)
             known_scored_at = dict(self._known_scored_at)
             baselines = dict(self._baseline_seeded_by_competition)
+            known_statuses = dict(self._known_statuses)
 
         return run_submission_monitor_sync(
             kaggle_client=self._kaggle,
@@ -467,6 +532,7 @@ class SubmissionMonitorManager:
             known_scores_snapshot=known_scores,
             known_scored_at_snapshot=known_scored_at,
             baselines_snapshot=baselines,
+            known_statuses_snapshot=known_statuses,
             matches_prefix_fn=self._matches_prefix,
             submission_state_fn=self._submission_state,
         )

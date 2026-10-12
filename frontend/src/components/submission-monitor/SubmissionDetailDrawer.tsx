@@ -89,10 +89,19 @@ export const SubmissionDetailDrawer: React.FC<SubmissionDetailDrawerProps> = ({
       render: (value?: string) => value || '—',
     },
     {
-      title: 'Public LB',
+      title: '分数',
       key: 'score',
-      width: 120,
-      render: (_, item) => formatScore(item),
+      width: 130,
+      render: (_, item) => (
+        <Space size={4}>
+          <span>{formatScore(item)}</span>
+          {item.score_type === 'private' && (
+            <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+              Private
+            </Tag>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'ref',
@@ -271,7 +280,14 @@ export const SubmissionDetailDrawer: React.FC<SubmissionDetailDrawerProps> = ({
                         <span className="kernel-title">{item.description || '（无描述）'}</span>
                         <span className="kernel-ref">ref {item.ref}</span>
                       </div>
-                      <span className="score-value">{formatScore(item)}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="score-value">{formatScore(item)}</span>
+                        {item.score_type === 'private' && (
+                          <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+                            Private
+                          </Tag>
+                        )}
+                      </div>
                     </div>
                     <div className="mobile-data-card-meta">
                       <span>{item.status || '—'}</span>

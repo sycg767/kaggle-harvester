@@ -73,21 +73,57 @@ def format_submission_score_message(
 ) -> tuple[str, str, str]:
     ref = str(item.get("ref") or "").strip()
     score = item.get("public_score")
+    score_type = item.get("score_type", "public")
     score_display = str(
         item.get("public_score_display")
         or (f"{score:.6g}" if isinstance(score, (int, float)) else "")
     )
     description = str(item.get("description") or "").strip() or "（无描述）"
-    title = f"Kaggle Harvester：提交已出分 {score_display}"
+    if score_type == "private":
+        title = f"Kaggle Harvester：提交已出分 {score_display}"
+        lines = [
+            f"竞赛：{competition}",
+            f"提交 ref：{ref}",
+            f"Private LB：{score_display}",
+            f"榜单类型：私有榜 (Private LB / 迟提交)",
+            f"描述：{description}",
+            f"完成时间：{format_beijing_time(finished)}",
+        ]
+    else:
+        title = f"Kaggle Harvester：提交已出分 {score_display}"
+        lines = [
+            f"竞赛：{competition}",
+            f"提交 ref：{ref}",
+            f"Public LB：{score_display}",
+            f"描述：{description}",
+            f"完成时间：{format_beijing_time(finished)}",
+        ]
+    if item.get("status"):
+        lines.insert(3, f"状态：{item['status']}")
+    if item.get("date"):
+        lines.append(f"提交时间：{format_beijing_time(str(item['date']))}")
+    return ref, title, "\n".join(lines)
+
+
+def format_submission_failure_message(
+    item: dict[str, Any],
+    competition: str,
+    finished: str,
+) -> tuple[str, str, str]:
+    ref = str(item.get("ref") or "").strip()
+    status = str(item.get("status") or "FAILED").strip()
+    error_desc = str(item.get("error_description") or "").strip()
+    description = str(item.get("description") or "").strip() or "（无描述）"
+    title = f"⚠️ Kaggle Harvester：提交运行失败 (ref: {ref})"
     lines = [
         f"竞赛：{competition}",
         f"提交 ref：{ref}",
-        f"Public LB：{score_display}",
+        f"运行状态：{status}",
         f"描述：{description}",
-        f"完成时间：{format_beijing_time(finished)}",
     ]
-    if item.get("status"):
-        lines.insert(3, f"状态：{item['status']}")
+    if error_desc:
+        lines.append(f"错误详情：{error_desc}")
+    lines.append(f"完成时间：{format_beijing_time(finished)}")
     if item.get("date"):
         lines.append(f"提交时间：{format_beijing_time(str(item['date']))}")
     return ref, title, "\n".join(lines)
